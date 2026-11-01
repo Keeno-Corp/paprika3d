@@ -11,6 +11,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import type { Browser, CDPSession, Page } from "puppeteer-core";
 import { printedLines, uniq } from "./browser.ts";
 import { FORMAT } from "./eval.ts";
+import { logSourcing, readSourcing, searchedBefore } from "./asset.ts";
 
 const STUDIO = resolve(import.meta.dirname, "..", "geo/dist/studio.js");
 const GEOMETRY = join(import.meta.dirname, "inject", "geometry.js");
@@ -62,10 +63,26 @@ function capped(cwd: string, out: string): string {
   return `${out.slice(0, HEAD)}\n… cut: ${out.length} characters, full text in ${path}\n${out.slice(out.lastIndexOf("\n") + 1).slice(-300)}`;
 }
 
+/** Code that makes geometry, and code that adds anything to the scene (a `load()`ed file too, which is not built in code). */
+const MAKES = /new\s+THREE\.Mesh\b|\bManifold\.|\bscatter\(/, ADDS = /\bscene\.add\(/;
+/** The one line the first geometry-making run of a project with no model search on record gets, or "" (and logs that it
+    was said, so the next run says nothing). No refusal: the run goes ahead either way. A `searched` sentence is logged and
+    skips the line for its own call only: it is a reason, not a search (S8). One read of each log. */
+export function sourceHint(cwd: string, code: string, searched?: string): string {
+  if (searched?.trim()) { logSourcing(cwd, s => { s.built.push({ at: new Date().toISOString(), searched: searched.trim().slice(0, 300) }); }); return ""; }
+  if (!MAKES.test(code) && !(ADDS.test(code) && !/\bload\(/.test(code))) return "";
+  const s = readSourcing(cwd);
+  if (s.hinted || searchedBefore(cwd, s)) return "";
+  const names = [...new Set([...code.matchAll(/\.name\s*=\s*["'`]([^"'`\n]{1,40})["'`]/g)].map(m => m[1]!))].slice(0, 4);
+  logSourcing(cwd, x => { x.hinted = new Date().toISOString(); }, s);
+  return `No asset search on record for ${names.length ? `"${names.join(", ")}"` : "this model"}: asset_search (57,732 free models, searched by a reference crop) usually looks better than a model built in code.\n`;
+}
+
 /** Runs `code` as an async function body against the modelling scene and returns its value as text, its logged lines and
     errors, and what it saved; the scene is saved to the project when the run changed it. */
-export async function modelRun(chrome: Promise<Browser>, cwd: string, code: string): Promise<{ text: string; failed?: true }> {
-  const { page: p, note } = await page(chrome, cwd), logs = printedLines(p as never), errors: string[] = [];
+export async function modelRun(chrome: Promise<Browser>, cwd: string, code: string, searched?: string): Promise<{ text: string; failed?: true }> {
+  const hint = sourceHint(cwd, code, searched); // one read of each log; nothing on any other tool
+  const { page: p, note: loaded } = await page(chrome, cwd), note = hint + loaded, logs = printedLines(p as never), errors: string[] = [];
   const onError = (e: unknown) => errors.push(String((e as Error)?.message ?? e).split("\n")[0]!);
   p.on("pageerror", onError);
   const bound = RUN_MS * Math.min(4, Math.max(1, loadavg()[0]! / cpus().length));

@@ -4,6 +4,8 @@
 // loads no game. The scene is saved to the project after each run that changed it and loaded back on a new page.
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
+import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { bake } from "../../fx/src/bake.ts";
@@ -20,6 +22,26 @@ const b64 = (buf: ArrayBuffer) => { const u = new Uint8Array(buf); let s = ""; f
 const bytes = (s: string) => Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer;
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 const parse = (buf: ArrayBuffer) => loader.parseAsync(buf, "");
+// a texture an FBX names by file or URL is never fetched (a downloaded file's URL would reach the network, a relative one
+// fails, and an unloaded texture stops GLTFExporter): it loads as one blank pixel and is then dropped from its material;
+// textures embedded in the file load from their blobs and stay
+const BLANK = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+async function parseFbx(buf: ArrayBuffer): Promise<THREE.Object3D> {
+  let started = false, settle!: () => void;
+  const settled = new Promise<void>(ok => { settle = ok; });
+  const manager = new THREE.LoadingManager(() => settle(), undefined, () => {});
+  manager.onStart = () => { started = true; };
+  manager.setURLModifier(url => /^(blob|data):/.test(url) ? url : BLANK);
+  const root = new FBXLoader(manager).parse(buf, "");
+  if (started) await Promise.race([settled, new Promise(ok => setTimeout(ok, 5_000))]);
+  root.traverse(o => {
+    for (const m of [(o as THREE.Mesh).material ?? []].flat() as unknown as Record<string, unknown>[]) for (const [k, v] of Object.entries(m)) {
+      const t = v as THREE.Texture | null;
+      if (t?.isTexture && (!t.image || (t.image as HTMLImageElement).src === BLANK)) { m[k] = null; (m as unknown as THREE.Material).needsUpdate = true; }
+    }
+  });
+  return root;
+}
 
 /** `object` (the scene by default) as a GLB under the project: its bytes and triangles. */
 async function save(path: string, object: THREE.Object3D = scene) {
@@ -30,12 +52,17 @@ async function save(path: string, object: THREE.Object3D = scene) {
   return { saved: await w.__studioWrite(path, b64(glb)), bytes: glb.byteLength, triangles };
 }
 
-/** A .glb in the project (an `asset_search` pick, a model saved before), added to the scene; returns its root, named after the file. */
+/** A .glb, .obj or .fbx in the project (an `asset_search` pick, a model saved before, a file downloaded from the web), added
+    to the scene; returns its root, named after the file. An OBJ or FBX saved with `save` becomes a GLB (textures an FBX
+    names as files or URLs are not read and are left off its materials: the page has the file's bytes, not its folder). */
 async function load(path: string) {
-  if (!/\.glb$/i.test(path)) throw new Error(`load reads a .glb file, got ${path}`);
+  const ext = /\.(glb|obj|fbx)$/i.exec(path)?.[1]?.toLowerCase();
+  if (!ext) throw new Error(`load reads a .glb, .obj or .fbx file, got ${path}`);
+  const buf = bytes(await w.__studioRead(path));
   // GLTFExporter wraps an object that is not a scene in one named AuxScene: load gives back the object itself
-  const top = (await parse(bytes(await w.__studioRead(path)))).scene, root = top.children.length === 1 ? top.children[0]! : top;
-  if (!root.name || /^(AuxScene|Scene)$/.test(root.name)) root.name = path.split("/").pop()!.replace(/\.glb$/i, "");
+  const top: THREE.Object3D = ext === "obj" ? new OBJLoader().parse(new TextDecoder().decode(buf)) : ext === "fbx" ? await parseFbx(buf) : (await parse(buf)).scene;
+  const root = top.children.length === 1 && ext === "glb" ? top.children[0]! : top;
+  if (!root.name || /^(AuxScene|Scene)$/.test(root.name)) root.name = path.split("/").pop()!.replace(/\.(glb|obj|fbx)$/i, "");
   scene.add(root);
   return root;
 }

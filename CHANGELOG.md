@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.4.0 (2026-11-01)
+
+`/paprika3d:paprika-make` writes a style sheet (`LOOK.md`), character sheets (`CHARACTERS.md`) and for a game a design
+doc (`DESIGN.md`) from the tagged references, beside `BRIEF.md`, which names them; an existing `DESIGN.md` is read and
+added to, never overwritten. Its first question is a batch: what it is, a web search for study references (YouTube
+included, kept in `refs/study/` and never published), picture sheets, and the kind of models. A picking round asks
+where each key asset comes from: the library, a free CC0 or CC BY model found on the web, a model generated with your
+key, or code; a one-line request with no pictures skips it, takes each item's recommended source and says that
+`CHARACTERS.md` is where to change one, so a one-line game takes about four rounds of questions. The loop's builder
+reads the sheets each session, and its judge scores a sheet line on `LOOK.md`'s Checks.
+
+The brief asks first whether you want picture sheets (an image model's look board and character turnarounds,
+held to by the build), and only after a yes about the key; a yes is remembered across projects in
+`~/.config/paprika3d/prefs.json` (`sheet` `remember`). The candidate references are shown numbered on one picture,
+opened in your image viewer, before you choose which to keep.
+
+New tool `sheet` (preview): `check` names each image and 3D provider with a key and where it was found, never a
+value, and says when the plugin's key is set without a provider it can use; without a provider it composes a free
+`refs/sheets/LOOK.png`; with your key it makes a look board, or starts a character turnaround or a 3D model job that runs
+in the background while the build goes on (pictures: fal, OpenAI, Gemini; models: fal, Meshy, Tripo). In Claude Code
+the key can be set once with `/plugin configure paprika3d` (`image_provider`, and `image_key` stored as sensitive); elsewhere the
+provider's usual variable, such as `FAL_KEY`, is read. `asset_search` `save` writes its contact sheet to a file;
+`model_run`'s `load` reads .obj and .fbx (textures an FBX names as separate files are left out), its first run that
+adds geometry in a project with no model search on record says so in one line, and `searched` logs why a thing is built
+in code and leaves that line out of its own call. `publish` leaves out `refs/study/`, `refs/sheets/` and `refs/assets/`.
+
+A game in a subfolder of the project no longer counts its own `paprika3d/` run output as a source edit, which reloaded the
+page between calls, and a file or folder deleted while the harness reads the project no longer fails the call (#209).
+
+The description on npm, in the plugin directory, the MCP registry and context7, and the README's hero now say what the plugin is for: "paprika3d turns your coding agent into a game studio", and "Three.js MCP server and Claude Code plugin: build three.js games and 3D pages end to end, from references and a design doc to playtesting, models and a published link."
+
 ## 0.3.2 (2026-10-29)
 
 `perf` with `variants` stops after 5 rounds, not 8: a variant still undecided by then reads `no clear change`

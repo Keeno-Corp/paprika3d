@@ -1,11 +1,11 @@
 ---
-title: Install paprika3d: a three.js test harness plugin for Claude Code
-description: How to install paprika3d, the Claude Code plugin and MCP server that makes any coding agent a better three.js developer, and how to run its MCP server from Cursor, Codex or Gemini CLI.
+title: Install paprika3d: the three.js MCP server and Claude Code plugin for making games
+description: How to install paprika3d, the Claude Code plugin and MCP server that turns your coding agent into a game studio for three.js, and how to run its MCP server from Cursor, Codex or Gemini CLI.
 meta: Install paprika3d, the three.js MCP server and Claude Code plugin, or run its MCP server from Cursor, Codex or Gemini CLI.
 ---
 # Install paprika3d
 
-Two commands in Claude Code, one line in any other MCP client. From then on your agent sees, plays and measures every three.js page it writes.
+Two commands in Claude Code, one line in any other MCP client. In Claude Code, start with `/paprika3d:paprika-make <request>`: it takes a game or 3D page from references and a design doc to the build, and [How it works](/how-it-works) walks through each stage. In every client your agent sees, plays and measures every three.js page it writes.
 
 ## Requirements
 
@@ -27,7 +27,9 @@ claude plugin marketplace add paprika3d/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 
-The plugin adds the [tools](/tools) (`open`, `look`, `interact` and the rest; their full names start `mcp__plugin_paprika3d_paprika__`), the skills and the hooks to Claude Code. After installing, ask the agent to build or fix a three.js page, or start one with `/paprika3d:paprika-make <request>`, which asks a few questions for a short brief first. The `threejs-game` skill, which Claude loads by itself, says what each tool shows.
+The plugin adds the [tools](/tools) (`open`, `look`, `interact` and the rest; their full names start `mcp__plugin_paprika3d_paprika__`), the skills and the hooks to Claude Code.
+
+**Start here:** `/paprika3d:paprika-make <request>`, for example `/paprika3d:paprika-make a small three.js game about a frog on a skateboard`. It asks a few questions for a short brief, gathers references, writes the sheets and builds the page; [How it works](/how-it-works) says what each stage writes and what needs a key. Then `/paprika3d:paprika-loop <request> for <time>` keeps improving it unattended. To fix or extend a page you already have, just ask the agent: the `threejs-game` skill, which Claude loads by itself, says what each tool shows.
 
 ## Other agent products
 

@@ -5,7 +5,7 @@
 // x-agent-model) so its ranking can learn; texture and HDRI searches are not logged.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import type { Browser } from "puppeteer-core";
 import { shrink } from "./glb.ts";
 import { utilPage } from "./reference.ts";
@@ -16,7 +16,8 @@ const API = process.env.PAPRIKA3D_ASSET_API ?? "https://assets.keeno.dev"; // th
 export type Kind = "model" | "texture" | "hdri";
 export type Query = { query?: string; kind?: Kind; style?: string; type?: string; maxTris?: number; animated?: boolean; rigged?: boolean; not?: string[]; more?: boolean;
   /** models with a file of this format; the API reads it as `format` */ format?: "glb" | "usd";
-  /** a JPEG (base64) to rank models by how alike they look, with `query` too when given */ image?: string };
+  /** a JPEG (base64) to rank models by how alike they look, with `query` too when given */ image?: string;
+  /** a path under cwd the contact sheet is written to as well (refs/assets/fox.jpg), for a person to look at */ save?: string };
 type Model = { uid: string; name: string; style?: string; tris: number; mb: number; bbox?: number[]; real_height_m?: number | null; scale_to_real?: number | null;
   animated?: boolean; license: string; attribution: string; thumb_url: string;
   /** a row has one file or both: a meshopt + WebP .glb, a USD file (.usdz) */ glb_url?: string; usd_url?: string };
@@ -36,6 +37,25 @@ const idOf = (h: Hit) => h.kind === "model" ? h.m.uid : h.kind === "texture" ? h
 type Shown = { kind: Kind; sid?: string };
 const HITS = "asset-hits.json";
 const projectHits = (cwd: string): Record<string, Shown> => { try { return JSON.parse(readFileSync(join(cwd, "paprika3d", HITS), "utf8")); } catch { return {}; } };
+
+/** What a project searched for and why a thing was built in code, any session's, in `<cwd>/paprika3d/sourcing.json`:
+    `asset_search` adds each model search (textures and skies are not logged), `model_run` each `searched` sentence and the once-per-project hint it gave, so the
+    critic and a loop's judge can tell an object nobody searched for from one built in code by choice. */
+export type Sourcing = { searches: { at: string; kind: Kind; query?: string; image?: boolean; hits: number }[]; built: { at: string; searched: string }[]; hinted?: string };
+const SOURCING = "sourcing.json";
+export function readSourcing(cwd: string): Sourcing {
+  try { const j = JSON.parse(readFileSync(join(cwd, "paprika3d", SOURCING), "utf8")); return { searches: j.searches ?? [], built: j.built ?? [], hinted: j.hinted }; }
+  catch { return { searches: [], built: [] }; }
+}
+/** Changes the project's sourcing log; a folder it cannot be written to costs only the log. */
+export function logSourcing(cwd: string, change: (s: Sourcing) => void, read?: Sourcing) {
+  try { const s = read ?? readSourcing(cwd); change(s); writeFileSync(join(harnessDir(cwd), SOURCING), JSON.stringify(s, null, 1) + "\n"); } catch {}
+}
+/** Whether the project has a model search on record: a model id its searches showed, or a logged model search. A
+    `searched` line is a reason logged for one model, not a search: it never counts (S8). */
+export function searchedBefore(cwd: string, s: Sourcing = readSourcing(cwd)): boolean {
+  return Object.values(projectHits(cwd)).some(h => h.kind === "model") || s.searches.some(x => x.kind === "model");
+}
 
 const reason = (e: unknown) => String((e as { cause?: Error })?.cause?.message ?? (e as Error)?.message ?? e);
 /** fetch, with a dead network, a timeout and a 5xx (the Worker answers 5xx when the pod is down) as one "unreachable" error. */
@@ -98,6 +118,8 @@ export async function search(q: Query, agent: string, cwd?: string, chrome?: () 
   const kind = q.kind ?? "model", not = q.not ?? [], key = `${kind}:${q.query}:${q.image ? createHash("sha1").update(q.image).digest("hex") : ""}`;
   if (!q.query && !q.image) throw new Error("query is needed: what you want, e.g. \"wooden barrel\"; or an image of it");
   if (q.image && kind !== "model") throw new Error("image search is for models only: give textures and HDRIs a query");
+  const to = q.save && cwd ? savePath(cwd, q.save) : undefined; // refused before anything is searched
+  if (to && !chrome) throw new Error("save writes the contact sheet, and sheet: false leaves it out: drop one of them");
   for (const id of not) { const h = seen.get(id); if (h?.kind === "model" && h.sid) await report("/feedback", agent, { search_id: h.sid, uid: id, verdict: "rejected" }); }
   const skip = q.more ? [...new Set([...not, ...shown.get(key) ?? []])] : not;
   let hits: Hit[];
@@ -119,13 +141,27 @@ export async function search(q: Query, agent: string, cwd?: string, chrome?: () 
   // a cache: a project folder it cannot be written to costs only a later session's short-id pick
   try { if (cwd) writeFileSync(join(harnessDir(cwd), HITS), JSON.stringify({ ...projectHits(cwd), ...Object.fromEntries(hits.map(h => [idOf(h), { kind: h.kind, sid: h.kind === "model" ? h.sid : undefined }])) })); } catch {}
   shown.set(key, [...shown.get(key) ?? [], ...hits.map(idOf)]);
+  if (cwd && kind === "model") logSourcing(cwd, s => { s.searches.push({ at: new Date().toISOString(), kind, query: q.query, image: q.image ? true : undefined, hits: hits.length }); });
   const text = [...hits.map((h, i) => `${i + 1}. ${line(h).filter(Boolean).join(" · ")}`),
     `Pick one with { pick: "<id>" }${kind === "model" ? " (real size, or height: units tall)" : ""}, search again with not: [ids] to reject these, or add more: true for the next ones.`].join("\n");
   if (!chrome) return { text };
   // in all eight 2026-10-24 scene loops the agents fetched the thumbnail URLs with curl and tiled them by hand (paprika/opus-2:
   // 22 Bash blocks in 6 sessions), and picks made blind were removed later (skull/opus-1: 13 of 23)
-  try { return { text, sheet: await contactSheet(chrome(), hits.map(h => h.kind === "model" ? h.m.thumb_url : h.m.preview_url)) }; }
+  let sheet: string;
+  try { sheet = await contactSheet(chrome(), hits.map(h => h.kind === "model" ? h.m.thumb_url : h.m.preview_url)); }
   catch (e) { return { text: `${text}\nNo contact sheet: ${reason(e)}` }; } // the search stands without it
+  if (!to) return { text, sheet };
+  mkdirSync(dirname(to), { recursive: true });
+  writeFileSync(to, Buffer.from(sheet, "base64"));
+  return { text: `${text}\nSaved the contact sheet to ${relative(cwd!, to)}, numbered as the lines are.`, sheet };
+}
+
+/** A contact sheet's file: a .jpg under the project. */
+function savePath(cwd: string, path: string): string {
+  const to = resolve(cwd, path), rel = relative(cwd, to);
+  if (!rel || rel.split(sep)[0] === ".." || resolve(rel) === rel) throw new Error(`save: ${path} is outside the project (${cwd}); give a path under it, e.g. refs/assets/barrel.jpg`);
+  if (!/\.jpe?g$/i.test(to)) throw new Error("save: the contact sheet is a JPEG; give a .jpg path, e.g. refs/assets/barrel.jpg");
+  return to;
 }
 
 const isVite = (cwd: string) => {

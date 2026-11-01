@@ -48500,7 +48500,10 @@ function sourceFiles(cwd, visit) {
       return { dir: !1, file: !1 };
     }
   }, walk = (rel) => {
-    let entries = readdirSync5(join10(cwd, rel), { withFileTypes: !0 }).sort((a2, b2) => a2.name < b2.name ? -1 : a2.name > b2.name ? 1 : 0);
+    let entries = gone(() => readdirSync5(join10(cwd, rel), { withFileTypes: !0 }), rel !== "");
+    if (!entries)
+      return;
+    entries.sort((a2, b2) => a2.name < b2.name ? -1 : a2.name > b2.name ? 1 : 0);
     for (let e of entries) {
       let path14 = rel ? `${rel}/${e.name}` : e.name;
       if (SKIP_TOP.has(path14) || isStoreCopy(e.name, entries) || /\.md$/i.test(e.name))
@@ -48510,14 +48513,21 @@ function sourceFiles(cwd, visit) {
         if (!e.name.startsWith(".") && !SKIP_DIRS.has(e.name))
           walk(path14);
       } else if (file3)
-        visit(path14, BINARY.has(extname4(e.name).toLowerCase()));
+        gone(() => visit(path14, BINARY.has(extname4(e.name).toLowerCase())));
     }
   };
   walk("");
 }
-var SKIP_DIRS, SKIP_TOP, isStoreCopy = (name, entries) => name === "game-state.js" || name === "physics-worker.js" && entries.some((e) => e.name === "game-state.js"), BINARY, fingerprint = (cwd) => fingerprints(cwd).sources;
+var SKIP_DIRS, SKIP_TOP, isStoreCopy = (name, entries) => name === "game-state.js" || name === "physics-worker.js" && entries.some((e) => e.name === "game-state.js"), BINARY, fingerprint = (cwd) => fingerprints(cwd).sources, gone = (fn, skip = !0) => {
+  try {
+    return fn();
+  } catch (e) {
+    if (!skip || e.code !== "ENOENT")
+      throw e;
+  }
+};
 var init_fingerprint = __esm(() => {
-  SKIP_DIRS = /* @__PURE__ */ new Set(["node_modules", "dist", "build"]), SKIP_TOP = /* @__PURE__ */ new Set(["paprika3d", "paprika-loop", "geo.js", "fx.js", "three-runtime.js", "game-contract.json", "game-tests.json", "game-runtime.json", "public/game-runtime.json"]), BINARY = /* @__PURE__ */ new Set([
+  SKIP_DIRS = /* @__PURE__ */ new Set(["node_modules", "dist", "build", "paprika3d", "paprika-loop"]), SKIP_TOP = /* @__PURE__ */ new Set(["paprika3d", "paprika-loop", "geo.js", "fx.js", "three-runtime.js", "game-contract.json", "game-tests.json", "game-runtime.json", "public/game-runtime.json"]), BINARY = /* @__PURE__ */ new Set([
     ".png",
     ".jpg",
     ".jpeg",
@@ -48984,7 +48994,7 @@ function look(game, { moved = !1, peek = !1, edited = !1, hint = !0, surfaces: f
       bbox: [px(x0), py(y0), px(x1 + 1) - 1, py(y1 + 1) - 1],
       ...approx ? { approximate: !0 } : {},
       ...ext ? { extent: [ext[0], ext[1]], ...ext[2] ? { runs: ext[2] } : {} } : {}
-    })), gone = [...r.missing].filter(([name, [, where]]) => run2.seen.has(name) && (where === "behind the camera" || where === "outside the view")).map(([name, [, where, , group]]) => ({ name, where, ...group ? { group } : {} }));
+    })), gone2 = [...r.missing].filter(([name, [, where]]) => run2.seen.has(name) && (where === "behind the camera" || where === "outside the view")).map(([name, [, where, , group]]) => ({ name, where, ...group ? { group } : {} }));
     for (let name of r.names)
       run2.all.add(name);
     for (let name of r.seen)
@@ -49021,7 +49031,7 @@ function look(game, { moved = !1, peek = !1, edited = !1, hint = !0, surfaces: f
     let nums = numbersOf(pixels, subject && !("absent" in subject) ? subject.contrast : void 0), numbersSame = sameNumbers(nums, lastNumbers.get(game));
     if (!peek)
       lastNumbers.set(game, nums);
-    return { picture, ids, onScreen, neverVisible, ...gone.length ? { left: gone } : {}, ...r.edge ? { edge: { share: +r.edge[0].toPrecision(2), bbox: [px(r.edge[1]), py(r.edge[2]), px(r.edge[3] + 1) - 1, py(r.edge[4] + 1) - 1] } } : {}, covers, ...veil ? { veil: veil.what } : {}, subject, pixels, ...stale, canvas, seam, canvasSame, ...Object.keys(kept).length ? { known: kept } : {}, faultsSame, ...closed.length ? { closed } : {}, frame: c?.frame, numbersSame, setup, surfaces, ...unchecked.length ? { unchecked } : {}, ...r.depth ? { depth: r.depth } : {}, ...r.surface ? { surface: r.surface } : {} };
+    return { picture, ids, onScreen, neverVisible, ...gone2.length ? { left: gone2 } : {}, ...r.edge ? { edge: { share: +r.edge[0].toPrecision(2), bbox: [px(r.edge[1]), py(r.edge[2]), px(r.edge[3] + 1) - 1, py(r.edge[4] + 1) - 1] } } : {}, covers, ...veil ? { veil: veil.what } : {}, subject, pixels, ...stale, canvas, seam, canvasSame, ...Object.keys(kept).length ? { known: kept } : {}, faultsSame, ...closed.length ? { closed } : {}, frame: c?.frame, numbersSame, setup, surfaces, ...unchecked.length ? { unchecked } : {}, ...r.depth ? { depth: r.depth } : {}, ...r.surface ? { surface: r.surface } : {} };
   }));
 }
 function faultsNow(game) {
@@ -49222,8 +49232,8 @@ function subjectText(s, folded = !1) {
   return lines;
 }
 function faultDiff(before, now, partial = !1) {
-  let b2 = new Set(before.map(faultKey)), n = new Set(now.map(faultKey)), gone = before.filter((l) => !n.has(faultKey(l))), unsure = gone.filter((l) => partial && l.startsWith("Surfaces"));
-  return { closed: gone.filter((l) => !unsure.includes(l)), opened: now.filter((l) => !b2.has(faultKey(l))), kept: [...now, ...unsure] };
+  let b2 = new Set(before.map(faultKey)), n = new Set(now.map(faultKey)), gone2 = before.filter((l) => !n.has(faultKey(l))), unsure = gone2.filter((l) => partial && l.startsWith("Surfaces"));
+  return { closed: gone2.filter((l) => !unsure.includes(l)), opened: now.filter((l) => !b2.has(faultKey(l))), kept: [...now, ...unsure] };
 }
 function lookText(l) {
   let canvas = l.canvasSame ? [] : canvasText(l.canvas);
@@ -50897,7 +50907,7 @@ function measure(snaps, frames, before = null, after = null, during = 0, pre, se
     for (let o of fresh)
       ever.set(o.id, o);
   }
-  let lastShown = visible.at(-1), gone = [...ever.keys()].filter((id) => !lastShown.has(id)).length, removed = [...visible[0].keys()].filter((id) => !lastShown.has(id)).length, rel = (s) => s.cam.map((v2, i) => v2 - s.sub[i]), cam = snaps.map((s) => !s.cam || !first2.cam ? 0 : Math.min(dist(s.cam, first2.cam), s.sub && first2.sub ? dist(rel(s), rel(first2)) : 1 / 0)), camPeak = cam.indexOf(Math.max(...cam)), turns = (xs, floor = 0.01) => {
+  let lastShown = visible.at(-1), gone2 = [...ever.keys()].filter((id) => !lastShown.has(id)).length, removed = [...visible[0].keys()].filter((id) => !lastShown.has(id)).length, rel = (s) => s.cam.map((v2, i) => v2 - s.sub[i]), cam = snaps.map((s) => !s.cam || !first2.cam ? 0 : Math.min(dist(s.cam, first2.cam), s.sub && first2.sub ? dist(rel(s), rel(first2)) : 1 / 0)), camPeak = cam.indexOf(Math.max(...cam)), turns = (xs, floor = 0.01) => {
     let n = 0, d0;
     for (let i = 1;i < xs.length; i++) {
       let d = xs[i].map((v2, j2) => v2 - xs[i - 1][j2]);
@@ -50926,7 +50936,7 @@ function measure(snaps, frames, before = null, after = null, during = 0, pre, se
     flashes: named(flashes),
     moved,
     particles,
-    spawned: { peak, gone, names: [...new Set([...ever.values()].map((o) => o.name))].slice(0, 5) },
+    spawned: { peak, gone: gone2, names: [...new Set([...ever.values()].map((o) => o.name))].slice(0, 5) },
     removed,
     hud,
     sounds
@@ -50942,7 +50952,7 @@ function measure(snaps, frames, before = null, after = null, during = 0, pre, se
     ...held.length ? [`Colour changes held to the end: ${held.slice(0, 5).map((h) => `${h.name} at frame ${h.frame}, ${h.over ? `blended over ${h.over} frames` : "in one frame"}`).join("; ")}${held.length > 5 ? "; …" : ""}.`] : [],
     ...r.flashes.count ? [`Colour flashes (colour, emissive or a page overlay's opacity changed and came back): ${list(r.flashes)}.`] : [],
     ...particles.length ? [`Particles: ${particles.slice(0, 5).map((p) => `${p.name} ${p.start} → ${p.peak} at frame ${p.at}, ${p.end} left at the end`).join("; ")}.`] : [],
-    ...ever.size ? [`Spawned: up to ${peak} new objects at once, ${gone} of ${ever.size} gone by the end (${r.spawned.names.join(", ")}).`] : [],
+    ...ever.size ? [`Spawned: up to ${peak} new objects at once, ${gone2} of ${ever.size} gone by the end (${r.spawned.names.join(", ")}).`] : [],
     ...removed ? [`Removed: ${removed} objects there before the steps are gone.`] : [],
     ...((none) => none.length ? [`No change in: ${none.join(", ")}.`] : [])([
       !shaken && !swing && "camera (no shake)",
@@ -50963,7 +50973,7 @@ function measure(snaps, frames, before = null, after = null, during = 0, pre, se
     eased && plural(eased, "smooth move"),
     r.teleports.count && plural(r.teleports.count, "teleport"),
     particles.some((p) => p.peak > p.start) && "particles",
-    ever.size && `${ever.size} spawned (${gone} gone)`,
+    ever.size && `${ever.size} spawned (${gone2} gone)`,
     removed && `${removed} removed`,
     (shaken || swing) && `camera ${camLine}`,
     ticks && `HUD ${ticks === 1 ? "changed in one frame" : `counted up over ${ticks} frames`}`,
@@ -52597,8 +52607,8 @@ function firstFrame(game, network) {
           now = s2.now, first2 ??= s2.first;
           for (let c of s2.covers)
             covered.set(c, null);
-          for (let [c, gone] of covered)
-            if (gone === null && !s2.covers.includes(c))
+          for (let [c, gone2] of covered)
+            if (gone2 === null && !s2.covers.includes(c))
               covered.set(c, s2.now);
         }
         if (first2 !== null && ([...covered.values()].every((g) => g !== null) || now - first2 > 1e4))
@@ -52612,7 +52622,7 @@ function firstFrame(game, network) {
     let s = (ms) => `${(ms / 1000).toFixed(1)} s`, mb = (b2) => `${round2(b2 / 1048576)} MB`, kinds = Map.groupBy(got.filter((g) => g.type !== "Document" && !g.url.startsWith("data:")), (g) => {
       let path14 = g.url.split(/[?#]/)[0].toLowerCase();
       return KINDS2.find(([, re2]) => re2.test(path14))?.[0] ?? CDP_KIND[g.type] ?? "other";
-    }), bytes3 = [...kinds].map(([kind, l]) => ({ kind, l, total: l.reduce((a2, g) => a2 + g.bytes, 0), at: Math.max(...l.map((g) => g.at)) })).sort((a2, b2) => a2.at - b2.at).map(({ kind, l, total, at }) => `${l.length === 1 ? decodeURIComponent(l[0].url.split(/[?#]/)[0].split("/").pop()) : `${kind}`} ${mb(total)} by ${s((at - (t0 ?? at)) * 1000)}`), covers = [...covered].map(([c, gone]) => gone === null ? `${c} still over the canvas at ${s(now)}` : `${c} over the canvas gone at ${s(gone)}`), head = first2 === null ? `No scene frame within ${s(Date.now() - start)} after navigation` : `First scene frame: ${s(first2)} after navigation`;
+    }), bytes3 = [...kinds].map(([kind, l]) => ({ kind, l, total: l.reduce((a2, g) => a2 + g.bytes, 0), at: Math.max(...l.map((g) => g.at)) })).sort((a2, b2) => a2.at - b2.at).map(({ kind, l, total, at }) => `${l.length === 1 ? decodeURIComponent(l[0].url.split(/[?#]/)[0].split("/").pop()) : `${kind}`} ${mb(total)} by ${s((at - (t0 ?? at)) * 1000)}`), covers = [...covered].map(([c, gone2]) => gone2 === null ? `${c} still over the canvas at ${s(now)}` : `${c} over the canvas gone at ${s(gone2)}`), head = first2 === null ? `No scene frame within ${s(Date.now() - start)} after navigation` : `First scene frame: ${s(first2)} after navigation`;
     return {
       ms: first2,
       scriptMB: round2((kinds.get("scripts") ?? []).reduce((a2, g) => a2 + g.bytes, 0) / 1048576),
@@ -61641,12 +61651,215 @@ var init_glb = __esm(() => {
   TARGETS = { site: BUDGETS.site, shopify: { assetMB: 4, textureMax: 2048 } };
 });
 
-import { existsSync as existsSync12, mkdirSync as mkdirSync8, readFileSync as readFileSync16, writeFileSync as writeFileSync9 } from "node:fs";
+var exports_asset = {};
+__export(exports_asset, {
+  searchedBefore: () => searchedBefore,
+  search: () => search,
+  readSourcing: () => readSourcing,
+  pick: () => pick2,
+  logSourcing: () => logSourcing
+});
+import { appendFileSync, existsSync as existsSync12, mkdirSync as mkdirSync8, readFileSync as readFileSync16, writeFileSync as writeFileSync9 } from "node:fs";
+import { createHash as createHash4 } from "node:crypto";
+import { dirname as dirname14, join as join19, relative as relative9, resolve as resolve13, sep as sep4 } from "node:path";
+function readSourcing(cwd) {
+  try {
+    let j2 = JSON.parse(readFileSync16(join19(cwd, "paprika3d", SOURCING), "utf8"));
+    return { searches: j2.searches ?? [], built: j2.built ?? [], hinted: j2.hinted };
+  } catch {
+    return { searches: [], built: [] };
+  }
+}
+function logSourcing(cwd, change, read2) {
+  try {
+    let s = read2 ?? readSourcing(cwd);
+    change(s), writeFileSync9(join19(harnessDir(cwd), SOURCING), JSON.stringify(s, null, 1) + `
+`);
+  } catch {}
+}
+function searchedBefore(cwd, s = readSourcing(cwd)) {
+  return Object.values(projectHits(cwd)).some((h) => h.kind === "model") || s.searches.some((x2) => x2.kind === "model");
+}
+async function get(url2, init = {}, ms = 30000) {
+  let r;
+  try {
+    r = await fetch(url2, { ...init, signal: AbortSignal.timeout(ms) });
+  } catch (e) {
+    throw Error(`asset library unreachable: ${reason(e)}`);
+  }
+  if (r.status >= 500)
+    throw Error(`asset library unreachable: HTTP ${r.status}`);
+  if (!r.ok)
+    throw Error(`asset library answered ${r.status} for ${new URL(url2).pathname}: ${(await r.text()).slice(0, 200)}`);
+  return r;
+}
+async function download(url2, file3) {
+  let bytes3 = Buffer.from(await (await get(url2, {}, 120000)).arrayBuffer());
+  mkdirSync8(dirname14(file3), { recursive: !0 }), writeFileSync9(file3, bytes3);
+}
+async function drawSheet(pics, cell) {
+  let c = document.createElement("canvas"), g = c.getContext("2d");
+  c.width = cell * pics.length, c.height = cell, g.fillStyle = "#222", g.fillRect(0, 0, c.width, c.height);
+  for (let i = 0;i < pics.length; i++) {
+    let x2 = i * cell, b64 = pics[i], img = b64 ? await createImageBitmap(new Blob([Uint8Array.fromBase64?.(b64) ?? Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0))])).catch(() => null) : null;
+    if (img) {
+      let k = Math.min((cell - 4) / img.width, (cell - 4) / img.height), w2 = img.width * k, h = img.height * k;
+      g.drawImage(img, x2 + (cell - w2) / 2, (cell - h) / 2, w2, h);
+    } else
+      g.fillStyle = "#999", g.font = "13px sans-serif", g.fillText("no picture", x2 + 48, cell / 2 + 4);
+    g.fillStyle = "rgba(0, 0, 0, 0.75)", g.fillRect(x2 + 2, 2, 24, 22), g.fillStyle = "#fff", g.font = "bold 16px sans-serif", g.fillText(String(i + 1), x2 + 9, 19);
+  }
+  return c.toDataURL("image/jpeg", 0.8).split(",")[1];
+}
+async function contactSheet(chrome2, urls) {
+  let why = [], thumb = (u) => u ? get(u, {}, 5000).then((r) => r.arrayBuffer()).then((b2) => Buffer.from(b2).toString("base64")).catch((e) => (why.push(reason(e)), null)) : null, [pics, page] = await Promise.all([Promise.all(urls.map(thumb)), utilPage(chrome2)]);
+  if (!pics.some(Boolean))
+    throw Error(why[0] ?? "no hit has a thumbnail");
+  return page.evaluate(drawSheet, pics, CELL);
+}
+async function search(q2, agent, cwd, chrome2) {
+  let kind = q2.kind ?? "model", not = q2.not ?? [], key2 = `${kind}:${q2.query}:${q2.image ? createHash4("sha1").update(q2.image).digest("hex") : ""}`;
+  if (!q2.query && !q2.image)
+    throw Error('query is needed: what you want, e.g. "wooden barrel"; or an image of it');
+  if (q2.image && kind !== "model")
+    throw Error("image search is for models only: give textures and HDRIs a query");
+  let to = q2.save && cwd ? savePath(cwd, q2.save) : void 0;
+  if (to && !chrome2)
+    throw Error("save writes the contact sheet, and sheet: false leaves it out: drop one of them");
+  for (let id of not) {
+    let h = seen.get(id);
+    if (h?.kind === "model" && h.sid)
+      await report("/feedback", agent, { search_id: h.sid, uid: id, verdict: "rejected" });
+  }
+  let skip = q2.more ? [.../* @__PURE__ */ new Set([...not, ...shown.get(key2) ?? []])] : not, hits, filters = { type: q2.type, style: q2.style, max_tris: q2.maxTris && Math.round(q2.maxTris), animated: q2.animated, rigged: q2.rigged, format: q2.format };
+  if (q2.image) {
+    let r = await (await get(`${API}/similar?${qs({ q: q2.query, k: Math.min(100, 5 + skip.length), ...filters })}`, { method: "POST", headers: { "x-agent-model": agent, "content-type": "image/jpeg" }, body: Buffer.from(q2.image, "base64") })).json();
+    hits = r.hits.map((m) => ({ kind: "model", sid: r.search_id, m }));
+  } else if (kind === "model") {
+    let r = await api2(`/pick?${qs({ q: q2.query, ...filters, exclude: skip.join(",") || void 0 })}`, agent);
+    hits = r.candidates.map((m) => ({ kind, sid: r.search_id, m }));
+  } else
+    hits = (await api2(`/${kind === "texture" ? "textures" : "hdris"}/search?${qs({ q: q2.query, k: 5 + skip.length })}`, agent)).hits.map((m) => ({ kind, m }));
+  if (hits = hits.filter((h) => !skip.includes(idOf(h))).slice(0, 5), !hits.length)
+    throw Error(`No ${kind} matches ${q2.query ? `"${q2.query}"` : "the image"}${skip.length ? " beyond the ones shown" : ""}. Try other words or fewer filters.`);
+  for (let h of hits)
+    seen.set(idOf(h), h);
+  try {
+    if (cwd)
+      writeFileSync9(join19(harnessDir(cwd), HITS), JSON.stringify({ ...projectHits(cwd), ...Object.fromEntries(hits.map((h) => [idOf(h), { kind: h.kind, sid: h.kind === "model" ? h.sid : void 0 }])) }));
+  } catch {}
+  if (shown.set(key2, [...shown.get(key2) ?? [], ...hits.map(idOf)]), cwd && kind === "model")
+    logSourcing(cwd, (s) => {
+      s.searches.push({ at: (/* @__PURE__ */ new Date()).toISOString(), kind, query: q2.query, image: q2.image ? !0 : void 0, hits: hits.length });
+    });
+  let text = [
+    ...hits.map((h, i) => `${i + 1}. ${line(h).filter(Boolean).join(" · ")}`),
+    `Pick one with { pick: "<id>" }${kind === "model" ? " (real size, or height: units tall)" : ""}, search again with not: [ids] to reject these, or add more: true for the next ones.`
+  ].join(`
+`);
+  if (!chrome2)
+    return { text };
+  let sheet2;
+  try {
+    sheet2 = await contactSheet(chrome2(), hits.map((h) => h.kind === "model" ? h.m.thumb_url : h.m.preview_url));
+  } catch (e) {
+    return { text: `${text}
+No contact sheet: ${reason(e)}` };
+  }
+  if (!to)
+    return { text, sheet: sheet2 };
+  return mkdirSync8(dirname14(to), { recursive: !0 }), writeFileSync9(to, Buffer.from(sheet2, "base64")), { text: `${text}
+Saved the contact sheet to ${relative9(cwd, to)}, numbered as the lines are.`, sheet: sheet2 };
+}
+function savePath(cwd, path14) {
+  let to = resolve13(cwd, path14), rel = relative9(cwd, to);
+  if (!rel || rel.split(sep4)[0] === ".." || resolve13(rel) === rel)
+    throw Error(`save: ${path14} is outside the project (${cwd}); give a path under it, e.g. refs/assets/barrel.jpg`);
+  if (!/\.jpe?g$/i.test(to))
+    throw Error("save: the contact sheet is a JPEG; give a .jpg path, e.g. refs/assets/barrel.jpg");
+  return to;
+}
+async function pick2(id, kind, cwd, agent, height, textures, format3) {
+  let file3 = projectHits(cwd), all = [.../* @__PURE__ */ new Set([...seen.keys(), ...Object.keys(file3)])], ids = all.includes(id) ? [id] : all.filter((k) => k.startsWith(id));
+  if (ids.length > 1)
+    throw Error(`pick: "${id}" matches ${ids.slice(0, 5).join(", ")}${ids.length > 5 ? ` and ${ids.length - 5} more` : ""}: give the whole id`);
+  let full = ids[0] ?? id, was = ids.length ? seen.get(full) ?? file3[full] : { kind }, h = seen.get(full) ?? { ...was, m: await api2(`/${was.kind === "model" ? "asset" : was.kind === "texture" ? "textures" : "hdris"}/${encodeURIComponent(full)}`, agent) }, vite = isVite(cwd), dir = join19(cwd, vite ? "public" : "", "assets"), base = vite ? "three/examples/jsm" : "three/addons", url2 = (file4) => relative9(dir, file4).split("\\").join("/"), saved = [], code = [], where = "";
+  if (h.kind === "model") {
+    let m = h.m, usd = format3 === "usd" || !m.glb_url, src = usd ? m.usd_url : m.glb_url;
+    if (!src)
+      throw Error(`pick: ${m.uid} has no USD file; pick it without format for its GLB`);
+    if (usd && textures === !1)
+      throw Error('pick: textures: false rewrites a GLB; give format: "glb" or leave textures out');
+    let file4 = join19(dir, `${slug(m.name)}-${m.uid.slice(0, 6)}${usd ? src.match(/\.usd[acz]?$/i)?.[0] ?? ".usdz" : ".glb"}`), v2 = varName(m.name);
+    if (await download(src, file4), textures === !1)
+      await shrink(file4, { textures: !1, out: file4 }), where = `${relative9(cwd, file4)} without its textures`;
+    if (saved.push(file4), h.sid)
+      await report(`/pick/${h.sid}`, agent, { uid: m.uid });
+    let credits = join19(dir, "CREDITS.md"), credit = `- ${m.name}: ${m.attribution}
+`;
+    if (!(existsSync12(credits) && readFileSync16(credits, "utf8").includes(credit)))
+      appendFileSync(credits, credit);
+    let tall = m.bbox?.[1], root = usd ? "usd" : "gltf.scene", loaded = JSON.stringify(`assets/${url2(file4)}`);
+    code.push(...usd ? [`import { USDLoader } from "${base}/loaders/USDLoader.js";`] : [`import { GLTFLoader } from "${base}/loaders/GLTFLoader.js";`, `import { MeshoptDecoder } from "${base}/libs/meshopt_decoder.module.js";`], "", `const ${v2} = new THREE.Group();`, "{ // a block, so a second pick's snippet pastes beside this one", ...usd ? [`  const usd = await new USDLoader().loadAsync(${loaded});`] : ["  const loader = new GLTFLoader();", "  loader.setMeshoptDecoder(MeshoptDecoder);", `  const gltf = await loader.loadAsync(${loaded});`], `  const box = new THREE.Box3().setFromObject(${root});`, `  ${root}.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2); // origin to floor centre`, `  ${v2}.add(${root});`, m.animated ? `  ${v2}.animations = ${usd ? "usd" : "gltf"}.animations;` : null, "}", height && tall ? `${v2}.scale.setScalar(${height} / ${num2(tall)}); // ${height} units tall` : m.scale_to_real ? `${v2}.scale.setScalar(${m.scale_to_real}); // real size${m.real_height_m ? `, about ${m.real_height_m} m tall` : ""}` : null, `scene.add(${v2});`, ...m.animated ? [
+      `const ${v2}Mixer = new THREE.AnimationMixer(${v2});`,
+      `${v2}Mixer.clipAction(${v2}.animations[0]).play(); // ${v2}Mixer.update(dt) each frame; ${v2}.animations holds every clip by name`
+    ] : []);
+  } else if (h.kind === "texture") {
+    let m = h.m, folder5 = join19(dir, "textures", m.tid), maps = Object.keys(m.maps).filter((k) => SLOTS[k] && m.maps[k]["1k"]);
+    for (let k of maps) {
+      let f = join19(folder5, k + (m.maps[k]["1k"].match(/\.\w+$/)?.[0] ?? ".webp"));
+      await download(m.maps[k]["1k"], f), saved.push(f);
+    }
+    where = `${relative9(cwd, folder5)}/: ${maps.join(", ")}`;
+    let [w2, d] = m.size_m ?? [1, 1];
+    code.push(`const ${varName(m.name)} = (() => {`, "  const loadMap = (file, srgb) => {", `    const t = new THREE.TextureLoader().load(${JSON.stringify(`assets/${url2(folder5)}/`)} + file);`, "    t.wrapS = t.wrapT = THREE.RepeatWrapping;", `    t.repeat.set(10 / ${num2(w2)}, 10 / ${num2(d)}); // a 10 × 10 m surface with 0-1 UVs; with UVs in metres, 1 / ${num2(w2)}`, "    if (srgb) t.colorSpace = THREE.SRGBColorSpace; // colour map only", "    return t;", "  };", "  return new THREE.MeshStandardMaterial({", ...saved.map((f, i) => `    ${SLOTS[maps[i]]}: loadMap(${JSON.stringify(url2(f).split("/").pop())}${maps[i] === "basecolor" ? ", true" : ""}),`), maps.includes("metalness") ? "    metalness: 1, // the map sets it" : null, maps.includes("opacity") ? "    alphaTest: 0.5," : null, "  });", "})();");
+  } else {
+    let m = h.m, src = m.urls["1k"] ?? Object.values(m.urls)[0], ext = src.match(/\.(\w+)$/)?.[1] ?? "hdr", file4 = join19(dir, "hdri", `${m.hid}.${ext}`);
+    await download(src, file4), saved.push(file4);
+    let loaders = join19(cwd, "node_modules", "three", "examples", "jsm", "loaders"), L2 = ext === "exr" ? "EXRLoader" : !existsSync12(join19(loaders, "HDRLoader.js")) && existsSync12(join19(loaders, "RGBELoader.js")) ? "RGBELoader" : "HDRLoader";
+    code.push(`import { ${L2} } from "${base}/loaders/${L2}.js";`, "", "{", "  const pmrem = new THREE.PMREMGenerator(renderer);", `  const sky = await new ${L2}().loadAsync(${JSON.stringify(`assets/${url2(file4)}`)});`, "  scene.environment = pmrem.fromEquirectangular(sky).texture;", "  sky.mapping = THREE.EquirectangularReflectionMapping;", "  scene.background = sky; // the sky as backdrop; leave this line out to keep your own", "  pmrem.dispose();", "}");
+  }
+  return [
+    ...full === id ? [] : [`Picked ${full}, the one shown id that starts with "${id}".`],
+    `Saved ${where || relative9(cwd, saved[0])} (${h.m.name}, ${h.m.license})${h.kind === "model" ? `; credited in ${relative9(cwd, join19(dir, "CREDITS.md"))}` : ""}`,
+    ...vite || h.kind === "texture" ? [] : ["If the import map has no `three/addons/`, map it to three's `examples/jsm/` folder."],
+    "```js",
+    ...code.filter((l) => l !== null),
+    "```"
+  ].join(`
+`);
+}
+var API, seen, shown, idOf = (h) => h.kind === "model" ? h.m.uid : h.kind === "texture" ? h.m.tid : h.m.hid, HITS = "asset-hits.json", projectHits = (cwd) => {
+  try {
+    return JSON.parse(readFileSync16(join19(cwd, "paprika3d", HITS), "utf8"));
+  } catch {
+    return {};
+  }
+}, SOURCING = "sourcing.json", reason = (e) => String(e?.cause?.message ?? e?.message ?? e), api2 = async (path14, agent, body) => (await get(API + path14, body ? { method: "POST", headers: { "x-agent-model": agent, "content-type": "application/json" }, body: JSON.stringify(body) } : { headers: { "x-agent-model": agent } })).json(), report = (path14, agent, body) => api2(path14, agent, body).catch(() => {}), qs = (o) => new URLSearchParams(Object.entries(o).filter(([, v2]) => v2 !== void 0 && v2 !== "").map(([k, v2]) => [k, String(v2)])).toString(), line = (h) => h.kind === "model" ? [h.m.uid, h.m.name, h.m.style, `${h.m.tris} tris`, `${h.m.mb} MB`, h.m.real_height_m ? `about ${h.m.real_height_m} m tall` : "", h.m.animated ? "animated" : "", h.m.usd_url ? h.m.glb_url ? "also USD" : "USD only" : "", h.m.license, h.m.thumb_url] : h.kind === "texture" ? [h.m.tid, h.m.name, `maps: ${Object.keys(h.m.maps).join(", ")}`, h.m.size_m ? `tiles every ${h.m.size_m.join(" × ")} m` : "", h.m.license, h.m.preview_url] : [h.m.hid, h.m.name, h.m.tags.join(", "), h.m.license, h.m.preview_url], CELL = 160, isVite = (cwd) => {
+  try {
+    let p = JSON.parse(readFileSync16(join19(cwd, "package.json"), "utf8"));
+    return !!(p.dependencies?.vite ?? p.devDependencies?.vite);
+  } catch {
+    return !1;
+  }
+}, TAKEN, varName = (name) => {
+  let v2 = name.split(/[^A-Za-z0-9]+/).filter(Boolean).map((w2, i) => i ? w2[0].toUpperCase() + w2.slice(1) : w2.toLowerCase()).join("");
+  return /^[a-z]/.test(v2) && !TAKEN.has(v2) ? v2 : `asset${v2.charAt(0).toUpperCase()}${v2.slice(1)}`;
+}, slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "asset", num2 = (x2) => +x2.toPrecision(4), SLOTS;
+var init_asset = __esm(() => {
+  init_glb();
+  init_reference();
+  init_state();
+  API = process.env.PAPRIKA3D_ASSET_API ?? "https://assets.keeno.dev", seen = /* @__PURE__ */ new Map, shown = /* @__PURE__ */ new Map;
+  TAKEN = /* @__PURE__ */ new Set(["scene", "camera", "renderer", "controls", "clock", "light", "player", "world", "floor", "ground", "loader", "gltf", "box", "mixer", "pmrem", "sky", "loadMap", "class", "new", "delete", "switch", "case", "default", "function", "return", "var", "let", "const", "if", "else", "for", "while", "do", "in", "of", "import", "export"]), SLOTS = { basecolor: "map", normal: "normalMap", roughness: "roughnessMap", metalness: "metalnessMap", ao: "aoMap", opacity: "alphaMap" };
+});
+
+import { existsSync as existsSync13, mkdirSync as mkdirSync9, readFileSync as readFileSync17, writeFileSync as writeFileSync10 } from "node:fs";
 import { cpus as cpus2, loadavg } from "node:os";
-import { dirname as dirname14, join as join19, relative as relative9, resolve as resolve13 } from "node:path";
+import { dirname as dirname15, join as join20, relative as relative10, resolve as resolve14 } from "node:path";
 function inside2(cwd, path14) {
-  let to = resolve13(cwd, String(path14)), rel = relative9(cwd, to);
-  if (!rel || rel.startsWith("..") || resolve13(rel) === rel)
+  let to = resolve14(cwd, String(path14)), rel = relative10(cwd, to);
+  if (!rel || rel.startsWith("..") || resolve14(rel) === rel)
     throw Error(`${path14} is outside the project (${cwd}); give a path under it, e.g. assets/model.glb`);
   return to;
 }
@@ -61655,31 +61868,47 @@ async function page(chrome2, cwd) {
     return { page: studio.page, note: "" };
   if (studio && !studio.page.isClosed())
     await studio.page.close().catch(() => {});
-  if (!existsSync12(STUDIO))
+  if (!existsSync13(STUDIO))
     throw Error(`model: ${STUDIO} is missing: run bun geo/build.ts`);
   let p = await (await chrome2).newPage(), s = { page: p, watch: await p.createCDPSession(), cwd };
-  await p.exposeFunction("__studioRead", (path14) => readFileSync16(inside2(s.cwd, path14)).toString("base64")), await p.exposeFunction("__studioWrite", (path14, b64) => {
+  await p.exposeFunction("__studioRead", (path14) => readFileSync17(inside2(s.cwd, path14)).toString("base64")), await p.exposeFunction("__studioWrite", (path14, b64) => {
     let to = inside2(s.cwd, path14);
-    return mkdirSync8(dirname14(to), { recursive: !0 }), writeFileSync9(to, Buffer.from(b64, "base64")), relative9(s.cwd, to);
-  }), await p.addScriptTag({ content: readFileSync16(STUDIO, "utf8"), type: "module" }), await p.waitForFunction("window.__studio", { timeout: 30000 }), await p.addScriptTag({ content: readFileSync16(GEOMETRY, "utf8") }), await p.evaluate("__studio.ready"), studio = s;
-  let file3 = join19(cwd, SCENE);
-  if (!existsSync12(file3))
+    return mkdirSync9(dirname15(to), { recursive: !0 }), writeFileSync10(to, Buffer.from(b64, "base64")), relative10(s.cwd, to);
+  }), await p.addScriptTag({ content: readFileSync17(STUDIO, "utf8"), type: "module" }), await p.waitForFunction("window.__studio", { timeout: 30000 }), await p.addScriptTag({ content: readFileSync17(GEOMETRY, "utf8") }), await p.evaluate("__studio.ready"), studio = s;
+  let file3 = join20(cwd, SCENE);
+  if (!existsSync13(file3))
     return { page: p, note: "" };
-  let n = await p.evaluate((b64) => window.__studio.restore(b64), readFileSync16(file3).toString("base64"));
+  let n = await p.evaluate((b64) => window.__studio.restore(b64), readFileSync17(file3).toString("base64"));
   return { page: p, note: `The modelling scene was loaded back from ${SCENE} (${n} object${n === 1 ? "" : "s"} at the top): the page holding it was new (the server restarted or Chrome closed), so variables from earlier runs are gone.
 ` };
 }
 function capped(cwd, out) {
   if (out.length <= CHARS)
     return out;
-  let path14 = join19(cwd, "paprika3d/model", `run-${++spills2}.txt`);
-  return mkdirSync8(dirname14(path14), { recursive: !0 }), writeFileSync9(path14, out), `${out.slice(0, HEAD2)}
+  let path14 = join20(cwd, "paprika3d/model", `run-${++spills2}.txt`);
+  return mkdirSync9(dirname15(path14), { recursive: !0 }), writeFileSync10(path14, out), `${out.slice(0, HEAD2)}
 … cut: ${out.length} characters, full text in ${path14}
 ${out.slice(out.lastIndexOf(`
 `) + 1).slice(-300)}`;
 }
-async function modelRun(chrome2, cwd, code) {
-  let { page: p, note } = await page(chrome2, cwd), logs = printedLines2(p), errors = [], onError = (e) => errors.push(String(e?.message ?? e).split(`
+function sourceHint(cwd, code, searched) {
+  if (searched?.trim())
+    return logSourcing(cwd, (s2) => {
+      s2.built.push({ at: (/* @__PURE__ */ new Date()).toISOString(), searched: searched.trim().slice(0, 300) });
+    }), "";
+  if (!MAKES.test(code) && !(ADDS.test(code) && !/\bload\(/.test(code)))
+    return "";
+  let s = readSourcing(cwd);
+  if (s.hinted || searchedBefore(cwd, s))
+    return "";
+  let names = [...new Set([...code.matchAll(/\.name\s*=\s*["'`]([^"'`\n]{1,40})["'`]/g)].map((m) => m[1]))].slice(0, 4);
+  return logSourcing(cwd, (x2) => {
+    x2.hinted = (/* @__PURE__ */ new Date()).toISOString();
+  }, s), `No asset search on record for ${names.length ? `"${names.join(", ")}"` : "this model"}: asset_search (57,732 free models, searched by a reference crop) usually looks better than a model built in code.
+`;
+}
+async function modelRun(chrome2, cwd, code, searched) {
+  let hint = sourceHint(cwd, code, searched), { page: p, note: loaded } = await page(chrome2, cwd), note = hint + loaded, logs = printedLines2(p), errors = [], onError = (e) => errors.push(String(e?.message ?? e).split(`
 `)[0]);
   p.on("pageerror", onError);
   let bound = RUN_MS * Math.min(4, Math.max(1, loadavg()[0] / cpus2().length)), timer2, late = !1;
@@ -61742,7 +61971,7 @@ async function modelLook(chrome2, cwd, o) {
   return { text: `${note}${capped(cwd, lines)}
 Picture: ${views2}, framed to ${o.object ?? "the whole scene"}, under a neutral studio light with a grid on the ground.`, jpeg };
 }
-var STUDIO, GEOMETRY, SCENE = "paprika3d/model/scene.glb", CHARS = 2048, HEAD2 = 1500, RUN_MS = 60000, studio, spills2 = 0, loading = (file3) => [
+var STUDIO, GEOMETRY, SCENE = "paprika3d/model/scene.glb", CHARS = 2048, HEAD2 = 1500, RUN_MS = 60000, studio, spills2 = 0, MAKES, ADDS, loading = (file3) => [
   'import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";',
   `const model = (await new GLTFLoader().loadAsync(${JSON.stringify(file3.split("\\").join("/"))})).scene; // where it stood in the modelling scene`,
   "scene.add(model);"
@@ -61751,11 +61980,13 @@ var STUDIO, GEOMETRY, SCENE = "paprika3d/model/scene.glb", CHARS = 2048, HEAD2 =
 var init_model = __esm(() => {
   init_browser2();
   init_eval();
-  STUDIO = resolve13(import.meta.dirname, "..", "geo/dist/studio.js"), GEOMETRY = join19(import.meta.dirname, "inject", "geometry.js");
+  init_asset();
+  STUDIO = resolve14(import.meta.dirname, "..", "geo/dist/studio.js"), GEOMETRY = join20(import.meta.dirname, "inject", "geometry.js");
+  MAKES = /new\s+THREE\.Mesh\b|\bManifold\.|\bscatter\(/, ADDS = /\bscene\.add\(/;
 });
 
-import { readFileSync as readFileSync17 } from "node:fs";
-import { extname as extname8, join as join20, resolve as resolve14 } from "node:path";
+import { readFileSync as readFileSync18 } from "node:fs";
+import { extname as extname8, join as join21, resolve as resolve15 } from "node:path";
 function lintText(path14, src) {
   return STALE.flatMap(([re2, went, use]) => [...src.matchAll(re2)].map((m) => `${path14}:${src.slice(0, m.index).split(`
 `).length} uses ${m[1] ?? m[0]}, ${went}: use ${use}`));
@@ -61765,17 +61996,17 @@ function staleThree(cwd) {
   sourceFiles(cwd, (path14, binary) => {
     if (binary || !CODE.has(extname8(path14).toLowerCase()))
       return;
-    let src = readFileSync17(join20(cwd, path14), "utf8");
+    let src = readFileSync18(join21(cwd, path14), "utf8");
     if (path14.endsWith(".html"))
       mapped ||= minor(src.match(MAP)?.[1]);
     composer ||= /\bEffectComposer\b/.test(src), output2 ||= /\bOutputPass\b/.test(src), hits.push(...lintText(path14, src));
   });
-  let pkg = json(join20(cwd, "package.json")), have = minor(json(join20(cwd, "node_modules/three/package.json"))?.version) || minor(pkg?.dependencies?.three ?? pkg?.devDependencies?.three) || mapped, old = have && have < CURRENT ? [`three r${have} installed (current r${CURRENT}).`] : [], pass = composer && !output2 ? ["EffectComposer without an OutputPass: since r155 tone mapping and the output colour space apply only on the screen pass, so add new OutputPass() as the last pass."] : [];
+  let pkg = json(join21(cwd, "package.json")), have = minor(json(join21(cwd, "node_modules/three/package.json"))?.version) || minor(pkg?.dependencies?.three ?? pkg?.devDependencies?.three) || mapped, old = have && have < CURRENT ? [`three r${have} installed (current r${CURRENT}).`] : [], pass = composer && !output2 ? ["EffectComposer without an OutputPass: since r155 tone mapping and the output colour space apply only on the screen pass, so add new OutputPass() as the last pass."] : [];
   return [...old, ...pass, ...hits.slice(0, 5), ...hits.length > 5 ? [`and ${hits.length - 5} more uses of removed three.js API`] : []];
 }
 var STALE, CODE, MAP, minor = (v2) => Number(String(v2 ?? "").match(/^\D*0\.(\d+)/)?.[1]) || 0, json = (p) => {
   try {
-    return JSON.parse(readFileSync17(p, "utf8"));
+    return JSON.parse(readFileSync18(p, "utf8"));
   } catch {
     return;
   }
@@ -61793,17 +62024,17 @@ var init_lint = __esm(() => {
       "removed in React Three Fiber 9",
       "ThreeElements['mesh'] (and so on for each element)"
     ]
-  ], CODE = /* @__PURE__ */ new Set([".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".html", ".vue", ".svelte"]), MAP = /["']three["']\s*:\s*["'][^"']*?three@([\w.^~-]+)/, CURRENT = minor("0.186.1") || minor(json(resolve14(import.meta.dirname, "../node_modules/three/package.json"))?.version);
+  ], CODE = /* @__PURE__ */ new Set([".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".html", ".vue", ".svelte"]), MAP = /["']three["']\s*:\s*["'][^"']*?three@([\w.^~-]+)/, CURRENT = minor("0.186.1") || minor(json(resolve15(import.meta.dirname, "../node_modules/three/package.json"))?.version);
 });
 
-import { isAbsolute as isAbsolute5, relative as relative10 } from "node:path";
+import { isAbsolute as isAbsolute5, relative as relative11 } from "node:path";
 function serverText(log, cwd) {
   let found = log.flatMap((l, i) => {
     if (FRAME2.test(l) || !/error|warn/i.test(l))
       return [];
     let at = log[i + 1]?.match(FRAME2), file3 = at?.[1].replace(/^(webpack-internal:\/\/\/(\([^)]*\)\/)?|file:\/\/)/, "").replace(/^\.\//, "");
-    if (file3 && isAbsolute5(file3) && !relative10(cwd, file3).startsWith(".."))
-      file3 = relative10(cwd, file3);
+    if (file3 && isAbsolute5(file3) && !relative11(cwd, file3).startsWith(".."))
+      file3 = relative11(cwd, file3);
     return [`Dev server: ${l.trim().replace(/^[^\x00-\x7f]+\s*/, "").slice(0, 300)}${at ? ` (${file3}:${at[2]})` : ""}`];
   });
   return uniq2(found, 5);
@@ -61833,19 +62064,19 @@ var init_open = __esm(() => {
   FRAME2 = /^\s+at (?:.*\()?(.+?):(\d+):\d+\)?$/;
 });
 
-import { appendFileSync, existsSync as existsSync13, mkdirSync as mkdirSync9, readFileSync as readFileSync18, writeFileSync as writeFileSync10 } from "node:fs";
-import { createHash as createHash4, randomUUID } from "node:crypto";
+import { appendFileSync as appendFileSync2, existsSync as existsSync14, mkdirSync as mkdirSync10, readFileSync as readFileSync19, writeFileSync as writeFileSync11 } from "node:fs";
+import { createHash as createHash5, randomUUID } from "node:crypto";
 import { platform } from "node:os";
-import { join as join21, resolve as resolve15 } from "node:path";
+import { join as join22, resolve as resolve16 } from "node:path";
 function install2() {
   if (id)
     return id;
-  let f = join21(telemetryDir(), "id");
+  let f = join22(telemetryDir(), "id");
   try {
-    id = readFileSync18(f, "utf8").trim();
+    id = readFileSync19(f, "utf8").trim();
   } catch {}
   if (!id)
-    id = randomUUID(), mkdirSync9(telemetryDir(), { recursive: !0 }), writeFileSync10(f, id);
+    id = randomUUID(), mkdirSync10(telemetryDir(), { recursive: !0 }), writeFileSync11(f, id);
   return id;
 }
 function noteOpen(facts) {
@@ -61869,7 +62100,7 @@ function event(tool, args, r, ms, schema) {
           steps[k] = (steps[k] ?? 0) + 1;
     let faults = (t.match(/^(Lighting|Surfaces|Surface): (?!not checked)/gm) ?? []).length, pageErrors = Number(/Page errors since the last call \((\d+)\)/.exec(t)?.[1] ?? 0), e = {
       ...base(),
-      project: createHash4("sha256").update(install2() + resolve15(String(args?.cwd ?? "."))).digest("hex").slice(0, 12),
+      project: createHash5("sha256").update(install2() + resolve16(String(args?.cwd ?? "."))).digest("hex").slice(0, 12),
       tool,
       ms,
       ok,
@@ -61882,28 +62113,28 @@ function event(tool, args, r, ms, schema) {
       .../answered nothing for|without finishing|did not answer/.test(t) && { hung: !0 },
       ...extra
     };
-    extra = {}, mkdirSync9(telemetryDir(), { recursive: !0 }), appendFileSync(join21(telemetryDir(), `${run2}.jsonl`), `${JSON.stringify(e)}
+    extra = {}, mkdirSync10(telemetryDir(), { recursive: !0 }), appendFileSync2(join22(telemetryDir(), `${run2}.jsonl`), `${JSON.stringify(e)}
 `);
   } catch {}
 }
 function reportTool(a2, runDir) {
   if (!REPORT_TOOL.inputSchema.properties.kind.enum.includes(a2.kind) || typeof a2.text !== "string" || !a2.text.trim())
     throw Error('kind: "bug", "feedback" or "criticism", and text saying what happened');
-  return report(a2.kind, a2.text, runDir);
+  return report2(a2.kind, a2.text, runDir);
 }
-async function report(kind, text, runDir) {
+async function report2(kind, text, runDir) {
   if (++reports > 5)
     return "Not sent: at most 5 reports a session. Carry on with the task.";
-  let body = JSON.stringify({ id: randomUUID(), ...base(), kind, text: text.slice(0, 2000), last: last3 }), copy = join21(runDir ?? telemetryDir(), `report-${Date.now()}.json`);
+  let body = JSON.stringify({ id: randomUUID(), ...base(), kind, text: text.slice(0, 2000), last: last3 }), copy = join22(runDir ?? telemetryDir(), `report-${Date.now()}.json`);
   try {
-    mkdirSync9(runDir ?? telemetryDir(), { recursive: !0 }), writeFileSync10(copy, body);
+    mkdirSync10(runDir ?? telemetryDir(), { recursive: !0 }), writeFileSync11(copy, body);
   } catch {}
   if (await post("/report", body))
     return "Sent to the paprika3d team. Carry on with the task.";
   if (!ON)
     return `Not sent: the team's server did not answer. A copy is in ${copy}. Carry on with the task.`;
   try {
-    writeFileSync10(join21(telemetryDir(), `${randomUUID()}.report.json`), body);
+    writeFileSync11(join22(telemetryDir(), `${randomUUID()}.report.json`), body);
   } catch {}
   return `Saved in ${copy}; it is sent when the session stops. Carry on with the task.`;
 }
@@ -61911,11 +62142,11 @@ async function installed(client) {
   if (!FEEDBACK)
     return;
   try {
-    let f = join21(telemetryDir(), "pinged"), body = JSON.stringify({ ...base(), client: client.slice(0, 64) }), version = "0.3.2";
-    if (existsSync13(f) && readFileSync18(f, "utf8") === "0.3.2")
+    let f = join22(telemetryDir(), "pinged"), body = JSON.stringify({ ...base(), client: client.slice(0, 64) }), version = "0.4.0";
+    if (existsSync14(f) && readFileSync19(f, "utf8") === "0.4.0")
       return;
     if (await post("/install", body))
-      writeFileSync10(f, "0.3.2");
+      writeFileSync11(f, "0.4.0");
   } catch {}
 }
 function told() {
@@ -61925,11 +62156,11 @@ function stopEvent(asked) {
   if (!ON)
     return;
   try {
-    mkdirSync9(telemetryDir(), { recursive: !0 }), appendFileSync(join21(telemetryDir(), `stop-${run2}.jsonl`), `${JSON.stringify({ ...base(), tool: "stop", asked })}
+    mkdirSync10(telemetryDir(), { recursive: !0 }), appendFileSync2(join22(telemetryDir(), `stop-${run2}.jsonl`), `${JSON.stringify({ ...base(), tool: "stop", asked })}
 `);
   } catch {}
 }
-var off, ON = !1, FEEDBACK, URL3 = "https://paprika3d-telemetry.paprika3d.workers.dev", KEY = "9cf6093e07a2c1cc94161e84dbdb59268440ff04d06b7be9", telemetryDir = () => join21(harnessHome(), "telemetry"), run2, KINDS3, id = "", base = () => ({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), install: install2(), run: run2, version: "0.3.2", os: platform(), node: process.versions.node.split(".")[0] }), scrub = (s) => (s.split(`
+var off, ON = !1, FEEDBACK, URL3 = "https://paprika3d-telemetry.paprika3d.workers.dev", KEY = "9cf6093e07a2c1cc94161e84dbdb59268440ff04d06b7be9", telemetryDir = () => join22(harnessHome(), "telemetry"), run2, KINDS3, id = "", base = () => ({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), install: install2(), run: run2, version: "0.4.0", os: platform(), node: process.versions.node.split(".")[0] }), scrub = (s) => (s.split(`
 `)[0] ?? "").replace(/[a-z]+:\/\/\S+/gi, "<url>").replace(/(?:[A-Za-z]:\\|~?\/)[^\s:'"`,)]+/g, "<path>").slice(0, 160), extra, last3 = null, post = (path14, body) => !URL3 ? Promise.resolve(!1) : fetch(URL3 + path14, { method: "POST", headers: { "content-type": "application/json", "x-paprika3d-key": KEY }, body, signal: AbortSignal.timeout(3000) }).then((r) => r.ok, () => !1), REPORT_TOOL, reports = 0, REPORT_ASK;
 var init_telemetry = __esm(() => {
   init_state();
@@ -61943,167 +62174,467 @@ var init_telemetry = __esm(() => {
   REPORT_ASK = FEEDBACK ? "\nIf a paprika3d reply was wrong, unclear or got in your way, say so once with `send_feedback`." : "";
 });
 
-var exports_asset = {};
-__export(exports_asset, {
-  search: () => search,
-  pick: () => pick2
+var exports_sheet = {};
+__export(exports_sheet, {
+  sheet: () => sheet2,
+  recommend: () => recommend,
+  prefsFile: () => prefsFile,
+  prefs: () => prefs,
+  optionProblem: () => optionProblem,
+  hideKey: () => hideKey,
+  generate: () => generate,
+  found: () => found,
+  dig: () => dig,
+  checkText: () => checkText,
+  absent: () => absent,
+  PROVIDERS: () => PROVIDERS,
+  MODEL_ORDER: () => MODEL_ORDER,
+  IMAGE_ORDER: () => IMAGE_ORDER
 });
-import { appendFileSync as appendFileSync2, existsSync as existsSync14, mkdirSync as mkdirSync10, readFileSync as readFileSync19, writeFileSync as writeFileSync11 } from "node:fs";
-import { createHash as createHash5 } from "node:crypto";
-import { dirname as dirname15, join as join22, relative as relative11 } from "node:path";
-async function get(url2, init = {}, ms = 30000) {
-  let r;
+import { existsSync as existsSync15, mkdirSync as mkdirSync11, readFileSync as readFileSync20, writeFileSync as writeFileSync12 } from "node:fs";
+import { homedir as homedir4 } from "node:os";
+import { dirname as dirname16, extname as extname9, join as join23, relative as relative12, resolve as resolve17, sep as sep5 } from "node:path";
+function found(env2 = process.env) {
+  let opt = (k) => [env2[`PAPRIKA3D_IMAGE_${k}`], env2[`CLAUDE_PLUGIN_OPTION_IMAGE_${k}`]].find((v2) => !absent(v2))?.trim(), out = [], optName = opt("PROVIDER")?.toLowerCase(), optKey = opt("KEY"), chosen = optName && byName(optName);
+  if (chosen && optKey)
+    out.push({ provider: chosen, key: optKey, where: "plugin option" });
+  for (let p of PROVIDERS) {
+    if (out.some((f) => f.provider === p))
+      continue;
+    let name = p.env.find((n) => !absent(env2[n]));
+    if (name)
+      out.push({ provider: p, key: env2[name].trim(), where: name });
+  }
+  return out;
+}
+function recommend(all, kind, env2 = process.env) {
+  let opt = all.find((f) => f.where === "plugin option" && endpoint(f.provider, kind));
+  if (opt)
+    return opt;
+  return (kind === "model" ? MODEL_ORDER : IMAGE_ORDER).map((n) => all.find((f) => f.provider.name === n && endpoint(f.provider, kind))).find(Boolean);
+}
+function optionProblem(env2 = process.env) {
+  let opt = (k) => [env2[`PAPRIKA3D_IMAGE_${k}`], env2[`CLAUDE_PLUGIN_OPTION_IMAGE_${k}`]].find((v2) => !absent(v2))?.trim();
+  if (!opt("KEY"))
+    return "";
+  let name = opt("PROVIDER")?.toLowerCase(), p = name ? byName(name) : void 0;
+  if (!name)
+    return "The plugin's image_key is set but image_provider is empty: set it to the key's provider (/plugin configure paprika3d), or the key is not used.";
+  if (!p)
+    return `The plugin's image_key is set but image_provider is not a provider name: use one of ${IMAGE_ORDER.join(", ")} (/plugin configure paprika3d), or the key is not used.`;
+  return "";
+}
+function prefs(env2 = process.env) {
   try {
-    r = await fetch(url2, { ...init, signal: AbortSignal.timeout(ms) });
-  } catch (e) {
-    throw Error(`asset library unreachable: ${reason(e)}`);
-  }
-  if (r.status >= 500)
-    throw Error(`asset library unreachable: HTTP ${r.status}`);
-  if (!r.ok)
-    throw Error(`asset library answered ${r.status} for ${new URL(url2).pathname}: ${(await r.text()).slice(0, 200)}`);
-  return r;
-}
-async function download(url2, file3) {
-  let bytes3 = Buffer.from(await (await get(url2, {}, 120000)).arrayBuffer());
-  mkdirSync10(dirname15(file3), { recursive: !0 }), writeFileSync11(file3, bytes3);
-}
-async function drawSheet(pics, cell) {
-  let c = document.createElement("canvas"), g = c.getContext("2d");
-  c.width = cell * pics.length, c.height = cell, g.fillStyle = "#222", g.fillRect(0, 0, c.width, c.height);
-  for (let i = 0;i < pics.length; i++) {
-    let x2 = i * cell, b64 = pics[i], img = b64 ? await createImageBitmap(new Blob([Uint8Array.fromBase64?.(b64) ?? Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0))])).catch(() => null) : null;
-    if (img) {
-      let k = Math.min((cell - 4) / img.width, (cell - 4) / img.height), w2 = img.width * k, h = img.height * k;
-      g.drawImage(img, x2 + (cell - w2) / 2, (cell - h) / 2, w2, h);
-    } else
-      g.fillStyle = "#999", g.font = "13px sans-serif", g.fillText("no picture", x2 + 48, cell / 2 + 4);
-    g.fillStyle = "rgba(0, 0, 0, 0.75)", g.fillRect(x2 + 2, 2, 24, 22), g.fillStyle = "#fff", g.font = "bold 16px sans-serif", g.fillText(String(i + 1), x2 + 9, 19);
-  }
-  return c.toDataURL("image/jpeg", 0.8).split(",")[1];
-}
-async function contactSheet(chrome2, urls) {
-  let why = [], thumb = (u) => u ? get(u, {}, 5000).then((r) => r.arrayBuffer()).then((b2) => Buffer.from(b2).toString("base64")).catch((e) => (why.push(reason(e)), null)) : null, [pics, page2] = await Promise.all([Promise.all(urls.map(thumb)), utilPage(chrome2)]);
-  if (!pics.some(Boolean))
-    throw Error(why[0] ?? "no hit has a thumbnail");
-  return page2.evaluate(drawSheet, pics, CELL);
-}
-async function search(q2, agent, cwd, chrome2) {
-  let kind = q2.kind ?? "model", not = q2.not ?? [], key2 = `${kind}:${q2.query}:${q2.image ? createHash5("sha1").update(q2.image).digest("hex") : ""}`;
-  if (!q2.query && !q2.image)
-    throw Error('query is needed: what you want, e.g. "wooden barrel"; or an image of it');
-  if (q2.image && kind !== "model")
-    throw Error("image search is for models only: give textures and HDRIs a query");
-  for (let id2 of not) {
-    let h = seen.get(id2);
-    if (h?.kind === "model" && h.sid)
-      await report2("/feedback", agent, { search_id: h.sid, uid: id2, verdict: "rejected" });
-  }
-  let skip = q2.more ? [.../* @__PURE__ */ new Set([...not, ...shown.get(key2) ?? []])] : not, hits, filters = { type: q2.type, style: q2.style, max_tris: q2.maxTris && Math.round(q2.maxTris), animated: q2.animated, rigged: q2.rigged, format: q2.format };
-  if (q2.image) {
-    let r = await (await get(`${API}/similar?${qs({ q: q2.query, k: Math.min(100, 5 + skip.length), ...filters })}`, { method: "POST", headers: { "x-agent-model": agent, "content-type": "image/jpeg" }, body: Buffer.from(q2.image, "base64") })).json();
-    hits = r.hits.map((m) => ({ kind: "model", sid: r.search_id, m }));
-  } else if (kind === "model") {
-    let r = await api2(`/pick?${qs({ q: q2.query, ...filters, exclude: skip.join(",") || void 0 })}`, agent);
-    hits = r.candidates.map((m) => ({ kind, sid: r.search_id, m }));
-  } else
-    hits = (await api2(`/${kind === "texture" ? "textures" : "hdris"}/search?${qs({ q: q2.query, k: 5 + skip.length })}`, agent)).hits.map((m) => ({ kind, m }));
-  if (hits = hits.filter((h) => !skip.includes(idOf(h))).slice(0, 5), !hits.length)
-    throw Error(`No ${kind} matches ${q2.query ? `"${q2.query}"` : "the image"}${skip.length ? " beyond the ones shown" : ""}. Try other words or fewer filters.`);
-  for (let h of hits)
-    seen.set(idOf(h), h);
-  try {
-    if (cwd)
-      writeFileSync11(join22(harnessDir(cwd), HITS), JSON.stringify({ ...projectHits(cwd), ...Object.fromEntries(hits.map((h) => [idOf(h), { kind: h.kind, sid: h.kind === "model" ? h.sid : void 0 }])) }));
-  } catch {}
-  shown.set(key2, [...shown.get(key2) ?? [], ...hits.map(idOf)]);
-  let text = [
-    ...hits.map((h, i) => `${i + 1}. ${line(h).filter(Boolean).join(" · ")}`),
-    `Pick one with { pick: "<id>" }${kind === "model" ? " (real size, or height: units tall)" : ""}, search again with not: [ids] to reject these, or add more: true for the next ones.`
-  ].join(`
-`);
-  if (!chrome2)
-    return { text };
-  try {
-    return { text, sheet: await contactSheet(chrome2(), hits.map((h) => h.kind === "model" ? h.m.thumb_url : h.m.preview_url)) };
-  } catch (e) {
-    return { text: `${text}
-No contact sheet: ${reason(e)}` };
-  }
-}
-async function pick2(id2, kind, cwd, agent, height, textures, format3) {
-  let file3 = projectHits(cwd), all = [.../* @__PURE__ */ new Set([...seen.keys(), ...Object.keys(file3)])], ids = all.includes(id2) ? [id2] : all.filter((k) => k.startsWith(id2));
-  if (ids.length > 1)
-    throw Error(`pick: "${id2}" matches ${ids.slice(0, 5).join(", ")}${ids.length > 5 ? ` and ${ids.length - 5} more` : ""}: give the whole id`);
-  let full = ids[0] ?? id2, was = ids.length ? seen.get(full) ?? file3[full] : { kind }, h = seen.get(full) ?? { ...was, m: await api2(`/${was.kind === "model" ? "asset" : was.kind === "texture" ? "textures" : "hdris"}/${encodeURIComponent(full)}`, agent) }, vite = isVite(cwd), dir = join22(cwd, vite ? "public" : "", "assets"), base2 = vite ? "three/examples/jsm" : "three/addons", url2 = (file4) => relative11(dir, file4).split("\\").join("/"), saved = [], code = [], where = "";
-  if (h.kind === "model") {
-    let m = h.m, usd = format3 === "usd" || !m.glb_url, src = usd ? m.usd_url : m.glb_url;
-    if (!src)
-      throw Error(`pick: ${m.uid} has no USD file; pick it without format for its GLB`);
-    if (usd && textures === !1)
-      throw Error('pick: textures: false rewrites a GLB; give format: "glb" or leave textures out');
-    let file4 = join22(dir, `${slug(m.name)}-${m.uid.slice(0, 6)}${usd ? src.match(/\.usd[acz]?$/i)?.[0] ?? ".usdz" : ".glb"}`), v2 = varName(m.name);
-    if (await download(src, file4), textures === !1)
-      await shrink(file4, { textures: !1, out: file4 }), where = `${relative11(cwd, file4)} without its textures`;
-    if (saved.push(file4), h.sid)
-      await report2(`/pick/${h.sid}`, agent, { uid: m.uid });
-    let credits = join22(dir, "CREDITS.md"), credit = `- ${m.name}: ${m.attribution}
-`;
-    if (!(existsSync14(credits) && readFileSync19(credits, "utf8").includes(credit)))
-      appendFileSync2(credits, credit);
-    let tall = m.bbox?.[1], root = usd ? "usd" : "gltf.scene", loaded = JSON.stringify(`assets/${url2(file4)}`);
-    code.push(...usd ? [`import { USDLoader } from "${base2}/loaders/USDLoader.js";`] : [`import { GLTFLoader } from "${base2}/loaders/GLTFLoader.js";`, `import { MeshoptDecoder } from "${base2}/libs/meshopt_decoder.module.js";`], "", `const ${v2} = new THREE.Group();`, "{ // a block, so a second pick's snippet pastes beside this one", ...usd ? [`  const usd = await new USDLoader().loadAsync(${loaded});`] : ["  const loader = new GLTFLoader();", "  loader.setMeshoptDecoder(MeshoptDecoder);", `  const gltf = await loader.loadAsync(${loaded});`], `  const box = new THREE.Box3().setFromObject(${root});`, `  ${root}.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2); // origin to floor centre`, `  ${v2}.add(${root});`, m.animated ? `  ${v2}.animations = ${usd ? "usd" : "gltf"}.animations;` : null, "}", height && tall ? `${v2}.scale.setScalar(${height} / ${num2(tall)}); // ${height} units tall` : m.scale_to_real ? `${v2}.scale.setScalar(${m.scale_to_real}); // real size${m.real_height_m ? `, about ${m.real_height_m} m tall` : ""}` : null, `scene.add(${v2});`, ...m.animated ? [
-      `const ${v2}Mixer = new THREE.AnimationMixer(${v2});`,
-      `${v2}Mixer.clipAction(${v2}.animations[0]).play(); // ${v2}Mixer.update(dt) each frame; ${v2}.animations holds every clip by name`
-    ] : []);
-  } else if (h.kind === "texture") {
-    let m = h.m, folder5 = join22(dir, "textures", m.tid), maps = Object.keys(m.maps).filter((k) => SLOTS[k] && m.maps[k]["1k"]);
-    for (let k of maps) {
-      let f = join22(folder5, k + (m.maps[k]["1k"].match(/\.\w+$/)?.[0] ?? ".webp"));
-      await download(m.maps[k]["1k"], f), saved.push(f);
-    }
-    where = `${relative11(cwd, folder5)}/: ${maps.join(", ")}`;
-    let [w2, d] = m.size_m ?? [1, 1];
-    code.push(`const ${varName(m.name)} = (() => {`, "  const loadMap = (file, srgb) => {", `    const t = new THREE.TextureLoader().load(${JSON.stringify(`assets/${url2(folder5)}/`)} + file);`, "    t.wrapS = t.wrapT = THREE.RepeatWrapping;", `    t.repeat.set(10 / ${num2(w2)}, 10 / ${num2(d)}); // a 10 × 10 m surface with 0-1 UVs; with UVs in metres, 1 / ${num2(w2)}`, "    if (srgb) t.colorSpace = THREE.SRGBColorSpace; // colour map only", "    return t;", "  };", "  return new THREE.MeshStandardMaterial({", ...saved.map((f, i) => `    ${SLOTS[maps[i]]}: loadMap(${JSON.stringify(url2(f).split("/").pop())}${maps[i] === "basecolor" ? ", true" : ""}),`), maps.includes("metalness") ? "    metalness: 1, // the map sets it" : null, maps.includes("opacity") ? "    alphaTest: 0.5," : null, "  });", "})();");
-  } else {
-    let m = h.m, src = m.urls["1k"] ?? Object.values(m.urls)[0], ext = src.match(/\.(\w+)$/)?.[1] ?? "hdr", file4 = join22(dir, "hdri", `${m.hid}.${ext}`);
-    await download(src, file4), saved.push(file4);
-    let loaders = join22(cwd, "node_modules", "three", "examples", "jsm", "loaders"), L2 = ext === "exr" ? "EXRLoader" : !existsSync14(join22(loaders, "HDRLoader.js")) && existsSync14(join22(loaders, "RGBELoader.js")) ? "RGBELoader" : "HDRLoader";
-    code.push(`import { ${L2} } from "${base2}/loaders/${L2}.js";`, "", "{", "  const pmrem = new THREE.PMREMGenerator(renderer);", `  const sky = await new ${L2}().loadAsync(${JSON.stringify(`assets/${url2(file4)}`)});`, "  scene.environment = pmrem.fromEquirectangular(sky).texture;", "  sky.mapping = THREE.EquirectangularReflectionMapping;", "  scene.background = sky; // the sky as backdrop; leave this line out to keep your own", "  pmrem.dispose();", "}");
-  }
-  return [
-    ...full === id2 ? [] : [`Picked ${full}, the one shown id that starts with "${id2}".`],
-    `Saved ${where || relative11(cwd, saved[0])} (${h.m.name}, ${h.m.license})${h.kind === "model" ? `; credited in ${relative11(cwd, join22(dir, "CREDITS.md"))}` : ""}`,
-    ...vite || h.kind === "texture" ? [] : ["If the import map has no `three/addons/`, map it to three's `examples/jsm/` folder."],
-    "```js",
-    ...code.filter((l) => l !== null),
-    "```"
-  ].join(`
-`);
-}
-var API, seen, shown, idOf = (h) => h.kind === "model" ? h.m.uid : h.kind === "texture" ? h.m.tid : h.m.hid, HITS = "asset-hits.json", projectHits = (cwd) => {
-  try {
-    return JSON.parse(readFileSync19(join22(cwd, "paprika3d", HITS), "utf8"));
+    let p = JSON.parse(readFileSync20(prefsFile(env2), "utf8"));
+    return p && typeof p === "object" ? p : {};
   } catch {
     return {};
   }
-}, reason = (e) => String(e?.cause?.message ?? e?.message ?? e), api2 = async (path14, agent, body) => (await get(API + path14, body ? { method: "POST", headers: { "x-agent-model": agent, "content-type": "application/json" }, body: JSON.stringify(body) } : { headers: { "x-agent-model": agent } })).json(), report2 = (path14, agent, body) => api2(path14, agent, body).catch(() => {}), qs = (o) => new URLSearchParams(Object.entries(o).filter(([, v2]) => v2 !== void 0 && v2 !== "").map(([k, v2]) => [k, String(v2)])).toString(), line = (h) => h.kind === "model" ? [h.m.uid, h.m.name, h.m.style, `${h.m.tris} tris`, `${h.m.mb} MB`, h.m.real_height_m ? `about ${h.m.real_height_m} m tall` : "", h.m.animated ? "animated" : "", h.m.usd_url ? h.m.glb_url ? "also USD" : "USD only" : "", h.m.license, h.m.thumb_url] : h.kind === "texture" ? [h.m.tid, h.m.name, `maps: ${Object.keys(h.m.maps).join(", ")}`, h.m.size_m ? `tiles every ${h.m.size_m.join(" × ")} m` : "", h.m.license, h.m.preview_url] : [h.m.hid, h.m.name, h.m.tags.join(", "), h.m.license, h.m.preview_url], CELL = 160, isVite = (cwd) => {
-  try {
-    let p = JSON.parse(readFileSync19(join22(cwd, "package.json"), "utf8"));
-    return !!(p.dependencies?.vite ?? p.devDependencies?.vite);
-  } catch {
-    return !1;
+}
+function remember(env2, answer) {
+  let file3 = prefsFile(env2), p = prefs(env2);
+  if (answer === "yes")
+    p.picture_sheets = "yes";
+  else
+    delete p.picture_sheets;
+  return mkdirSync11(dirname16(file3), { recursive: !0 }), writeFileSync12(file3, JSON.stringify(p, null, 2) + `
+`), answer === "yes" ? `Remembered in ${file3}: this person wants picture sheets, so later projects skip the question (remember: "ask" forgets it).` : `Forgot the picture-sheet answer in ${file3}: the next brief asks again.`;
+}
+function checkText(env2 = process.env, jobs = []) {
+  let all = found(env2), names = (k) => PROVIDERS.filter((p) => endpoint(p, k)).map((p) => p.name), list = (k) => {
+    let have = all.filter((f) => endpoint(f.provider, k)), miss = names(k).filter((n) => !have.some((f) => f.provider.name === n));
+    return `${have.length ? have.map((f) => `${f.provider.name} (${f.where})`).join(", ") : "none"}. Not found: ${miss.join(", ") || "none"}.`;
+  }, img = recommend(all, "board", env2), m3 = recommend(all, "model", env2), lines = [`Image keys found: ${list("board")}`], problem = optionProblem(env2);
+  if (problem)
+    lines.push(problem);
+  if (prefs(env2).picture_sheets === "yes")
+    lines.push(`Remembered: this person said yes to picture sheets before (${prefsFile(env2)}); skip the question and make them.`);
+  if (img) {
+    let b2 = img.provider.board, t = endpoint(img.provider, "turnaround"), game = b2.price + 4 * t.price, others = all.filter((f) => f !== img && f.provider.board);
+    lines.push(`Picture sheets: recommended ${img.provider.name} (${img.provider.why ? `${img.provider.why}, ` : ""}${price(b2)} an image${t !== b2 ? `, turnarounds ${price(t)}` : ""}); one look board and up to four turnarounds is about ${usd(game)} a game.` + (others.length ? ` Also: ${others.map((f) => `${f.provider.name} ${price(f.provider.board)}`).join(", ")}.` : ""));
+  } else {
+    let img2 = PROVIDERS.filter((p) => p.board), titles = img2.map((p) => p.title);
+    lines.push(`Picture sheets need an image key (${titles.slice(0, -1).join(", ")} or ${titles.at(-1)}): /plugin configure paprika3d, or the provider's usual variable (${img2.map((p) => p.env[0]).join(", ")} ...). LOOK.png is made from the references for free either way.`);
   }
-}, TAKEN, varName = (name) => {
-  let v2 = name.split(/[^A-Za-z0-9]+/).filter(Boolean).map((w2, i) => i ? w2[0].toUpperCase() + w2.slice(1) : w2.toLowerCase()).join("");
-  return /^[a-z]/.test(v2) && !TAKEN.has(v2) ? v2 : `asset${v2.charAt(0).toUpperCase()}${v2.slice(1)}`;
-}, slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "asset", num2 = (x2) => +x2.toPrecision(4), SLOTS;
-var init_asset = __esm(() => {
-  init_glb();
+  if (lines.push(`3D keys found: ${list("model")}`), m3)
+    lines.push(`3D models: recommended ${m3.provider.name} (${m3.provider.model.model}, ${price(m3.provider.model)} and ${m3.provider.model.time} a model${m3.provider.why3d ? `, ${m3.provider.why3d}` : ""}); a job runs in the background while the build goes on.`);
+  else
+    lines.push("(connect a 3D key to generate models: /plugin configure paprika3d, or MESHY_API_KEY, TRIPO_API_KEY, FAL_KEY ...)");
+  lines.push(`Sources on this machine: the library (57,732 free models, textures and skies, searched by your pictures), web search for free assets (with the session's web tools)${m3 ? `, generation with your ${m3.provider.title} key (${price(m3.provider.model)} and ${m3.provider.model.time} a model)` : ""}, and building in code (model_run with Manifold, checked with model_look).`);
+  for (let j2 of jobs)
+    lines.push(`${j2.kind === "model" ? "Model" : "Turnaround"} job ${j2.name} (${j2.provider}): ${j2.state === "running" ? `running for ${Math.round((Date.now() - j2.started) / 1000)} s` : j2.state === "done" ? `done, ${j2.file}` : `failed: ${j2.error}`}.`);
+  return lines.join(`
+`);
+}
+function dig(o, path14) {
+  if (!path14)
+    return o;
+  if (path14.includes("|")) {
+    for (let p of path14.split("|")) {
+      let v3 = dig(o, p);
+      if (v3 !== void 0 && v3 !== null)
+        return v3;
+    }
+    return;
+  }
+  let [head, ...rest] = path14.split(".");
+  if (head === "*") {
+    for (let x2 of Array.isArray(o) ? o : []) {
+      let v3 = dig(x2, rest.join("."));
+      if (v3 !== void 0)
+        return v3;
+    }
+    return;
+  }
+  let v2 = o?.[head];
+  return rest.length ? dig(v2, rest.join(".")) : v2;
+}
+function fill(t, v2) {
+  if (t === "$prompt")
+    return v2.prompt;
+  if (t === "$ext")
+    return v2.ext;
+  if (t === "$model")
+    return v2.model;
+  if (t === "$pre")
+    return v2.pre;
+  if (t === "$ref")
+    return v2.refs[0];
+  if (t === "$refs")
+    return v2.refs;
+  if (Array.isArray(t))
+    return t.flatMap((x2) => x2 === "...$refs" ? v2.refs : [fill(x2, v2)]);
+  if (t && typeof t === "object")
+    return Object.fromEntries(Object.entries(t).map(([k, x2]) => [k, fill(x2, v2)]));
+  return t;
+}
+function body(step, v2, refs) {
+  if (step.body === "json")
+    return JSON.stringify(fill(step.template, { ...v2, refs: refs.map((r) => encode(r, step.refs ?? "dataurl")) }));
+  let form = new FormData;
+  for (let [k, x2] of Object.entries(step.template)) {
+    let files = x2 === "$refs" ? refs : x2 === "$ref" ? refs.slice(0, 1) : null;
+    if (files)
+      for (let r of files)
+        form.append(k, new Blob([new Uint8Array(r.data)], { type: r.mime }), r.name);
+    else
+      form.append(k, String(fill(x2, { ...v2, refs: [] })));
+  }
+  return form;
+}
+function hideKey(f, s) {
+  return f.key ? s.split(f.key).join("[hidden]") : s;
+}
+async function generate(f, kind, prompt, refs, o = {}) {
+  let p = f.provider, e = endpoint(p, kind);
+  if (!e)
+    throw Error(`${p.name} has no ${kind === "model" ? "3D" : "picture"} endpoint in the table`);
+  if ((e.refs || e.pre?.refs) && (JSON.stringify(e.template).includes("$ref") || e.pre) && !refs.length)
+    throw Error(`${p.name}'s ${kind} takes a reference picture: give pictures`);
+  let limit = o.timeoutMs ?? (kind === "model" ? 600000 : 90000), deadline = Date.now() + limit, model = o.model ?? e.model, auth = authHeaders(p, f);
+  if (!/^[\w./:-]+$/.test(model) || model.includes(".."))
+    throw Error(`${p.name}: model "${model}" is not a model name`);
+  let hide = (s) => hideKey(f, s), ext = MIME_EXT[refs[0]?.mime ?? ""] ?? "jpg", call = async (url3, init = {}, signed = !0) => {
+    let left = deadline - Date.now();
+    if (left <= 0)
+      throw Error(`${p.name} took longer than ${limit < 1000 ? `${limit} ms` : `${Math.round(limit / 1000)} s`}`);
+    if (!/^(https?|data):/i.test(url3))
+      throw Error(`${p.name}'s reply names a ${url3.split(":")[0]}: URL; only http(s) and data: are fetched`);
+    let r;
+    try {
+      r = await fetch(url3, { ...init, headers: { ...signed ? auth : {}, ...init.headers }, signal: AbortSignal.timeout(left) });
+    } catch (err) {
+      throw Error(hide(`${p.name} unreachable: ${err.message}`));
+    }
+    if (!r.ok)
+      throw Error(`${p.name} answered ${r.status}: ${hide(await r.text()).slice(0, 200)}`);
+    return r;
+  }, json2 = async (url3, init = {}) => {
+    let r = await call(url3, init);
+    try {
+      return await r.json();
+    } catch (err) {
+      throw Error(hide(`${p.name} answered with something other than JSON: ${err.message}`));
+    }
+  }, send = (s, pre2) => ({
+    method: "POST",
+    body: body(s, { prompt, model, pre: pre2, ext }, refs),
+    headers: s.body === "json" ? { "content-type": "application/json" } : {}
+  }), pre = e.pre ? String(dig(await json2(e.pre.url, send(e.pre)), e.pre.id)) : void 0, url2 = tpl(e.url, { model }), wait = () => new Promise((ok) => setTimeout(ok, o.pollMs ?? 2000)), first2 = await json2(url2, send(e, pre)), reply = first2;
+  if (e.poll && !e.poll.done.includes(String(dig(reply, e.poll.status)))) {
+    let at = tpl(e.poll.url, first2);
+    for (;; ) {
+      await wait(), reply = await json2(at);
+      let s = String(dig(reply, e.poll.status));
+      if (e.poll.done.includes(s))
+        break;
+      if (e.poll.failed?.includes(s))
+        throw Error(hide(`${p.name}: the job ended ${s}`));
+    }
+  }
+  if (e.poll?.fetch)
+    reply = await json2(tpl(e.poll.fetch, reply, first2));
+  let out = dig(reply, e.result.path);
+  if (Array.isArray(out))
+    out = out[0];
+  if (typeof out !== "string" || !out)
+    throw Error(`${p.name}'s reply has no ${e.result.path}`);
+  if (e.result.as === "base64")
+    return made(Buffer.from(out, "base64"), e, model);
+  return { ...made(Buffer.from(await (await call(out, {}, !1)).arrayBuffer()), e, model), url: out.startsWith("data:") ? void 0 : out };
+}
+function made(bytes3, e, model) {
+  let h = bytes3.subarray(0, 12).toString("latin1"), ext = h.startsWith("PNG") ? ".png" : h.startsWith("ÿØ") ? ".jpg" : h.startsWith("RIFF") && h.slice(8) === "WEBP" ? ".webp" : h.startsWith("glTF") ? ".glb" : "";
+  if (!ext)
+    throw Error(`the provider sent ${bytes3.length} bytes that are no PNG, JPEG, WebP or GLB`);
+  return { bytes: bytes3, ext, model, price: e.price, about: !!e.about };
+}
+function inside3(cwd, path14) {
+  let to = resolve17(cwd, path14), rel = relative12(cwd, to);
+  if (!rel || rel.split(sep5)[0] === ".." || resolve17(rel) === rel)
+    throw Error(`sheet: ${path14} is outside the project (${cwd}); give a path under it`);
+  return to;
+}
+async function sheet2(chrome2, a2, env2 = process.env, o = {}) {
+  let cwd = resolve17(a2.cwd);
+  if (a2.remember)
+    return { text: remember(env2, a2.remember) };
+  if (a2.check)
+    return { text: checkText(env2, [...jobs.values()]) };
+  let kind = a2.kind ?? (a2.provider ? "board" : "look"), pics = a2.pictures ?? [];
+  if (kind === "look" || !a2.provider)
+    return compose(chrome2, cwd, a2);
+  let all = found(env2), f = a2.provider === "auto" ? recommend(all, kind, env2) : all.find((x2) => x2.provider.name === a2.provider);
+  if (!f) {
+    let p = byName(a2.provider ?? "");
+    throw Error(p ? `sheet: no key for ${p.name} (${p.env.join(", ")}, or the plugin option): \`sheet\` { check: true } names the keys found` : `sheet: no provider "${a2.provider}"; one of ${PROVIDERS.map((x2) => x2.name).join(", ")} or "auto"`);
+  }
+  if (!a2.prompt)
+    throw Error("sheet: prompt is needed with a provider: what the picture shows, in LOOK.md's or CHARACTERS.md's words");
+  let study = pics.find((p) => isStudy(cwd, p.file));
+  if (study)
+    throw Error(`sheet: ${study.file} is a study reference: picture sheets and models are made from the tagged pictures in refs/, never from refs/study/`);
+  let refs = [];
+  for (let p of pics) {
+    let file3 = inside3(cwd, p.file);
+    if (!existsSync15(file3))
+      throw Error(`sheet: no file ${p.file} under ${cwd}`);
+    refs.push(p.crop ? { data: Buffer.from((await reference(chrome2(), { file: file3, crop: p.crop }, p.file)).jpeg, "base64"), mime: "image/jpeg", name: "ref.jpg" } : { data: readFileSync20(file3), mime: MIME2[extname9(file3).toLowerCase()] ?? "image/png", name: `ref${extname9(file3)}` });
+  }
+  let name = slug2(a2.name ?? (kind === "board" ? "LOOK-board" : kind === "model" ? "model" : "turnaround")).replace(/^look-board$/, "LOOK-board"), inputs = pics.map((p) => ({ file: p.file, crop: p.crop })), save = (dir, m) => {
+    let file3 = join23(cwd, dir, name + m.ext);
+    return mkdirSync11(dirname16(file3), { recursive: !0 }), writeFileSync12(file3, m.bytes), writeFileSync12(join23(cwd, dir, `${name}.json`), JSON.stringify({ provider: f.provider.name, model: m.model, kind, prompt: a2.prompt, inputs, price: m.price, priceAbout: m.about, source: m.url?.split("?")[0], at: (/* @__PURE__ */ new Date()).toISOString() }, null, 2) + `
+`), relative12(cwd, file3);
+  };
+  if (kind === "model" || kind === "turnaround") {
+    let id2 = `${kind}:${name}`, e = endpoint(f.provider, kind), dir = kind === "model" ? "assets/generated" : "refs/sheets", ext = kind === "model" ? ".glb" : ".png";
+    if (jobs.get(id2)?.state === "running")
+      throw Error(`sheet: a ${kind} job named ${name} is running; \`sheet\` { check: true } says when it is done`);
+    let job = { name, kind, provider: f.provider.name, started: Date.now(), state: "running" };
+    jobs.set(id2, job);
+    let failed = (err) => {
+      job.error = hideKey(f, String(err?.message ?? err)), job.state = "failed";
+    };
+    generate(f, kind, a2.prompt, refs, o).then((m) => {
+      try {
+        job.file = save(dir, m), job.state = "done";
+      } catch (err) {
+        failed(err);
+      }
+    }, failed).catch(failed);
+    let until = kind === "model" ? "Until then the page loads a stand-in; then model_audit and model_look the file before the page uses it." : "If it fails, the build fills the Turnaround line from model_look or the pick's contact sheet.";
+    return { text: `Started a ${f.provider.name} ${kind} job for ${name} (${e.model}, ${price(e)}, ${e.time}). It lands in ${dir}/${name}${ext} (or another picture type) with ${name}.json beside it; \`sheet\` { check: true } says when it is done (after a server restart, look for ${dir}/${name}.json). ${until}` };
+  }
+  try {
+    let m = await generate(f, kind, a2.prompt, refs, o), file3 = save("refs/sheets", m);
+    return {
+      text: `Saved ${file3} (${f.provider.name} ${m.model}, ${m.about ? "about " : ""}${usd(m.price)}), with ${file3.replace(/\.\w+$/, ".json")} beside it.`,
+      jpeg: await preview(chrome2, m.bytes).catch(() => {
+        return;
+      })
+    };
+  } catch (err) {
+    let why = `${f.provider.name} made no ${kind}: ${err.message}`;
+    if (!pics.length)
+      return { text: `${why}.` };
+    let free = await compose(chrome2, cwd, { ...a2, out: void 0 });
+    return { text: `${why}. The free board stands:
+${free.text}`, jpeg: free.jpeg };
+  }
+}
+async function preview(chrome2, bytes3) {
+  return (await utilPage(chrome2())).evaluate(async (b64) => {
+    let img = await createImageBitmap(new Blob([Uint8Array.fromBase64?.(b64) ?? Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0))])), k = Math.min(1, 1024 / img.width), c = document.createElement("canvas");
+    return c.width = Math.round(img.width * k), c.height = Math.round(img.height * k), c.getContext("2d").drawImage(img, 0, 0, c.width, c.height), c.toDataURL("image/jpeg", 0.8).split(",")[1];
+  }, bytes3.toString("base64"));
+}
+async function drawBoard(a2, cell) {
+  let { w: CELL_W, h: CELL_H, label: LABEL, pad: PAD } = cell, cols = Math.min(3, Math.max(1, a2.pics.length)), rows = Math.ceil(a2.pics.length / cols), top = a2.title ? 48 : PAD, swatch = a2.palette.length ? 96 : 0, notes2 = a2.notes ? 40 : 0, c = document.createElement("canvas"), g = c.getContext("2d");
+  if (c.width = PAD + cols * (CELL_W + PAD), c.height = top + rows * (CELL_H + LABEL + PAD) + swatch + notes2 + PAD, g.fillStyle = "#1b1b1b", g.fillRect(0, 0, c.width, c.height), g.fillStyle = "#f2efe6", a2.title)
+    g.font = "bold 22px sans-serif", g.fillText(a2.title, PAD, 32);
+  for (let i = 0;i < a2.pics.length; i++) {
+    let p = a2.pics[i], x2 = PAD + i % cols * (CELL_W + PAD), y2 = top + Math.floor(i / cols) * (CELL_H + LABEL + PAD), img = await createImageBitmap(new Blob([Uint8Array.fromBase64?.(p.b64) ?? Uint8Array.from(atob(p.b64), (ch) => ch.charCodeAt(0))])).catch(() => null);
+    if (g.fillStyle = "#2a2a2a", g.fillRect(x2, y2, CELL_W, CELL_H), img) {
+      let [l, t, r, b2] = p.crop ?? [0, 0, img.width, img.height], sw2 = Math.max(1, Math.min(img.width, r) - l), sh = Math.max(1, Math.min(img.height, b2) - t), k2 = Math.min(CELL_W / sw2, CELL_H / sh), w2 = sw2 * k2, h = sh * k2;
+      g.drawImage(img, l, t, sw2, sh, x2 + (CELL_W - w2) / 2, y2 + (CELL_H - h) / 2, w2, h);
+    } else
+      g.fillStyle = "#999", g.font = "14px sans-serif", g.fillText("not a picture", x2 + 150, y2 + CELL_H / 2);
+    g.fillStyle = "rgba(0, 0, 0, 0.75)", g.fillRect(x2 + 4, y2 + 4, 26, 24), g.fillStyle = "#fff", g.font = "bold 16px sans-serif", g.fillText(String(i + 1), x2 + 11, y2 + 22), g.fillStyle = "#f2efe6", g.font = "14px sans-serif", g.fillText(p.label.slice(0, 52), x2, y2 + CELL_H + 20);
+  }
+  let y = top + rows * (CELL_H + LABEL + PAD), sw = a2.palette.length ? Math.min(140, (c.width - PAD) / a2.palette.length - PAD) : 0;
+  if (a2.palette.forEach((s, i) => {
+    let x2 = PAD + i * (sw + PAD);
+    g.fillStyle = s.hex, g.fillRect(x2, y, sw, 56), g.fillStyle = "#f2efe6", g.font = "13px sans-serif", g.fillText(`${s.label ? s.label + " " : ""}${s.hex}`.slice(0, 24), x2, y + 76);
+  }), y += swatch, a2.notes)
+    g.fillStyle = "#f2efe6", g.font = "15px sans-serif", g.fillText(a2.notes.slice(0, 160), PAD, y + 24);
+  let k = Math.min(1, 1024 / c.width), pv = document.createElement("canvas");
+  return pv.width = Math.round(c.width * k), pv.height = Math.round(c.height * k), pv.getContext("2d").drawImage(c, 0, 0, pv.width, pv.height), { file: c.toDataURL(a2.type, 0.85).split(",")[1], preview: pv.toDataURL("image/jpeg", 0.8).split(",")[1], size: [c.width, c.height] };
+}
+async function compose(chrome2, cwd, a2) {
+  let pics = a2.pictures ?? [];
+  if (!pics.length && !a2.palette?.length)
+    throw Error("sheet: give pictures (each { file, crop?, label? }) and a palette to compose a sheet, or check: true");
+  let out = inside3(cwd, a2.out ?? "refs/sheets/LOOK.png"), type = /\.jpe?g$/i.test(out) ? "image/jpeg" : "image/png";
+  if (!/\.(png|jpe?g)$/i.test(out))
+    throw Error("sheet: out is a .png or .jpg file");
+  let study = pics.find((p) => isStudy(cwd, p.file));
+  if (study)
+    throw Error(`sheet: ${study.file} is a study reference: sheets show the tagged pictures in refs/, never refs/study/ (its frames stay in the notes)`);
+  let palette = (a2.palette ?? []).map((s) => typeof s === "string" ? { hex: s, label: "" } : { hex: s.hex, label: s.label ?? "" }), bad = palette.find((s) => !/^#[0-9a-f]{6}$/i.test(s.hex));
+  if (bad)
+    throw Error(`sheet: palette colours are #rrggbb, got ${bad.hex}`);
+  let loaded = pics.map((p) => {
+    let file3 = inside3(cwd, p.file);
+    if (!existsSync15(file3))
+      throw Error(`sheet: no file ${p.file} under ${cwd}`);
+    return { b64: readFileSync20(file3).toString("base64"), crop: p.crop ?? null, label: p.label ?? p.file };
+  }), r = await (await utilPage(chrome2())).evaluate(drawBoard, { pics: loaded, palette, title: a2.title ?? "", notes: a2.notes ?? "", type }, CELL2);
+  return mkdirSync11(dirname16(out), { recursive: !0 }), writeFileSync12(out, Buffer.from(r.file, "base64")), { text: `Saved ${relative12(cwd, out)} (${r.size[0]} × ${r.size[1]}): ${pics.length} picture${pics.length === 1 ? "" : "s"}, numbered as given, and ${palette.length} swatch${palette.length === 1 ? "" : "es"}. Made here, free; nothing was sent anywhere.`, jpeg: r.preview };
+}
+var bearer, PROVIDERS, IMAGE_ORDER, MODEL_ORDER, byName = (n) => PROVIDERS.find((p) => p.name === n), endpoint = (p, k) => k === "model" ? p.model : k === "turnaround" ? p.turnaround ?? p.board : p.board, absent = (v2) => !v2 || !v2.trim() || /^\$\{[^}]*\}$/.test(v2.trim()) || v2.trim().toLowerCase() === "none", usd = (n) => {
+  let t = +n.toFixed(3);
+  return `$${t.toFixed(Math.round(t * 1000) % 10 ? 3 : 2)}`;
+}, price = (e) => e.note ?? `${e.about ? "about " : ""}${usd(e.price)}`, prefsFile = (env2 = process.env) => join23(env2.PAPRIKA3D_CONFIG_DIR || join23(env2.XDG_CONFIG_HOME || join23(homedir4(), ".config"), "paprika3d"), "prefs.json"), tpl = (s, ...from2) => s.replace(/\{([\w.]+)\}/g, (_3, p) => {
+  for (let o of from2) {
+    let v2 = dig(o, p);
+    if (v2 !== void 0 && v2 !== null)
+      return String(v2);
+  }
+  throw Error(`the reply has no ${p}`);
+}), encode = (r, as) => as === "inline" ? { inlineData: { mimeType: r.mime, data: r.data.toString("base64") } } : `data:${r.mime};base64,${r.data.toString("base64")}`, authHeaders = (p, f) => ({ [p.auth.header]: `${p.auth.prefix ?? ""}${f.key}` }), jobs, MIME2, MIME_EXT, isStudy = (cwd, file3) => /(^|\/)refs\/study\//.test(relative12(cwd, resolve17(cwd, file3)).split("\\").join("/")), slug2 = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "sheet", CELL2;
+var init_sheet = __esm(() => {
   init_reference();
-  init_state();
-  API = process.env.PAPRIKA3D_ASSET_API ?? "https://assets.keeno.dev", seen = /* @__PURE__ */ new Map, shown = /* @__PURE__ */ new Map;
-  TAKEN = /* @__PURE__ */ new Set(["scene", "camera", "renderer", "controls", "clock", "light", "player", "world", "floor", "ground", "loader", "gltf", "box", "mixer", "pmrem", "sky", "loadMap", "class", "new", "delete", "switch", "case", "default", "function", "return", "var", "let", "const", "if", "else", "for", "while", "do", "in", "of", "import", "export"]), SLOTS = { basecolor: "map", normal: "normalMap", roughness: "roughnessMap", metalness: "metalnessMap", ao: "aoMap", opacity: "alphaMap" };
+  bearer = { header: "Authorization", prefix: "Bearer " }, PROVIDERS = [
+    {
+      name: "fal",
+      title: "fal",
+      env: ["FAL_KEY", "FAL_API_KEY"],
+      auth: { header: "Authorization", prefix: "Key " },
+      why: "nano-banana edit keeps a reference's character and palette, no waiting",
+      board: { url: "https://fal.run/{model}", body: "json", model: "fal-ai/nano-banana/edit", refs: "dataurl", template: { prompt: "$prompt", image_urls: "$refs" }, result: { path: "images.0.url", as: "url" }, price: 0.04, time: "seconds" },
+      model: {
+        url: "https://queue.fal.run/{model}",
+        body: "json",
+        model: "fal-ai/hunyuan3d-v21",
+        refs: "dataurl",
+        template: { input_image_url: "$ref" },
+        poll: { url: "{status_url}", status: "status", done: ["COMPLETED"], failed: ["FAILED", "ERROR"], fetch: "{response_url}" },
+        result: { path: "model_mesh.url", as: "url" },
+        price: 0.05,
+        time: "1 to 4 min"
+      }
+    },
+    {
+      name: "gemini",
+      title: "Gemini",
+      env: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+      auth: { header: "x-goog-api-key" },
+      why: "keeps a reference's subject, no waiting",
+      board: {
+        url: "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+        body: "json",
+        model: "gemini-2.5-flash-image",
+        refs: "inline",
+        template: { contents: [{ parts: [{ text: "$prompt" }, "...$refs"] }], generationConfig: { responseModalities: ["IMAGE"] } },
+        result: { path: "candidates.0.content.parts.*.inlineData.data", as: "base64" },
+        price: 0.04,
+        about: !0,
+        time: "seconds"
+      }
+    },
+    {
+      name: "openai",
+      title: "OpenAI",
+      env: ["OPENAI_API_KEY"],
+      auth: bearer,
+      why: "gpt-image edits keep a reference's subject",
+      board: {
+        url: "https://api.openai.com/v1/images/edits",
+        body: "multipart",
+        model: "gpt-image-1-mini",
+        refs: "file",
+        template: { model: "$model", prompt: "$prompt", "image[]": "$refs", size: "1536x1024" },
+        result: { path: "data.0.b64_json", as: "base64" },
+        price: 0.04,
+        about: !0,
+        time: "under a minute",
+        note: "about $0.01 to $0.04 by quality"
+      },
+      turnaround: {
+        url: "https://api.openai.com/v1/images/edits",
+        body: "multipart",
+        model: "gpt-image-1",
+        refs: "file",
+        template: { model: "$model", prompt: "$prompt", "image[]": "$refs", size: "1536x1024" },
+        result: { path: "data.0.b64_json", as: "base64" },
+        price: 0.17,
+        about: !0,
+        time: "under a minute",
+        note: "about $0.04 to $0.17 by quality"
+      }
+    },
+    {
+      name: "meshy",
+      title: "Meshy",
+      env: ["MESHY_API_KEY"],
+      auth: bearer,
+      why3d: "good topology and textures for a hero",
+      model: {
+        url: "https://api.meshy.ai/openapi/v1/image-to-3d",
+        body: "json",
+        model: "meshy-image-to-3d",
+        refs: "dataurl",
+        template: { image_url: "$ref" },
+        poll: { url: "https://api.meshy.ai/openapi/v1/image-to-3d/{result}", status: "status", done: ["SUCCEEDED"], failed: ["FAILED", "CANCELED"] },
+        result: { path: "model_urls.glb", as: "url" },
+        price: 0.4,
+        about: !0,
+        time: "2 to 5 min"
+      }
+    },
+    {
+      name: "tripo",
+      title: "Tripo",
+      env: ["TRIPO_API_KEY"],
+      auth: bearer,
+      why3d: "good topology for a hero",
+      model: {
+        url: "https://api.tripo3d.ai/v2/openapi/task",
+        body: "json",
+        model: "tripo-image-to-model",
+        template: { type: "image_to_model", file: { type: "$ext", file_token: "$pre" } },
+        pre: { url: "https://api.tripo3d.ai/v2/openapi/upload", body: "multipart", refs: "file", template: { file: "$ref" }, id: "data.image_token" },
+        poll: { url: "https://api.tripo3d.ai/v2/openapi/task/{data.task_id}", status: "data.status", done: ["success"], failed: ["failed", "cancelled", "banned", "expired"] },
+        result: { path: "data.output.pbr_model|data.output.model", as: "url" },
+        price: 0.3,
+        about: !0,
+        time: "1 to 3 min"
+      }
+    }
+  ], IMAGE_ORDER = ["fal", "gemini", "openai"], MODEL_ORDER = ["fal", "tripo", "meshy"];
+  jobs = /* @__PURE__ */ new Map, MIME2 = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" }, MIME_EXT = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
+  CELL2 = { w: 400, h: 300, label: 30, pad: 12 };
 });
 
 function badPath(path14) {
@@ -62117,14 +62648,14 @@ function badPath(path14) {
     return `type .${ext(path14) || "(none)"} is not allowed`;
   return null;
 }
-function brandOf(slug2) {
-  if (BRANDS.includes(slug2) || BRAND_WORDS.has(slug2))
-    return slug2;
-  let brand = BRANDS.find((b2) => slug2.includes(b2)) ?? slug2.split("-").find((w2) => BRAND_WORDS.has(w2)), word = brand && CREDENTIAL_WORDS.find((w2) => slug2.includes(w2));
+function brandOf(slug3) {
+  if (BRANDS.includes(slug3) || BRAND_WORDS.has(slug3))
+    return slug3;
+  let brand = BRANDS.find((b2) => slug3.includes(b2)) ?? slug3.split("-").find((w2) => BRAND_WORDS.has(w2)), word = brand && CREDENTIAL_WORDS.find((w2) => slug3.includes(w2));
   return word ? `${brand} + ${word}` : null;
 }
-function unreserved(slug2) {
-  let s = slug2;
+function unreserved(slug3) {
+  let s = slug3;
   for (let b2 of [...BRANDS, ...CREDENTIAL_WORDS])
     s = s.replaceAll(b2, "-");
   return s = s.split("-").filter((w2) => w2 && !BRAND_WORDS.has(w2)).join("-"), SLUG.test(s) && !brandOf(s) && !RESERVED.has(s) ? s : "game";
@@ -62338,16 +62869,16 @@ __export(exports_publish, {
 });
 import { spawn as spawn6 } from "node:child_process";
 import { createHash as createHash6, randomUUID as randomUUID2 } from "node:crypto";
-import { accessSync as accessSync3, chmodSync, constants as fsConstants, existsSync as existsSync15, lstatSync, mkdirSync as mkdirSync11, readdirSync as readdirSync7, readFileSync as readFileSync20, realpathSync as realpathSync3, statSync as statSync11, unlinkSync as unlinkSync2, writeFileSync as writeFileSync12 } from "node:fs";
-import { homedir as homedir4, platform as platform2 } from "node:os";
-import { join as join23, posix as posix2, relative as relative12, sep as sep4 } from "node:path";
+import { accessSync as accessSync3, chmodSync, constants as fsConstants, existsSync as existsSync16, lstatSync, mkdirSync as mkdirSync12, readdirSync as readdirSync7, readFileSync as readFileSync21, realpathSync as realpathSync3, statSync as statSync11, unlinkSync as unlinkSync2, writeFileSync as writeFileSync13 } from "node:fs";
+import { homedir as homedir5, platform as platform2 } from "node:os";
+import { join as join24, posix as posix2, relative as relative13, sep as sep6 } from "node:path";
 function walk(root, dir, out, skip, links, depth = 0) {
   if (depth > MAX_DEPTH)
     return;
   for (let name of readdirSync7(dir)) {
     if (out.length > MAX_WALK)
       return;
-    let abs = join23(dir, name), rel = relative12(root, abs).split(sep4).join("/");
+    let abs = join24(dir, name), rel = relative13(root, abs).split(sep6).join("/");
     if (name.startsWith("."))
       continue;
     let st = lstatSync(abs);
@@ -62369,7 +62900,7 @@ function projectFiles(cwd) {
 function vendored(cwd, pages, scripts, warnings) {
   let map2 = {};
   for (let page2 of pages)
-    for (let block of all(IMPORTMAP, readFileSync20(join23(cwd, page2), "utf8"))) {
+    for (let block of all(IMPORTMAP, readFileSync21(join24(cwd, page2), "utf8"))) {
       let imports = {};
       try {
         imports = JSON.parse(block).imports ?? {};
@@ -62380,10 +62911,10 @@ function vendored(cwd, pages, scripts, warnings) {
         if (typeof v2 === "string")
           map2[k] = /^[a-z]+:/i.test(v2) ? "" : v2.startsWith("/") ? v2.slice(1) : posix2.join(posix2.dirname(page2), v2);
     }
-  let found = /* @__PURE__ */ new Set, queue = [], unmapped = /* @__PURE__ */ new Set, inside3 = (p) => !p.startsWith("../") && p !== ".." && !posix2.isAbsolute(p), add = (p) => {
-    if (!p.startsWith("node_modules/") || !inside3(p) || found.has(p))
+  let found2 = /* @__PURE__ */ new Set, queue = [], unmapped = /* @__PURE__ */ new Set, inside4 = (p) => !p.startsWith("../") && p !== ".." && !posix2.isAbsolute(p), add = (p) => {
+    if (!p.startsWith("node_modules/") || !inside4(p) || found2.has(p))
       return;
-    let abs = join23(cwd, p), st;
+    let abs = join24(cwd, p), st;
     try {
       st = statSync11(abs);
     } catch {
@@ -62395,10 +62926,10 @@ function vendored(cwd, pages, scripts, warnings) {
       walk(cwd, abs, files, () => !1, []);
       for (let f of files.slice(0, 500))
         if (typeOf(f))
-          found.add(f);
+          found2.add(f);
       return;
     }
-    if (found.add(p), /\.m?js$/.test(p))
+    if (found2.add(p), /\.m?js$/.test(p))
       queue.push(p);
   }, resolveFrom = (from2, spec) => {
     if (spec = spec.split(/[?#]/)[0], !spec || /^[a-z][a-z0-9+.-]*:/i.test(spec))
@@ -62430,29 +62961,29 @@ function vendored(cwd, pages, scripts, warnings) {
       add(posix2.normalize(spec.startsWith("/") ? spec.slice(1) : posix2.join(posix2.dirname(file3), spec)));
   };
   for (let f of [...pages, ...scripts])
-    scan(f, readFileSync20(join23(cwd, f), "utf8"), /\.html?$/.test(f));
+    scan(f, readFileSync21(join24(cwd, f), "utf8"), /\.html?$/.test(f));
   while (queue.length) {
     let f = queue.shift();
-    scan(f, readFileSync20(join23(cwd, f), "utf8"), !1);
+    scan(f, readFileSync21(join24(cwd, f), "utf8"), !1);
   }
   if (unmapped.size)
     warnings.push(`imports with no import map entry, which fail in the browser: ${[...unmapped].slice(0, 5).join(", ")}`);
-  return [...found];
+  return [...found2];
 }
 function isVite2(cwd) {
   if (readdirSync7(cwd).some((f) => /^vite\.config\.(js|mjs|cjs|ts|mts|cts)$/.test(f)))
     return !0;
   try {
-    return /\bvite\b/.test(JSON.parse(readFileSync20(join23(cwd, "package.json"), "utf8")).scripts?.build ?? "");
+    return /\bvite\b/.test(JSON.parse(readFileSync21(join24(cwd, "package.json"), "utf8")).scripts?.build ?? "");
   } catch {
     return !1;
   }
 }
 async function viteBuild(cwd) {
-  let bin = join23(cwd, "node_modules/vite/bin/vite.js");
-  if (!existsSync15(bin))
+  let bin = join24(cwd, "node_modules/vite/bin/vite.js");
+  if (!existsSync16(bin))
     throw Error("This is a Vite project but vite is not installed in it: run `npm install` (or `bun install`) in the project, then publish again.");
-  let out = join23(harnessDir(cwd), "publish", "dist"), said = [], code = await new Promise((done, fail) => {
+  let out = join24(harnessDir(cwd), "publish", "dist"), said = [], code = await new Promise((done, fail) => {
     let p = spawn6(process.execPath, [bin, "build", "--outDir", out, "--emptyOutDir", "--base", "/", "--logLevel", "warn"], { cwd, env: childEnv(), stdio: ["ignore", "pipe", "pipe"] }), keep = (b2) => {
       said.push(...b2.toString().split(`
 `).filter(Boolean)), said.splice(0, Math.max(0, said.length - 30));
@@ -62488,7 +63019,7 @@ async function build(cwd) {
         named2.push(rel);
       if (/\.md$/i.test(rel) && !/(^|\/)CREDITS\.md$/i.test(rel))
         continue;
-      files.set(rel, join23(root, rel));
+      files.set(rel, join24(root, rel));
     }
     if (refused.length)
       warnings.push(`left out ${refused.length} file${refused.length > 1 ? "s" : ""} of a type that is not served: ${refused.slice(0, 5).join(", ")}${refused.length > 5 ? ", …" : ""}`);
@@ -62510,20 +63041,20 @@ async function build(cwd) {
     if (badPath(f))
       unserved.push(f);
     else
-      files.set(f, join23(cwd, f));
+      files.set(f, join24(cwd, f));
   if (unserved.length)
     warnings.push(`the page imports files of a type that is not served, left out: ${unserved.slice(0, 5).join(", ")}`);
   return { kind: "plain", root: cwd, files, warnings };
 }
 function privateDir() {
-  if (mkdirSync11(configDir(), { recursive: !0, mode: 448 }), platform2() !== "win32")
+  if (mkdirSync12(configDir(), { recursive: !0, mode: 448 }), platform2() !== "win32")
     chmodSync(configDir(), 448);
 }
 function writePrivate(file3, text) {
-  privateDir(), writeFileSync12(file3, text, { mode: 384 }), chmodSync(file3, 384);
+  privateDir(), writeFileSync13(file3, text, { mode: 384 }), chmodSync(file3, 384);
 }
 function storeKey(api3, k, extra2) {
-  let f = join23(configDir(), CREDENTIALS), all2 = readJson(f);
+  let f = join24(configDir(), CREDENTIALS), all2 = readJson(f);
   all2[api3] = { ...all2[api3], public_id: k.public_id, secret: k.secret, ...extra2 }, writePrivate(f, JSON.stringify(all2, null, 2));
 }
 function savedKey(api3 = apiBase()) {
@@ -62533,17 +63064,17 @@ function savedKey(api3 = apiBase()) {
   let held = unsaved.get(`${configDir()} ${api3}`);
   if (held)
     return held;
-  let c = readJson(join23(configDir(), CREDENTIALS))[api3];
+  let c = readJson(join24(configDir(), CREDENTIALS))[api3];
   return typeof c?.secret === "string" ? { public_id: c.public_id, secret: c.secret, from: "file" } : null;
 }
 function installId() {
   try {
-    let id2 = readFileSync20(join23(harnessHome(), "telemetry", "id"), "utf8").trim();
+    let id2 = readFileSync21(join24(harnessHome(), "telemetry", "id"), "utf8").trim();
     if (id2)
       return id2;
   } catch {}
   try {
-    let id2 = readFileSync20(join23(configDir(), "install-id"), "utf8").trim();
+    let id2 = readFileSync21(join24(configDir(), "install-id"), "utf8").trim();
     if (id2)
       return id2;
   } catch {}
@@ -62562,20 +63093,20 @@ function solve(challenge, bits, ms = 60000) {
   throw Error("could not solve the publish server's proof of work in time; nothing was published. Try again in a minute.");
 }
 function slugFor(cwd, api3 = apiBase()) {
-  let kept = readJson(join23(configDir(), PROJECTS))[`${api3} ${realpathSync3(cwd)}`]?.slug;
+  let kept = readJson(join24(configDir(), PROJECTS))[`${api3} ${realpathSync3(cwd)}`]?.slug;
   if (typeof kept === "string")
     return { slug: kept, kept: !0 };
   let name = "";
   try {
-    name = JSON.parse(readFileSync20(join23(cwd, "package.json"), "utf8")).name ?? "";
+    name = JSON.parse(readFileSync21(join24(cwd, "package.json"), "utf8")).name ?? "";
   } catch {}
   if (!name || /^(vite-project|my-app|app|game|three|plain|r3f|vite|paprika-game|paprika3d-game|create-paprika3d-game)$/.test(name.replace(/^@[^/]+\//, "")))
-    name = realpathSync3(cwd).split(sep4).at(-1) ?? "";
+    name = realpathSync3(cwd).split(sep6).at(-1) ?? "";
   return { slug: slugify(name) || "game", kept: !1 };
 }
-function keepSlug(cwd, slug2, api3) {
-  let f = join23(configDir(), PROJECTS), all2 = readJson(f);
-  all2[`${api3} ${realpathSync3(cwd)}`] = { slug: slug2, at: (/* @__PURE__ */ new Date()).toISOString() }, privateDir(), writeFileSync12(f, JSON.stringify(all2, null, 2));
+function keepSlug(cwd, slug3, api3) {
+  let f = join24(configDir(), PROJECTS), all2 = readJson(f);
+  all2[`${api3} ${realpathSync3(cwd)}`] = { slug: slug3, at: (/* @__PURE__ */ new Date()).toISOString() }, privateDir(), writeFileSync13(f, JSON.stringify(all2, null, 2));
 }
 async function call(path14, init = {}) {
   let api3 = apiBase(), headers = { ...init.headers };
@@ -62594,17 +63125,17 @@ async function call(path14, init = {}) {
   } catch (e) {
     throw Error(scrub2(`The publish server at ${api3} did not answer (${e?.message ?? e}); nothing was published. Try again in a minute.`));
   }
-  let text = await r.text(), body;
+  let text = await r.text(), body2;
   try {
-    body = JSON.parse(text);
+    body2 = JSON.parse(text);
   } catch {
-    body = { reason: text.slice(0, 200) || `HTTP ${r.status}` };
+    body2 = { reason: text.slice(0, 200) || `HTTP ${r.status}` };
   }
-  if (typeof body.reason === "string")
-    body.reason = scrub2(body.reason);
+  if (typeof body2.reason === "string")
+    body2.reason = scrub2(body2.reason);
   if (!r.ok)
-    throw new PublishError(r.status, body);
-  return body;
+    throw new PublishError(r.status, body2);
+  return body2;
 }
 function replacedWords(b2, where) {
   let on = String(b2.replaced_at ?? "").slice(0, 10), id2 = /^pub_[0-9A-Za-z]+$/.test(String(b2.public_id)) ? String(b2.public_id) : "this key's public id";
@@ -62655,10 +63186,10 @@ async function mint(who) {
     client_version,
     model: who.model ?? null,
     os: platform2(),
-    plugin_version: "0.3.2"
+    plugin_version: "0.4.0"
   }, headers: invite ? { "x-paprika3d-invite": invite } : {} });
   if (!had)
-    writePrivate(join23(configDir(), "install-id"), install3);
+    writePrivate(join24(configDir(), "install-id"), install3);
   return storeKey(apiBase(), k, { created: (/* @__PURE__ */ new Date()).toISOString() }), { public_id: k.public_id, secret: k.secret, from: "file" };
 }
 async function rotateKey(api3, who) {
@@ -62667,9 +63198,9 @@ async function rotateKey(api3, who) {
     return "This install has no publish key yet, so there is nothing to rotate. Nothing was published.";
   if (key2.from === "env")
     return "The publish key in use is PAPRIKA3D_PUBLISH_KEY, which the person set: only they can replace it. Nothing was rotated or published.";
-  let f = join23(configDir(), CREDENTIALS), probe2 = join23(configDir(), `.rotate-${process.pid}`);
+  let f = join24(configDir(), CREDENTIALS), probe2 = join24(configDir(), `.rotate-${process.pid}`);
   try {
-    if (privateDir(), writeFileSync12(probe2, "x"), unlinkSync2(probe2), existsSync15(f))
+    if (privateDir(), writeFileSync13(probe2, "x"), unlinkSync2(probe2), existsSync16(f))
       accessSync3(f, fsConstants.W_OK);
   } catch (e) {
     throw Error(scrub2(`Nothing was rotated: ${f} cannot be written (${e?.code ?? e}), so the new key would have nowhere to go. Tell the person to make it writable (or free disk space), then ask again.`));
@@ -62696,7 +63227,7 @@ async function publish(cwd, who, opts = {}) {
     throw Error(`Nothing was published: PAPRIKA3D_PUBLISH_KEY is sent only to ${DEFAULT_API}, and PAPRIKA3D_PUBLISH_API points at ${scrub2(api3)}. Tell the person: they can set PAPRIKA3D_PUBLISH_API_TRUST=1 if they trust that server.`);
   if (opts.rotate)
     return rotateKey(api3, who);
-  if (!existsSync15(cwd) || !statSync11(cwd).isDirectory())
+  if (!existsSync16(cwd) || !statSync11(cwd).isDirectory())
     throw Error(`publish: ${cwd} is not a folder`);
   await ready3(api3, !savedKey(api3));
   let built = await build(cwd);
@@ -62714,36 +63245,36 @@ async function publish(cwd, who, opts = {}) {
   }
   let manifest = {}, byHash = /* @__PURE__ */ new Map;
   for (let [rel, abs] of built.files) {
-    let bytes3 = readFileSync20(abs), hash = createHash6("sha256").update(bytes3).digest("hex");
+    let bytes3 = readFileSync21(abs), hash = createHash6("sha256").update(bytes3).digest("hex");
     manifest[rel] = { hash, size: bytes3.byteLength }, byHash.set(hash, abs);
   }
-  let key2 = savedKey(api3), minted = !1, where = () => key2 ? keyWhere(key2) : join23(configDir(), CREDENTIALS);
+  let key2 = savedKey(api3), minted = !1, where = () => key2 ? keyWhere(key2) : join24(configDir(), CREDENTIALS);
   try {
     if (!key2)
       key2 = await mint(who), minted = !0;
-    let agent = { install: installId(), client: who.client === "unknown" ? null : who.client, model: who.model ?? null, plugin_version: "0.3.2" }, chosen = opts.slug ? { slug: opts.slug, kept: !0 } : slugFor(cwd, api3), slug2 = chosen.slug, s;
+    let agent = { install: installId(), client: who.client === "unknown" ? null : who.client, model: who.model ?? null, plugin_version: "0.4.0" }, chosen = opts.slug ? { slug: opts.slug, kept: !0 } : slugFor(cwd, api3), slug3 = chosen.slug, s;
     for (let tries = 0;!s; tries++)
       try {
-        s = await call("/v1/publish", { json: { slug: slug2, files: manifest, agent }, secret: key2.secret });
+        s = await call("/v1/publish", { json: { slug: slug3, files: manifest, agent }, secret: key2.secret });
       } catch (e) {
         if (!(e instanceof PublishError) || e.status !== 409 || chosen.kept || opts.slug || tries >= 3)
           throw e;
-        slug2 = withSuffix(brandOf(chosen.slug) ? unreserved(chosen.slug) : chosen.slug);
+        slug3 = withSuffix(brandOf(chosen.slug) ? unreserved(chosen.slug) : chosen.slug);
       }
     let queue = [...s.missing];
     await Promise.all(Array.from({ length: 6 }, async () => {
       for (let h = queue.shift();h; h = queue.shift())
-        await call(`/v1/blobs/${h}`, { method: "PUT", body: readFileSync20(byHash.get(h)), secret: key2.secret, headers: { "x-paprika3d-session": s.session, "content-type": "application/octet-stream" } });
+        await call(`/v1/blobs/${h}`, { method: "PUT", body: readFileSync21(byHash.get(h)), secret: key2.secret, headers: { "x-paprika3d-session": s.session, "content-type": "application/octet-stream" } });
     }));
     let done = await call(`/v1/publish/${s.session}/finalize`, { json: {}, secret: key2.secret });
-    if (keepSlug(cwd, slug2, api3), key2.unsaved)
+    if (keepSlug(cwd, slug3, api3), key2.unsaved)
       try {
-        storeKey(api3, { public_id: key2.public_id, secret: key2.secret }, { rotated: (/* @__PURE__ */ new Date()).toISOString() }), unsaved.delete(`${configDir()} ${api3}`), built.warnings.push(`saved the rotated publish key to ${join23(configDir(), CREDENTIALS)}, never shown`);
+        storeKey(api3, { public_id: key2.public_id, secret: key2.secret }, { rotated: (/* @__PURE__ */ new Date()).toISOString() }), unsaved.delete(`${configDir()} ${api3}`), built.warnings.push(`saved the rotated publish key to ${join24(configDir(), CREDENTIALS)}, never shown`);
       } catch {
-        built.warnings.push(`the publish key is still only in this MCP server's memory: ${join23(configDir(), CREDENTIALS)} cannot be written. Tell the person to fix that before the agent restarts, or the key is lost (then founders@keeno.dev for a reissue)`);
+        built.warnings.push(`the publish key is still only in this MCP server's memory: ${join24(configDir(), CREDENTIALS)} cannot be written. Tell the person to fix that before the agent restarts, or the key is lost (then founders@keeno.dev for a reissue)`);
       }
     if (key2.from === "file" && !key2.public_id) {
-      let f = join23(configDir(), CREDENTIALS), c = readJson(f);
+      let f = join24(configDir(), CREDENTIALS), c = readJson(f);
       if (c[api3])
         c[api3].public_id = done.public_id, writePrivate(f, JSON.stringify(c, null, 2));
     }
@@ -62769,14 +63300,14 @@ async function publish(cwd, who, opts = {}) {
   }
 }
 function told2(minted) {
-  let f = join23(configDir(), TOLD);
-  if (existsSync15(f))
+  let f = join24(configDir(), TOLD);
+  if (existsSync16(f))
     return "";
   try {
-    privateDir(), writeFileSync12(f, (/* @__PURE__ */ new Date()).toISOString());
+    privateDir(), writeFileSync13(f, (/* @__PURE__ */ new Date()).toISOString());
   } catch {}
   return `
-First publish from this install${minted ? `: it made this install's publish key, kept in ${join23(configDir(), CREDENTIALS)} and never shown` : ""}. Publishing uploads the built files to paprika3d.app, where anyone with the link can open them, and binds the key to this install (install id, agent client and version, model, OS, plugin version and a hashed IP) for every publish, even with DO_NOT_TRACK set, since publishing opts in to hosting. Say this to the person once.`;
+First publish from this install${minted ? `: it made this install's publish key, kept in ${join24(configDir(), CREDENTIALS)} and never shown` : ""}. Publishing uploads the built files to paprika3d.app, where anyone with the link can open them, and binds the key to this install (install id, agent client and version, model, OS, plugin version and a hashed IP) for every publish, even with DO_NOT_TRACK set, since publishing opts in to hosting. Say this to the person once.`;
 }
 var DEFAULT_API = "https://api.paprika3d.app", apiBase = () => (process.env.PAPRIKA3D_PUBLISH_API || DEFAULT_API).replace(/\/+$/, ""), isLocal = (api3) => {
   try {
@@ -62785,30 +63316,30 @@ var DEFAULT_API = "https://api.paprika3d.app", apiBase = () => (process.env.PAPR
   } catch {
     return !1;
   }
-}, scrub2 = (text) => text.replace(/ppk_live_[0-9A-Za-z]*/g, "ppk_live_[hidden]").replace(/\bBearer\s+[^\s"'<>,;]+/gi, "Bearer [hidden]"), configDir = () => process.env.PAPRIKA3D_CONFIG_DIR || join23(process.env.XDG_CONFIG_HOME || join23(homedir4(), ".config"), "paprika3d"), CREDENTIALS = "credentials.json", PROJECTS = "projects.json", TOLD = "publish-told", INVITE_URL = "https://paprika3d.com/waitlist", SKIP_DIRS3, SKIP_FILES, QUIET, MAX_WALK = 20000, MAX_DEPTH = 32, CREDENTIAL, SECRETISH, IMPORTMAP, STATIC, DYNAMIC, URL_REF, SRC, NODE_MODULES, all = (re2, s) => [...s.matchAll(re2)].map((m) => m[1]), CHILD_ENV, childEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => CHILD_ENV.test(k) && !/^PAPRIKA3D_PUBLISH/i.test(k))), readJson = (f) => {
+}, scrub2 = (text) => text.replace(/ppk_live_[0-9A-Za-z]*/g, "ppk_live_[hidden]").replace(/\bBearer\s+[^\s"'<>,;]+/gi, "Bearer [hidden]"), configDir = () => process.env.PAPRIKA3D_CONFIG_DIR || join24(process.env.XDG_CONFIG_HOME || join24(homedir5(), ".config"), "paprika3d"), CREDENTIALS = "credentials.json", PROJECTS = "projects.json", TOLD = "publish-told", INVITE_URL = "https://paprika3d.com/waitlist", SKIP_DIRS3, SKIP_FILES, QUIET, MAX_WALK = 20000, MAX_DEPTH = 32, CREDENTIAL, SECRETISH, IMPORTMAP, STATIC, DYNAMIC, URL_REF, SRC, NODE_MODULES, all = (re2, s) => [...s.matchAll(re2)].map((m) => m[1]), CHILD_ENV, childEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => CHILD_ENV.test(k) && !/^PAPRIKA3D_PUBLISH/i.test(k))), readJson = (f) => {
   try {
-    return JSON.parse(readFileSync20(f, "utf8"));
+    return JSON.parse(readFileSync21(f, "utf8"));
   } catch {
     return {};
   }
-}, unsaved, keyWhere = (c) => c.from === "env" ? "PAPRIKA3D_PUBLISH_KEY" : join23(configDir(), CREDENTIALS), MAX_POW_BITS = 24, withSuffix = (slug2) => `${slug2.slice(0, 35).replace(/-+$/, "")}-${randomUUID2().replace(/-/g, "").slice(0, 4)}`, PublishError, notOpen = (what) => `Not published: publishing to paprika3d.app is not open yet (an invite-only preview), and its server ${what}. Nothing was built or uploaded, and trying again soon will not help. Tell the person they can ask for an invite at ${INVITE_URL}.`, splitClient = (c) => {
+}, unsaved, keyWhere = (c) => c.from === "env" ? "PAPRIKA3D_PUBLISH_KEY" : join24(configDir(), CREDENTIALS), MAX_POW_BITS = 24, withSuffix = (slug3) => `${slug3.slice(0, 35).replace(/-+$/, "")}-${randomUUID2().replace(/-/g, "").slice(0, 4)}`, PublishError, notOpen = (what) => `Not published: publishing to paprika3d.app is not open yet (an invite-only preview), and its server ${what}. Nothing was built or uploaded, and trying again soon will not help. Tell the person they can ask for an invite at ${INVITE_URL}.`, splitClient = (c) => {
   let i = c.lastIndexOf("/");
   return !c || c === "unknown" ? [null, null] : i > 0 ? [c.slice(0, i), c.slice(i + 1)] : [c, null];
 };
 var init_publish = __esm(() => {
   init_rules();
   init_state();
-  SKIP_DIRS3 = /* @__PURE__ */ new Set(["node_modules", "paprika3d", "paprika-loop"]), SKIP_FILES = /* @__PURE__ */ new Set(["game-tests.json", "package.json", "package-lock.json", "bun.lock", "bun.lockb", "yarn.lock", "pnpm-lock.yaml", "CLAUDE.md", "AGENTS.md"]), QUIET = /\.(ts|tsx|jsx|cts|mts|md|lock|yaml|yml|toml|sh|py|log)$|(^|\/)tsconfig[^/]*\.json$/i, CREDENTIAL = /(^|\/|[-_.])(credentials?|secrets?|service[-_]?account(?:[-_]?key)?|private[-_]?key|client[-_]?secret|api[-_]?keys?|(?:api|access|auth|refresh|bearer|oauth|github|npm)[-_]?tokens?|passwords?|keyfile)\.(json|txt|csv|ya?ml|xml|ini|cfg|conf)$/i, SECRETISH = /(credential|secret|service[-_]?account|private[-_]?key|token|password)[^/]*\.(json|txt|csv|ya?ml|xml|ini|cfg|conf)$/i;
+  SKIP_DIRS3 = /* @__PURE__ */ new Set(["node_modules", "paprika3d", "paprika-loop", "refs/study", "refs/sheets", "refs/assets"]), SKIP_FILES = /* @__PURE__ */ new Set(["game-tests.json", "package.json", "package-lock.json", "bun.lock", "bun.lockb", "yarn.lock", "pnpm-lock.yaml", "CLAUDE.md", "AGENTS.md"]), QUIET = /\.(ts|tsx|jsx|cts|mts|md|lock|yaml|yml|toml|sh|py|log)$|(^|\/)tsconfig[^/]*\.json$/i, CREDENTIAL = /(^|\/|[-_.])(credentials?|secrets?|service[-_]?account(?:[-_]?key)?|private[-_]?key|client[-_]?secret|api[-_]?keys?|(?:api|access|auth|refresh|bearer|oauth|github|npm)[-_]?tokens?|passwords?|keyfile)\.(json|txt|csv|ya?ml|xml|ini|cfg|conf)$/i, SECRETISH = /(credential|secret|service[-_]?account|private[-_]?key|token|password)[^/]*\.(json|txt|csv|ya?ml|xml|ini|cfg|conf)$/i;
   IMPORTMAP = /<script\b[^>]*\btype\s*=\s*["']?importmap["']?[^>]*>([\s\S]*?)<\/script>/gi, STATIC = /\b(?:import|export)\s*(?:[\w*{}\s,$]+?\s*from\s*)?["']([^"'\n]+)["']/g, DYNAMIC = /\bimport\s*\(\s*["']([^"'\n]+)["']\s*\)/g, URL_REF = /\bnew\s+URL\s*\(\s*["']([^"'\n]+)["']\s*,\s*import\.meta\.url/g, SRC = /<(?:script|link|img|source|audio|video)\b[^>]*\b(?:src|href)\s*=\s*["']?([^"'\s>]+)/gi, NODE_MODULES = /["'`]((?:\.{0,2}\/)*node_modules\/[^"'`\s?#]+)["'`]/g;
   CHILD_ENV = /^(PATH|HOME|USER|LOGNAME|SHELL|TMPDIR|TMP|TEMP|LANG|LANGUAGE|TERM|TZ|CI|NODE_ENV|NODE_OPTIONS|NODE_PATH|NODE_EXTRA_CA_CERTS|COLORTERM|FORCE_COLOR|NO_COLOR|SYSTEMROOT|WINDIR|COMSPEC|PATHEXT|APPDATA|LOCALAPPDATA|PROGRAMDATA|PROGRAMFILES|USERPROFILE|HOMEDRIVE|HOMEPATH|LC_[A-Z_]+|VITE_[A-Z0-9_]+|XDG_[A-Z_]+)$/i;
   unsaved = /* @__PURE__ */ new Map;
   PublishError = class PublishError extends Error {
     status;
     body;
-    constructor(status, body) {
-      super(scrub2(String(body.reason ?? `HTTP ${status}`)));
+    constructor(status, body2) {
+      super(scrub2(String(body2.reason ?? `HTTP ${status}`)));
       this.status = status;
-      this.body = body;
+      this.body = body2;
     }
   };
 });
@@ -62825,8 +63356,8 @@ __export(exports_server, {
   checkArgs: () => checkArgs,
   answer: () => answer
 });
-import { copyFileSync as copyFileSync2, existsSync as existsSync16, mkdirSync as mkdirSync12, readdirSync as readdirSync8, readFileSync as readFileSync21, rmSync as rmSync6, writeFileSync as writeFileSync13 } from "node:fs";
-import { basename as basename5, join as join24, relative as relative13, resolve as resolve17 } from "node:path";
+import { copyFileSync as copyFileSync2, existsSync as existsSync17, mkdirSync as mkdirSync13, readdirSync as readdirSync8, readFileSync as readFileSync22, rmSync as rmSync6, writeFileSync as writeFileSync14 } from "node:fs";
+import { basename as basename5, join as join25, relative as relative14, resolve as resolve19 } from "node:path";
 import { cpus as cpus3, loadavg as loadavg2 } from "node:os";
 import { createHash as createHash7, randomBytes } from "node:crypto";
 import { createServer as createServer3 } from "node:http";
@@ -62839,13 +63370,13 @@ function slowStart(ms, software = !1) {
     return ms > 3000 ? `The page took ${secs} s to its first frame; expected on this software renderer, nothing to do.` : "";
   return ms > 3000 ? `Slow start: the page took ${secs} s to load and set up before its first frame; a viewer sees nothing that long. Move heavy setup (geometry, canvas textures, shader compiles) off the first frame or make it cheaper.` : "";
 }
-function fit(body) {
-  if (body.length <= MAX_CHARS)
-    return body;
-  let tail = body.slice(body.indexOf(`
-`, body.length - TAIL) + 1 || body.length - TAIL), head = body.slice(0, MAX_CHARS - tail.length - 60);
+function fit(body2) {
+  if (body2.length <= MAX_CHARS)
+    return body2;
+  let tail = body2.slice(body2.indexOf(`
+`, body2.length - TAIL) + 1 || body2.length - TAIL), head = body2.slice(0, MAX_CHARS - tail.length - 60);
   return `${head}
-… (${body.length - head.length - tail.length} characters cut) …
+… (${body2.length - head.length - tail.length} characters cut) …
 ${tail}`;
 }
 function namedOr(cwd, c) {
@@ -62853,7 +63384,7 @@ function namedOr(cwd, c) {
 }
 async function withPicture(g, r, file3) {
   try {
-    let png = readFileSync21(file3).toString("base64"), data = await g.queue(() => g.page.evaluate(async (b64) => {
+    let png = readFileSync22(file3).toString("base64"), data = await g.queue(() => g.page.evaluate(async (b64) => {
       let U2 = Uint8Array, i = await createImageBitmap(new Blob([U2.fromBase64?.(b64) ?? Uint8Array.from(atob(b64), (c2) => c2.charCodeAt(0))], { type: "image/png" })), k = Math.min(1, 1024 / i.width), c = document.createElement("canvas");
       return c.width = Math.round(i.width * k), c.height = Math.round(i.height * k), c.getContext("2d").drawImage(i, 0, 0, c.width, c.height), c.toDataURL("image/jpeg", 0.8).split(",")[1];
     }, png));
@@ -62868,27 +63399,27 @@ function use(name) {
   slots.set(current, { game, cwd, opened, loadedPrint, used: Date.now() }), { game, cwd, opened, loadedPrint } = slots.get(name) ?? { game: null, cwd: "", opened: {}, loadedPrint: "" }, slots.delete(name), current = name;
 }
 async function shot(g, kind) {
-  let path14 = join24(g.runDir, `${kind}-${++shots}.png`);
+  let path14 = join25(g.runDir, `${kind}-${++shots}.png`);
   return await g.page.screenshot({ path: path14 }), path14;
 }
 function ensureRuntime(dir) {
-  let to = join24(dir, "three-runtime.js");
-  if (existsSync16(RUNTIME) && (!existsSync16(to) || !readFileSync21(to).equals(readFileSync21(RUNTIME))))
-    mkdirSync12(dir, { recursive: !0 }), copyFileSync2(RUNTIME, to);
-  if (!existsSync16(join24(dir, "game-runtime.json")))
-    writeFileSync13(join24(dir, "game-runtime.json"), `{}
+  let to = join25(dir, "three-runtime.js");
+  if (existsSync17(RUNTIME) && (!existsSync17(to) || !readFileSync22(to).equals(readFileSync22(RUNTIME))))
+    mkdirSync13(dir, { recursive: !0 }), copyFileSync2(RUNTIME, to);
+  if (!existsSync17(join25(dir, "game-runtime.json")))
+    writeFileSync14(join25(dir, "game-runtime.json"), `{}
 `);
   return `The runtime layer is at ${to}: import { install } from "./three-runtime.js" (or "../three-runtime.js" from src/) and call install() before making the renderer. Never read or edit that file; the harness keeps it current.`;
 }
 function ensureBundles(dir) {
   for (let from2 of BUNDLES) {
-    let to = join24(dir, basename5(from2));
-    if (existsSync16(from2) && (!existsSync16(to) || !readFileSync21(to).equals(readFileSync21(from2))))
-      mkdirSync12(dir, { recursive: !0 }), copyFileSync2(from2, to);
+    let to = join25(dir, basename5(from2));
+    if (existsSync17(from2) && (!existsSync17(to) || !readFileSync22(to).equals(readFileSync22(from2))))
+      mkdirSync13(dir, { recursive: !0 }), copyFileSync2(from2, to);
   }
 }
 function projectSummary(dir) {
-  let files = readdirSync8(dir).filter((f) => !["node_modules", "paprika3d", ".git", "bun.lock", "package-lock.json"].includes(f)), installed2 = ["three", "vite", "@react-three/fiber", "@dimforge/rapier3d-compat"].filter((p) => existsSync16(join24(dir, "node_modules", p)));
+  let files = readdirSync8(dir).filter((f) => !["node_modules", "paprika3d", ".git", "bun.lock", "package-lock.json"].includes(f)), installed2 = ["three", "vite", "@react-three/fiber", "@dimforge/rapier3d-compat"].filter((p) => existsSync17(join25(dir, "node_modules", p)));
   return `Project folder holds: ${files.join(", ") || "nothing yet"}. Installed: ${installed2.join(", ") || "nothing (no node_modules)"}.`;
 }
 function loadedFrom(g, print) {
@@ -62915,7 +63446,7 @@ async function reloadAfter(g, dir, print, opts) {
 }
 function runCheck(g, dir, opts = {}) {
   return g.queue(async () => {
-    let tests = opts.tests ?? (!existsSync16(join24(dir, "game-contract.json")) && existsSync16(join24(dir, TESTS.file)));
+    let tests = opts.tests ?? (!existsSync17(join25(dir, "game-contract.json")) && existsSync17(join25(dir, TESTS.file)));
     if (opts.faults && !tests) {
       let start = Date.now(), print2 = fingerprint(dir), after2 = (game === g ? loadedPrint : [...slots.values()].find((s) => s.game === g)?.loadedPrint) === print2 ? null : await reloadAfter(g, dir, print2, opts);
       return noteRun(dir, print2, { ts: (/* @__PURE__ */ new Date()).toISOString(), kind: "check", passed: 0, failed: 0, durationMs: Date.now() - start, failing: after2?.stale ? void 0 : [] }), { passed: 0, failed: 0, outcomes: [], durationMs: Date.now() - start, fingerprint: print2, text: "", changed: !1, faults: after2?.faults };
@@ -62980,21 +63511,21 @@ function recordPlain(kind, picture, durationMs, extra2 = {}) {
 }
 async function startControl() {
   let server = createServer3(async (req, res) => {
-    let reply = (status, body2) => typeof body2 === "string" ? res.writeHead(status).end(body2) : res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body2));
+    let reply = (status, body3) => typeof body3 === "string" ? res.writeHead(status).end(body3) : res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body3));
     if (req.headers.origin)
       return reply(403, "forbidden");
     if (req.method !== "POST" || new URL(req.url ?? "/", "http://127.0.0.1").pathname !== "/check")
       return reply(404, "not found");
-    let body = await json2(req).catch(() => null);
-    if (body?.token !== token)
+    let body2 = await json2(req).catch(() => null);
+    if (body2?.token !== token)
       return reply(403, "forbidden");
     let { game: game2, cwd: cwd2 } = mainGame();
     if (!game2)
       return reply(409, "no game open");
-    log(`check from the control socket${body.edit ? ` after ${body.edit.file || "a shell command"}` : ""}`);
-    let p = waiting && waiting.game === game2 && !!waiting.ci === !!body.ci && waiting.tests === body.tests && !!waiting.faults === !!body.faults ? waiting : null, mine = p ?? (waiting = { game: game2, ci: body.ci, tests: body.tests, faults: body.faults, edit: body.edit, latest: 0, result: null }), me2 = ++mine.latest;
-    if (body.edit)
-      mine.edit = body.edit;
+    log(`check from the control socket${body2.edit ? ` after ${body2.edit.file || "a shell command"}` : ""}`);
+    let p = waiting && waiting.game === game2 && !!waiting.ci === !!body2.ci && waiting.tests === body2.tests && !!waiting.faults === !!body2.faults ? waiting : null, mine = p ?? (waiting = { game: game2, ci: body2.ci, tests: body2.tests, faults: body2.faults, edit: body2.edit, latest: 0, result: null }), me2 = ++mine.latest;
+    if (body2.edit)
+      mine.edit = body2.edit;
     if (!p) {
       let g = game2, run3 = calls.then(() => {
         if (waiting === mine)
@@ -63032,13 +63563,13 @@ async function reopen() {
   await TOOL_FNS.open(opened);
 }
 function noteTest(g, l, keyFrames = 0, own = !0) {
-  let f = join24(g.runDir, "last-test.json"), was = {};
+  let f = join25(g.runDir, "last-test.json"), was = {};
   try {
-    was = JSON.parse(readFileSync21(f, "utf8"));
+    was = JSON.parse(readFileSync22(f, "utf8"));
   } catch {}
   let faults = l ? faultLines(l).filter((x2) => /^(Lighting|Surfaces|Surface): /.test(x2)) : was.faults ?? [], keys = Math.max(was.keyFrames ?? 0, keyFrames), plain = l ? plainOf(l) : was.plain;
   try {
-    writeFileSync13(f, JSON.stringify({ at: (/* @__PURE__ */ new Date()).toISOString(), faults, ...keys && { keyFrames: keys }, ...plain && { plain } }));
+    writeFileSync14(f, JSON.stringify({ at: (/* @__PURE__ */ new Date()).toISOString(), faults, ...keys && { keyFrames: keys }, ...plain && { plain } }));
   } catch {}
   if (l) {
     lookPrint.set(g, loadedPrint);
@@ -63077,7 +63608,7 @@ async function guarded2(p, name, page2, long = LONG.has(name), start = Date.now(
       let line2 = `\`eval\` ran ${Math.round((now - heard) / 1000)} s without yielding and was stopped; the page is kept. Split the work across calls, or await a 0 ms timer every few hundred iterations (the harness steps the clock once and the page answers).`;
       if (whole && done)
         return p.then((r) => withText(r, `${line2}
-${body(r)}`), () => {
+${body2(r)}`), () => {
           throw new Hung(line2);
         });
     }
@@ -63123,11 +63654,11 @@ function checkArgs(name, args, openCwd, pages = []) {
   let { properties: props, required = [] } = tool.inputSchema, fields = Object.keys(props), has = (k) => Object.hasOwn(props, k);
   if (kind(args) !== "object")
     return `\`${name}\` takes its arguments as an object: ${fields.join(", ")}`;
-  let here = (k) => k === "cwd" && (!openCwd || resolve17(String(args.cwd)) === openCwd), unknown = Object.keys(args).filter((k) => args[k] != null && !has(k) && k !== "game" && !here(k));
+  let here = (k) => k === "cwd" && (!openCwd || resolve19(String(args.cwd)) === openCwd), unknown = Object.keys(args).filter((k) => args[k] != null && !has(k) && k !== "game" && !here(k));
   if (unknown.length)
     return unknown.map((k) => {
       let near = (Object.hasOwn(ALIASES, k) && has(ALIASES[k]) ? ALIASES[k] : void 0) ?? fields.map((f) => ({ f, d: edits(k.toLowerCase(), f.toLowerCase()) })).filter(({ d }) => d <= 3 && 2 * d < k.length).sort((x2, y) => x2.d - y.d)[0]?.f;
-      return `\`${name}\` has no \`${k}\`${k === "cwd" ? `: it works on the game opened from ${openCwd}; \`open\` ${resolve17(String(args.cwd))} first to work there` : near ? `: did you mean \`${near}\`?` : `; its fields are ${fields.join(", ")}`}`;
+      return `\`${name}\` has no \`${k}\`${k === "cwd" ? `: it works on the game opened from ${openCwd}; \`open\` ${resolve19(String(args.cwd))} first to work there` : near ? `: did you mean \`${near}\`?` : `; its fields are ${fields.join(", ")}`}`;
     }).join(`
 `);
   let missing = [];
@@ -63175,7 +63706,7 @@ function call2(name, args) {
   let optimizing = name === "perf" && !!args.optimize, once3 = (start) => answer(name, (async () => {
     use(named2);
     let note = "", from2 = game ? told3.get(game) ?? game.errors.length : 0;
-    if (name !== "open" && gone())
+    if (name !== "open" && gone2())
       await reopen(), note = `${REOPENED}${newRun()}
 `;
     else if (game && (FRESH.has(name) || name === "reference" && args.compare)) {
@@ -63202,16 +63733,16 @@ ${note.trimEnd()}`) : note + r.content[0].text };
     let waited = Date.now() - arrived;
     running = name;
     let start = Date.now(), r = await once3(start);
-    if (r.isError && body(r).includes(NAVIGATED)) {
-      let again = await once3(start), cause = /\n(Vite reloaded it|The dev server reloaded it)[^\n]*/.exec(body(r))?.[0].slice(1) ?? "";
-      r = again.isError && body(again).includes(NAVIGATED) ? withText(again, body(again).replace(NAVIGATED, NAVIGATED_TWICE)) : again.isError ? again : withText(again, RERAN + (cause && `${cause}
-`) + body(again));
+    if (r.isError && body2(r).includes(NAVIGATED)) {
+      let again = await once3(start), cause = /\n(Vite reloaded it|The dev server reloaded it)[^\n]*/.exec(body2(r))?.[0].slice(1) ?? "";
+      r = again.isError && body2(again).includes(NAVIGATED) ? withText(again, body2(again).replace(NAVIGATED, NAVIGATED_TWICE)) : again.isError ? again : withText(again, RERAN + (cause && `${cause}
+`) + body2(again));
     }
     if (running = null, FEEDBACK && r.isError && REPORT_ASK && r.content[0]?.type === "text")
-      r = withText(r, body(r) + REPORT_ASK);
+      r = withText(r, body2(r) + REPORT_ASK);
     if (waited > 5000)
       r = withText(r, `Waited ${Math.round(waited / 1000)} s for ${before === HOOK ? "the after-edit hook's check of the saved checks" : before ? `the \`${before}\` call` : "the calls"} before this one to finish (calls run one at a time).
-` + body(r));
+` + body2(r));
     return r;
   });
   return calls = run3, run3;
@@ -63231,7 +63762,7 @@ function answer(name, p, page2, long, start) {
       if (await game2.reload(void 0, game2.url).then(() => !0, () => !1))
         return fail(message + NAVIGATED + (log2 === game2.serverLog ? reloadCause(game2.serverLog, from2) : ""));
     }
-    if (name !== "open" && gone() && await reopen().then(() => !0, () => !1))
+    if (name !== "open" && gone2() && await reopen().then(() => !0, () => !1))
       return fail(`${message}
 The harness's Chrome closed while this ran, so the harness opened the game again: paused at frame 0. Run the call again.
 ${newRun()}`);
@@ -63253,7 +63784,7 @@ ${said.join(`
 async function handle(method, params) {
   switch (method) {
     case "initialize":
-      return client = [params?.clientInfo?.name, params?.clientInfo?.version].filter(Boolean).join("/") || client, installed(client), { protocolVersion: params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "paprika3d", title: "paprika3d", version: "0.3.2" }, instructions: INSTRUCTIONS };
+      return client = [params?.clientInfo?.name, params?.clientInfo?.version].filter(Boolean).join("/") || client, installed(client), { protocolVersion: params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "paprika3d", title: "paprika3d", version: "0.4.0" }, instructions: INSTRUCTIONS };
     case "ping":
       return {};
     case "tools/list":
@@ -63313,7 +63844,7 @@ async function serve() {
   }
   await stop();
 }
-var MAX_CHARS = 15000, TAIL = 2500, WORK_IS = "paused frames, each timed from its step to the end of its GPU work, with no wait for the display", workText = (w2) => `${w2.ms} ms ${w2.drew ? `a frame that drew (the median of ${w2.drew})` : `a frame (the median of ${w2.frames}; none called three's render)`}, ${w2.cpuMs} ms of it the frame's code; ${w2.meanMs} ms a frame on average over ${w2.frames} stepped, the slowest ${w2.maxMs} ms`, PACED = "headless Chrome runs frames back to back only while each one draws something new, and a frame that presents nothing new waits for the 60 Hz tick (a render skipped, or a canvas not drawn to every frame).", saidGpu = "", text = (body) => ({ content: [{ type: "text", text: fit(body) }] }), fail = (body) => ({ ...text(body), isError: !0 }), log = (s) => console.error(`paprika3d: ${s}`), LEAN = !1, SHORT2, short = (tool, t) => SHORT2 ? shortText(tool, t) : t, CONTRACT = !1, CWD, VIDEO = !1, RECORD, NETWORK, TOOLS, GAME, HIDDEN, LOOP_NOTES, LISTED, described, client = "unknown", game = null, cwd = "", control = null, shots = 0, chrome2, opened, loadedPrint = "", slots, current = "main", MAX_GAMES = 4, slotOf = (name) => current === name ? { game, cwd, opened } : slots.get(name) ?? { game: null, cwd: "", opened: {} }, mainGame = () => slotOf("main"), token, RUNTIME, BUNDLES, contractOrNull = (dir, ci = !1) => {
+var MAX_CHARS = 15000, TAIL = 2500, WORK_IS = "paused frames, each timed from its step to the end of its GPU work, with no wait for the display", workText = (w2) => `${w2.ms} ms ${w2.drew ? `a frame that drew (the median of ${w2.drew})` : `a frame (the median of ${w2.frames}; none called three's render)`}, ${w2.cpuMs} ms of it the frame's code; ${w2.meanMs} ms a frame on average over ${w2.frames} stepped, the slowest ${w2.maxMs} ms`, PACED = "headless Chrome runs frames back to back only while each one draws something new, and a frame that presents nothing new waits for the 60 Hz tick (a render skipped, or a canvas not drawn to every frame).", saidGpu = "", text = (body2) => ({ content: [{ type: "text", text: fit(body2) }] }), fail = (body2) => ({ ...text(body2), isError: !0 }), log = (s) => console.error(`paprika3d: ${s}`), LEAN = !1, SHORT2, short = (tool, t) => SHORT2 ? shortText(tool, t) : t, CONTRACT = !1, CWD, VIDEO = !1, RECORD, NETWORK, TOOLS, GAME, HIDDEN, LOOP_NOTES, LISTED, described, client = "unknown", game = null, cwd = "", control = null, shots = 0, chrome2, opened, loadedPrint = "", slots, current = "main", MAX_GAMES = 4, slotOf = (name) => current === name ? { game, cwd, opened } : slots.get(name) ?? { game: null, cwd: "", opened: {} }, mainGame = () => slotOf("main"), token, RUNTIME, BUNDLES, contractOrNull = (dir, ci = !1) => {
   if (!CONTRACT)
     return null;
   try {
@@ -63347,20 +63878,20 @@ Measured with the page's JavaScript slowed ${t}× (a weak laptop); the GPU was n
     throw Error('save: a name of letters, digits, - or _, as "pickup"');
 }, savedVerb = (dir, name) => {
   try {
-    return (JSON.parse(readFileSync21(join24(dir, "game-tests.json"), "utf8")).keypoints ?? []).some((k) => k?.id === name) ? "Replaced" : "Saved";
+    return (JSON.parse(readFileSync22(join25(dir, "game-tests.json"), "utf8")).keypoints ?? []).some((k) => k?.id === name) ? "Replaced" : "Saved";
   } catch {
     return "Saved";
   }
 }, TOOL_FNS, INSTRUCTIONS = "Use these tools, the `paprika` server's, rather than a Playwright or Chrome DevTools script, to run, see, test, play or profile any three.js, React Three Fiber or other WebGL page, new or existing, in Chrome or Firefox: a game, a viewer, a product configurator, a simulation, a shader or post-processing demo. `open` runs the page in headless Chrome (by default) on a paused, seeded clock, so the same inputs always give the same frames and state; `look` shows what a viewer sees and lists what is on screen and what never appears (a model loaded at the wrong scale, out of view or not loaded at all shows only there). `look`'s `Lighting:` and `Surfaces:` lines name the object, where it is and the number that fixes it. Search for the tool by what you need: `look` to see the page, `interact` to play it, `observe` to read its state, `eval` to run code in it, `feel` to measure how an event reacts, `perf` to time it against a budget, `model_run` to build a model in code (three and Manifold, as in Blender) and `model_look` to see it from four sides, saved as a .glb the page loads, `asset_search` for a ready-made model (57,732, CC BY or CC0), PBR texture or HDRI sky from the hosted library. Calls run one at a time: a call made while another still runs, one moved to the background included, waits for it to finish, and its reply starts with how long it waited.", calls, running = null, HOOK = "after-edit hook", FRESH, reloaded = (ms) => `Reloaded (sources changed), ran on the new code from frame 0 (ready in ${(ms / 1000).toFixed(1)} s).
 `, HOOK_RESET = `The after-edit hook reran its checks since your last call, so the page restarted at frame 0.
 `, REOPENED = `Reopened first: the game's page had closed (a call before this one hung, or Chrome was killed or crashed), so the game was opened again and this ran from frame 0.
-`, newRun = () => `Run folder: ${game.runDir}`, gone = () => !!game && (game.page.isClosed() || !game.page.browser().connected), keyFramesOf = (steps = [], ran) => !steps.some((s) => ("key" in s) || ("mouse" in s) || ("touch" in s) || ("wheel" in s) || ("scroll" in s)) ? 0 : ran ?? steps.reduce((n, s) => n + Number(("wait" in s ? s.wait : ("frames" in s) ? s.frames : 1) ?? 1), 0), LIMIT_MS, BOUND_MS, LONG, Hung, hung = (name, what) => {
+`, newRun = () => `Run folder: ${game.runDir}`, gone2 = () => !!game && (game.page.isClosed() || !game.page.browser().connected), keyFramesOf = (steps = [], ran) => !steps.some((s) => ("key" in s) || ("mouse" in s) || ("touch" in s) || ("wheel" in s) || ("scroll" in s)) ? 0 : ran ?? steps.reduce((n, s) => n + Number(("wait" in s ? s.wait : ("frames" in s) ? s.frames : 1) ?? 1), 0), LIMIT_MS, BOUND_MS, LONG, Hung, hung = (name, what) => {
   let load = loadavg2()[0], cores = cpus3().length, busy = load > cores * 2;
   return new Hung(`\`${name}\` ${what}, so the harness closed its page: the next call opens the game again at frame 0. ${busy ? `The host is busy (load ${load.toFixed(0)} on ${cores} cores), which can starve the page: run the call again before looking for a loop. If it hangs again, find` : "Find"} what never ends before running it again: an endless loop in the game or in code you ran, or a frame that waits on something that never comes (a network request, audio, a worker).`);
 }, sleep5 = (ms) => new Promise((r) => setTimeout(r, ms)), told3, OWN_ERRORS, NAVIGATED = `
 The page navigated while this ran, so the harness reloaded it: paused at frame 0. Run the call again. Do not reload the page yourself: after an edit, the next call reloads it.`, NAVIGATED_TWICE = `
 The page navigated under this call twice, and the harness reloaded it each time: paused at frame 0. Something reloads the page: your own code (location.reload, location.href, a redirect), a dev server's live reload after an edit (edit first, then call, not both in one turn), or Vite optimizing a dependency the page imported late. Find it before running the call again.`, RERAN = `The page navigated during the first try of this call, so the harness reloaded it and ran the call again.
-`, body = (r) => r.content[0]?.type === "text" ? r.content[0].text : "", withText = (r, t) => ({ ...r, content: [{ type: "text", text: t }, ...r.content.slice(r.content[0]?.type === "text" ? 1 : 0)] }), ALIASES, kind = (v2) => Array.isArray(v2) ? "array" : v2 === null ? "null" : typeof v2, an = (t) => `${/^[aeiou]/.test(t) ? "an" : "a"} ${t}`, about = (p) => p.description ? `: ${p.description}` : "", heard;
+`, body2 = (r) => r.content[0]?.type === "text" ? r.content[0].text : "", withText = (r, t) => ({ ...r, content: [{ type: "text", text: t }, ...r.content.slice(r.content[0]?.type === "text" ? 1 : 0)] }), ALIASES, kind = (v2) => Array.isArray(v2) ? "array" : v2 === null ? "null" : typeof v2, an = (t) => `${/^[aeiou]/.test(t) ? "an" : "a"} ${t}`, about = (p) => p.description ? `: ${p.description}` : "", heard;
 var init_server = __esm(() => {
   init_browser2();
   init_record();
@@ -63488,8 +64019,12 @@ var init_server = __esm(() => {
     },
     {
       name: "model_run",
-      description: "Runs JavaScript against the modelling scene: a three.js scene this server keeps between calls, apart from any page, for building a model in code as in Blender, then saving it as a .glb the page loads. The code is an async function body with THREE, scene, geo (Manifold, started: geo.Manifold, geo.CrossSection, geo.toGeometry(manifold), geo.toManifold(geometry), geo.boolean(op, a, ...b)), scatter, find(name), stats(target) (vertices, triangles, bounds, closed, volume, genus per mesh), load(path) (a .glb from the project, an asset_search pick included, added to the scene and returned), save(path, object = scene) (a GLB under cwd; replies with its size and the line that loads it) and clear() in scope, and returns what it returns, as JSON, with up to 5 lines it logged. What it adds to scene stays for the next call and is saved to paprika3d/model/scene.glb after each run that changed it, so a restart loads it back; variables (a Manifold) do not last between calls. Manifold works in metres with Z up and angles in degrees; three is Y up. Name every object you make: model_look lists them by name.",
-      inputSchema: { type: "object", properties: { cwd: CWD, code: { type: "string", description: 'An async function body, e.g. `const { Manifold, toGeometry } = geo; const m = Manifold.cube([1, 1, 1], true).subtract(Manifold.sphere(0.65, 48)); const mesh = new THREE.Mesh(toGeometry(m), new THREE.MeshStandardMaterial({ color: 0xb08050 })); mesh.name = "block"; scene.add(mesh); return stats(mesh)`.' } }, required: ["cwd", "code"] }
+      description: "Runs JavaScript against the modelling scene: a three.js scene this server keeps between calls, apart from any page, for building a model in code as in Blender, then saving it as a .glb the page loads. The code is an async function body with THREE, scene, geo (Manifold, started: geo.Manifold, geo.CrossSection, geo.toGeometry(manifold), geo.toManifold(geometry), geo.boolean(op, a, ...b)), scatter, find(name), stats(target) (vertices, triangles, bounds, closed, volume, genus per mesh), load(path) (a .glb, .obj or .fbx from the project, an asset_search pick included, added to the scene and returned), save(path, object = scene) (a GLB under cwd; replies with its size and the line that loads it) and clear() in scope, and returns what it returns, as JSON, with up to 5 lines it logged. What it adds to scene stays for the next call and is saved to paprika3d/model/scene.glb after each run that changed it, so a restart loads it back; variables (a Manifold) do not last between calls. Manifold works in metres with Z up and angles in degrees; three is Y up. Name every object you make: model_look lists them by name.",
+      inputSchema: { type: "object", properties: {
+        cwd: CWD,
+        code: { type: "string", description: 'An async function body, e.g. `const { Manifold, toGeometry } = geo; const m = Manifold.cube([1, 1, 1], true).subtract(Manifold.sphere(0.65, 48)); const mesh = new THREE.Mesh(toGeometry(m), new THREE.MeshStandardMaterial({ color: 0xb08050 })); mesh.name = "block"; scene.add(mesh); return stats(mesh)`.' },
+        searched: { type: "string", description: 'Optional: why this is built in code ("by design: terrain"), logged for the critic.' }
+      }, required: ["cwd", "code"] }
     },
     {
       name: "model_look",
@@ -63546,11 +64081,31 @@ var init_server = __esm(() => {
         image: { type: "string", description: "Models only: a picture under cwd (refs/01.jpg) or a look baseline's name, to rank models by how alike they look to it (with query, by both); the reply shows the image searched with." },
         crop: { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4, description: "With image: [left, top, right, bottom] in the picture's pixels, as `reference` reads them: the one thing to find, cut out of the scene." },
         sheet: { type: "boolean", description: "false leaves out the contact sheet, the picture of the shown hits' thumbnails in one row, numbered as the lines are (on by default)." },
+        save: { type: "string", description: "Also save the contact sheet to this .jpg under cwd." },
         pick: { type: "string", description: "An id to download, or the start of one that no other hit shown in this project (in any session) starts with." },
         height: { type: "number", description: "With pick: scale a model to this many units tall." },
         textures: { type: "boolean", description: "With pick: false saves a model's geometry only, every texture dropped (for a model you colour or texture yourself)." },
         format: { type: "string", enum: ["glb", "usd"], description: "Models only. In a search, only models with a file of this format; with pick, the file to download: a model with both is saved as its GLB unless this is usd, and one with only a USD file (.usdz) as that, loaded with three's USDLoader (r183 or later)." },
         model: { type: "string", description: 'Optional: your own model name, e.g. "claude-opus-5-5", sent with model searches and picks only, so the library can learn which agents its picks suit; nothing else about the session.' }
+      }, required: ["cwd"] }
+    },
+    {
+      name: "sheet",
+      description: "Picture sheets for paprika-make's brief, and which image and 3D model keys this machine has. `check: true` names the keys found (never a value) and the running jobs; `pictures` with no provider composes a free sheet in Chrome (refs/sheets/LOOK.png, or `out`); `provider` and `prompt` make a look board, or start a turnaround or GLB model job, billed to the person's key. Details: skills/paprika-make/sheets.md.",
+      inputSchema: { type: "object", properties: {
+        cwd: CWD,
+        check: { type: "boolean", description: "Name the keys found, the recommendations and the jobs; nothing else is done." },
+        remember: { type: "string", enum: ["yes", "ask"], description: `"yes" keeps the person's yes to picture sheets across projects; "ask" forgets it.` },
+        pictures: { type: "array", maxItems: 12, items: { type: "object", properties: { file: { type: "string" }, crop: { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4 }, label: { type: "string" } }, required: ["file"] }, description: "Files under cwd, each with an optional crop [left, top, right, bottom] and label." },
+        palette: { type: "array", maxItems: 12, items: { anyOf: [{ type: "string" }, { type: "object", properties: { hex: { type: "string" }, label: { type: "string" } }, required: ["hex"] }] }, description: "#rrggbb swatches, each with an optional name." },
+        notes: { type: "string", description: "One line under the free sheet." },
+        title: { type: "string" },
+        out: { type: "string", description: "The free sheet's .png or .jpg under cwd." },
+        provider: { type: "string", description: 'A provider `check` found, or "auto".' },
+        kind: { type: "string", enum: ["look", "board", "turnaround", "model"], description: "look (free) without a provider; board, turnaround or model with one." },
+        prompt: { type: "string", description: "With a provider: what to make." },
+        name: { type: "string", description: "With a provider: the file's name." },
+        model: { type: "string", description: "With a provider: a model other than the table's." }
       }, required: ["cwd"] }
     },
     {
@@ -63560,19 +64115,19 @@ var init_server = __esm(() => {
     }
   ], GAME = { type: "string", description: 'The name the game was opened under with the `open` tool, to act on ("main" by default; a subagent uses its own).' };
   for (let t of TOOLS)
-    if (!["contract", "asset_search", "model_audit", "model_run", "model_look", "publish"].includes(t.name))
+    if (!["contract", "asset_search", "model_audit", "model_run", "model_look", "sheet", "publish"].includes(t.name))
       t.inputSchema.properties.game = GAME;
   HIDDEN = [...CONTRACT ? [] : ["contract", "check"], ...LEAN ? [] : ["invariants"]], LOOP_NOTES = CONTRACT ? { open: " When cwd holds a game contract, the result ends with its first check.", perf: " With optimize, it ends with the final `check` of the whole contract." } : {}, LISTED = TOOLS.filter((t) => !HIDDEN.includes(t.name)).map((t) => LOOP_NOTES[t.name] ? { ...t, description: t.description + LOOP_NOTES[t.name] } : t);
   if (FEEDBACK)
     LISTED.push(REPORT_TOOL);
   described = /* @__PURE__ */ new Map, opened = {}, slots = /* @__PURE__ */ new Map;
   token = randomBytes(24).toString("hex");
-  RUNTIME = resolve17(import.meta.dirname, "../runtime/dist/index.js");
-  BUNDLES = ["geo/dist/geo.js", "fx/dist/fx.js"].map((f) => resolve17(import.meta.dirname, "..", f));
+  RUNTIME = resolve19(import.meta.dirname, "../runtime/dist/index.js");
+  BUNDLES = ["geo/dist/geo.js", "fx/dist/fx.js"].map((f) => resolve19(import.meta.dirname, "..", f));
   TESTS = { ci: !0, file: "game-tests.json" }, lastFull = /* @__PURE__ */ new WeakMap, hookReset = /* @__PURE__ */ new WeakSet, hookFaults = /* @__PURE__ */ new WeakMap, lookPrint = /* @__PURE__ */ new WeakMap, owed = /* @__PURE__ */ new WeakSet;
   TOOL_FNS = {
     async contract(a2) {
-      let dir = resolve17(a2.cwd), brief = join24(dir, "paprika3d", "contract-brief.md"), draft = join24(dir, "paprika3d", "contract-draft.json"), src = existsSync16(draft) ? readFileSync21(draft, "utf8") : null, raw = null;
+      let dir = resolve19(a2.cwd), brief = join25(dir, "paprika3d", "contract-brief.md"), draft = join25(dir, "paprika3d", "contract-draft.json"), src = existsSync17(draft) ? readFileSync22(draft, "utf8") : null, raw = null;
       try {
         raw = src === null ? null : JSON.parse(src);
       } catch (e) {
@@ -63583,7 +64138,7 @@ var init_server = __esm(() => {
       if (typeof raw?.prompt === "string" && raw.prompt.trim() !== String(a2.prompt).trim())
         rmSync6(draft), raw = null;
       if (!raw)
-        return harnessDir(dir), writeFileSync13(brief, `${contractInstructions(a2.prompt)}
+        return harnessDir(dir), writeFileSync14(brief, `${contractInstructions(a2.prompt)}
 
 Write the JSON to ${draft} (nothing else). Then call the \`contract\` tool with cwd ${JSON.stringify(dir)} and, as prompt, the PROMPT text above, and reply with exactly the text it returns, nothing else.
 `), text(`Brief written to ${brief}. Start a fresh subagent with the Agent tool, in the foreground (not in the background), model sonnet, with exactly this prompt and nothing else:
@@ -63600,10 +64155,10 @@ It issues the contract and replies with the keypoints and the observe() schema; 
 ${keep ? `Fix ${draft}` : `Write ${draft} again, with the prompt in "prompt",`} and call \`contract\` again with the same prompt.`);
       }
       rmSync6(draft, { force: !0 });
-      let hash = createHash7("sha256").update(readFileSync21(join24(dir, "game-contract.json"))).digest("hex"), state = issueContract(dir, hash, c.issued), runDir = join24(dir, "paprika3d", "runs", c.issued.replace(/[:.]/g, "-"));
-      mkdirSync12(runDir, { recursive: !0 });
-      let copy = join24(runDir, "game-contract.json");
-      return writeFileSync13(copy, JSON.stringify(c, null, 2) + `
+      let hash = createHash7("sha256").update(readFileSync22(join25(dir, "game-contract.json"))).digest("hex"), state = issueContract(dir, hash, c.issued), runDir = join25(dir, "paprika3d", "runs", c.issued.replace(/[:.]/g, "-"));
+      mkdirSync13(runDir, { recursive: !0 });
+      let copy = join25(runDir, "game-contract.json");
+      return writeFileSync14(copy, JSON.stringify(c, null, 2) + `
 `), recordRun({
         cwd: dir,
         kind: "contract",
@@ -63625,7 +64180,7 @@ Open it with \`open\`, then call \`check\` after each change: a failure says whi
 ${projectSummary(dir)}`);
     },
     async open(a2) {
-      let again = !!game && resolve17(a2.cwd) === cwd;
+      let again = !!game && resolve19(a2.cwd) === cwd;
       if (again && !a2.command && opened.command && typeof a2.url === "string" && /^https?:\/\//.test(a2.url) && new URL(a2.url).origin === new URL(game.url).origin)
         a2 = { ...a2, command: opened.command };
       let repeat = again && JSON.stringify(a2) === JSON.stringify(opened), size = a2.size;
@@ -63640,15 +64195,15 @@ ${projectSummary(dir)}`);
       if (a2.browser !== void 0)
         refuse(a2.browser, a2);
       let engine2 = a2.browser === void 0 ? void 0 : BROWSERS[a2.browser];
-      if (!existsSync16(resolve17(a2.cwd)))
-        throw Error(`cwd ${resolve17(a2.cwd)} does not exist; pass the game project's folder`);
+      if (!existsSync17(resolve19(a2.cwd)))
+        throw Error(`cwd ${resolve19(a2.cwd)} does not exist; pass the game project's folder`);
       await closeGame();
       let others = [...slots].filter(([k, v2]) => v2.game && k !== "main");
       if (others.length + (current !== "main" && slots.get("main")?.game ? 1 : 0) + 1 > MAX_GAMES && others.length) {
         let [k, v2] = others.sort((x2, y) => x2[1].used - y[1].used)[0];
         slots.delete(k), evicted = k, await v2.game.queue(() => v2.game.close()).catch(() => {});
       }
-      cwd = resolve17(a2.cwd), ensureBundles(cwd);
+      cwd = resolve19(a2.cwd), ensureBundles(cwd);
       let inChrome = a2.browser === void 0 || a2.browser === "chrome";
       if (inChrome && !a2.window && !(await chrome2?.catch(() => null))?.connected)
         chrome2 = launchChrome2();
@@ -63693,7 +64248,7 @@ ${l}`).join(""), named2 = current === "main" ? "" : ` as game "${current}"${evic
       if (ON) {
         let page2 = await game.page.evaluate("({ three: window.__THREE__ ?? null, game: !!window.__game, webgpu: !!window.__harness?.renderers?.some(r => r.isWebGPURenderer) })").catch(() => ({})), models = game.loads.filter((l) => /\.(glb|gltf|usd[acz]?)(\?|$)/i.test(l.name)), r3f = (() => {
           try {
-            return readFileSync21(join24(cwd, "package.json"), "utf8").includes('"@react-three/fiber"');
+            return readFileSync22(join25(cwd, "package.json"), "utf8").includes('"@react-three/fiber"');
           } catch {
             return !1;
           }
@@ -63740,14 +64295,14 @@ Run folder: ${game.runDir}`);
         }
       });
       noteTest(g, void 0, keyFramesOf(a2.steps, r.framesRun));
-      let reply = capAct(r.after, r.changed), verb = a2.save !== void 0 ? savedVerb(cwd, a2.save) : "Saved", n = a2.save !== void 0 && r.passed ? saveTest(cwd, a2.save, a2.steps ?? [], predicates(a2.expect)) : 0, saved = a2.save === void 0 ? "" : !n ? "Not saved: an Expect entry failed, and a saved check must pass when it is saved." : `${verb} check "${a2.save}" in game-tests.json (${n === 1 ? "1 check" : `${n} checks`} now); \`test\` reruns them all, each from a fresh reload${n === 1 ? ", and the after-edit hook reruns them after each edit, speaking only when one starts or stops failing" : ""}.`, body = JSON.stringify({ ...reply, ...hovered && { hover: hovered }, ...logs.length > 0 && { logs }, ...errors.length > 0 && { errors: uniq2(errors.map((e) => e.split(`
+      let reply = capAct(r.after, r.changed), verb = a2.save !== void 0 ? savedVerb(cwd, a2.save) : "Saved", n = a2.save !== void 0 && r.passed ? saveTest(cwd, a2.save, a2.steps ?? [], predicates(a2.expect)) : 0, saved = a2.save === void 0 ? "" : !n ? "Not saved: an Expect entry failed, and a saved check must pass when it is saved." : `${verb} check "${a2.save}" in game-tests.json (${n === 1 ? "1 check" : `${n} checks`} now); \`test\` reruns them all, each from a fresh reload${n === 1 ? ", and the after-edit hook reruns them after each edit, speaking only when one starts or stops failing" : ""}.`, body2 = JSON.stringify({ ...reply, ...hovered && { hover: hovered }, ...logs.length > 0 && { logs }, ...errors.length > 0 && { errors: uniq2(errors.map((e) => e.split(`
 `)[0].slice(0, 300)), 5) } }) + [r.motion, r.sound, r.hint, r.traceText, r.expect, saved, r.clip && clipText(r.clip, g), r.video && videoText(r.video)].map((l2) => l2 ? `
 ${l2}` : "").join(""), strip = r.clip?.strip ?? r.video?.strip;
       if (!a2.look)
-        return strip ? withPicture(g, text(body), strip) : text(body);
+        return strip ? withPicture(g, text(body2), strip) : text(body2);
       let start = Date.now(), l = await look(g, { edited: edited(g), hint: !SHORT2 }), lt = short("interact", lookText(l));
       recordPlain("look", l.picture, Date.now() - start), noteTest(g, l);
-      let both = await withPicture(g, text(`${body}
+      let both = await withPicture(g, text(`${body2}
 ${lt}${strip ? `
 The reply's pictures: look's after the steps, then the ${r.clip ? "clip" : "video"}'s four moments.` : ""}`), l.picture);
       return strip ? withPicture(g, both, strip) : both;
@@ -63923,8 +64478,8 @@ ${lightsText(lights)}`;
       let more = `Textures ${p.textureMB} MB on the GPU (largest ${p.textureMax} px), ${p.programs} shader programs, pixel ratio ${p.pixelRatio}, heap ${p.heapMB ?? "unknown"} MB, ${p.longTasks} long tasks, ${p.gcPauses} frames over 3× the median (GC-like pauses); noise between two samples ${p.noiseMs} ms.`, work = p.work ? `
 Work per frame: ${workText(p.work)}; ${WORK_IS}.${p.work.paced ? ` The ${p.median} ms between frames is pacing, not work, so the budget judged the work: ${PACED}` : ""}` : "", fetched = p.assets.length || p.unsized ? `
 Assets are the files this load fetched${p.assets.length ? `, largest ${p.assets.map((x2) => `${x2.name} ${x2.MB} MB`).join(", ")}` : ""}${p.unsized ? `; ${p.unsized} more gave no size (from another origin without Timing-Allow-Origin, or cached), so the total leaves them out` : ""}.` : "", big = p.overBudget.includes("assetMB") ? p.assets[0]?.file : void 0, fix = !big ? "" : /\.(gl(b|tf)|usd[acz]?)$/i.test(big) ? `
-${shrinkFix(relative13(cwd, big), Math.min(1024, budget.textureMax))}` : /\.(png|jpe?g|webp|avif|gif|bmp|ktx2|hdr|exr)$/i.test(big) ? `
-Fix: resize or compress ${relative13(cwd, big)}.` : "";
+${shrinkFix(relative14(cwd, big), Math.min(1024, budget.textureMax))}` : /\.(png|jpe?g|webp|avif|gif|bmp|ktx2|hdr|exr)$/i.test(big) ? `
+Fix: resize or compress ${relative14(cwd, big)}.` : "";
       return text(`${p.median} ms median frame (p95 ${p.p95} ms, ${p.fps} fps on average), ${p.calls} draw calls, ${p.triangles} triangles, ${p.assetMB} MB assets; ${over}${hitch}${slowed(a2.throttle)}${proxy}${scripts}${lightLine}${work}${fetched}${fix}
 ${loaded(p)}
 ${hostLoad()} ${gpuLine2(g)}
@@ -63940,34 +64495,34 @@ ${passesText(p.passes)}` : ""}${costs(p)}`);
       return text((await runCheck(g, cwd, { tests: !0, reload: !1 })).text);
     },
     async model_audit(a2) {
-      let dir = resolve17(a2.cwd);
+      let dir = resolve19(a2.cwd);
       if (!a2.shrink)
         return text(assetsText(dir, a2.path ?? ".", a2.target ?? "site"));
-      let file3 = resolve17(dir, a2.path ?? "");
+      let file3 = resolve19(dir, a2.path ?? "");
       if (a2.path && USD.test(file3))
         throw Error(`model_audit: shrink rewrites .glb and .gltf files only: ${CONVERT(a2.path)}`);
-      if (!a2.path || !existsSync16(file3) || !/\.gl(b|tf)$/i.test(file3))
+      if (!a2.path || !existsSync17(file3) || !/\.gl(b|tf)$/i.test(file3))
         throw Error("model_audit: shrink rewrites one .glb or .gltf file: give it as path");
       let resize = typeof a2.shrink.textures === "number";
       if (resize && !(await chrome2?.catch(() => null))?.connected)
         chrome2 = launchChrome2();
-      let s = await shrink(file3, { textures: a2.shrink.textures, out: a2.shrink.out && resolve17(dir, a2.shrink.out) }, resize ? chrome2 : void 0);
+      let s = await shrink(file3, { textures: a2.shrink.textures, out: a2.shrink.out && resolve19(dir, a2.shrink.out) }, resize ? chrome2 : void 0);
       return text(shrinkText(dir, file3, s, a2.target ?? "site"));
     },
     async model_run(a2) {
       if (!(await chrome2?.catch(() => null))?.connected)
         chrome2 = launchChrome2();
-      let r = await modelRun(chrome2, resolve17(a2.cwd), a2.code);
+      let r = await modelRun(chrome2, resolve19(a2.cwd), a2.code, a2.searched);
       return r.failed ? fail(r.text) : text(r.text);
     },
     async model_look(a2) {
       if (!(await chrome2?.catch(() => null))?.connected)
         chrome2 = launchChrome2();
-      let r = await modelLook(chrome2, resolve17(a2.cwd), { object: a2.object, cameras: a2.cameras, size: a2.size });
+      let r = await modelLook(chrome2, resolve19(a2.cwd), { object: a2.object, cameras: a2.cameras, size: a2.size });
       return { content: [{ type: "text", text: r.text }, ...r.jpeg ? [{ type: "image", data: r.jpeg, mimeType: "image/jpeg" }] : []] };
     },
     async reference(a2) {
-      let dir = resolve17(a2.cwd), { file: file3, name } = pictureFile(dir, a2.file), lookPng, kept = !1;
+      let dir = resolve19(a2.cwd), { file: file3, name } = pictureFile(dir, a2.file), lookPng, kept = !1;
       if (a2.compare) {
         if (!game)
           throw Error("reference: compare needs the page open: call `open` first, or leave compare out to read the picture alone");
@@ -63985,30 +64540,38 @@ ${passesText(p.passes)}` : ""}${costs(p)}`);
     async asset_search(a2) {
       let { search: search2, pick: pick3 } = await Promise.resolve().then(() => (init_asset(), exports_asset)), agent = a2.model || client;
       if (a2.pick)
-        return text(await pick3(a2.pick, a2.kind ?? "model", resolve17(a2.cwd), agent, a2.height, a2.textures, a2.format));
+        return text(await pick3(a2.pick, a2.kind ?? "model", resolve19(a2.cwd), agent, a2.height, a2.textures, a2.format));
       let shared = async () => {
         if (!(await chrome2?.catch(() => null))?.connected)
           chrome2 = launchChrome2();
         return chrome2;
       }, cut;
       if (a2.image) {
-        let { file: file3, name } = pictureFile(resolve17(a2.cwd), a2.image);
+        let { file: file3, name } = pictureFile(resolve19(a2.cwd), a2.image);
         cut = (await reference(shared(), { file: file3, crop: a2.crop }, name)).jpeg;
       }
-      let s = await search2({ ...a2, image: cut }, agent, a2.cwd && resolve17(a2.cwd), a2.sheet === !1 ? void 0 : shared), jpeg = (data) => ({ type: "image", data, mimeType: "image/jpeg" });
+      let s = await search2({ ...a2, image: cut }, agent, a2.cwd && resolve19(a2.cwd), a2.sheet === !1 ? void 0 : shared), jpeg = (data) => ({ type: "image", data, mimeType: "image/jpeg" });
       return { content: [{ type: "text", text: s.text }, ...cut ? [jpeg(cut)] : [], ...s.sheet ? [jpeg(s.sheet)] : []] };
+    },
+    async sheet(a2) {
+      let { sheet: sheet3 } = await Promise.resolve().then(() => (init_sheet(), exports_sheet)), r = await sheet3(() => {
+        if (!chrome2)
+          chrome2 = launchChrome2();
+        return chrome2.then((b2) => b2.connected ? b2 : chrome2 = launchChrome2());
+      }, a2);
+      return { content: [{ type: "text", text: r.text }, ...r.jpeg ? [{ type: "image", data: r.jpeg, mimeType: "image/jpeg" }] : []] };
     }
   }, calls = Promise.resolve(), FRESH = /* @__PURE__ */ new Set(["observe", "eval", "interact", "look", "feel"]);
   if (FEEDBACK)
     TOOL_FNS[REPORT_TOOL.name] = async (a2) => text(await reportTool(a2, game?.runDir));
   TOOL_FNS.publish = async (a2) => {
     let { publish: publish2 } = await Promise.resolve().then(() => (init_publish(), exports_publish));
-    return text(await publish2(resolve17(a2.cwd), { client, model: a2.model }, { slug: a2.slug, rotate: a2.rotate === !0 }));
+    return text(await publish2(resolve19(a2.cwd), { client, model: a2.model }, { slug: a2.slug, rotate: a2.rotate === !0 }));
   };
   LIMIT_MS = Number(process.env.PAPRIKA3D_CALL_LIMIT_MS) || 600000, BOUND_MS = Number(process.env.PAPRIKA3D_BOUND_MS) || 30000, LONG = /* @__PURE__ */ new Set(["open", "check", "contract", "test"]);
   Hung = class Hung extends Error {
   };
-  told3 = /* @__PURE__ */ new WeakMap, OWN_ERRORS = /* @__PURE__ */ new Set(["open", "observe", "interact", "eval", "check", "invariants", "test", "contract", "asset_search", "model_audit", "model_run", "model_look", "publish"]);
+  told3 = /* @__PURE__ */ new WeakMap, OWN_ERRORS = /* @__PURE__ */ new Set(["open", "observe", "interact", "eval", "check", "invariants", "test", "contract", "asset_search", "model_audit", "model_run", "model_look", "sheet", "publish"]);
   ALIASES = { expression: "code", js: "code", script: "code", width: "size", height: "size", path: "file", q: "query", prompt: "query" };
   heard = /* @__PURE__ */ new WeakMap;
 });
@@ -64035,9 +64598,9 @@ __export(exports_loop, {
   loop: () => loop
 });
 import { spawn as spawn7, spawnSync as spawnSync4 } from "node:child_process";
-import { createWriteStream as createWriteStream3, existsSync as existsSync17, mkdirSync as mkdirSync13, readFileSync as readFileSync22, renameSync as renameSync3, rmSync as rmSync7, unwatchFile, watchFile, writeFileSync as writeFileSync14 } from "node:fs";
+import { createWriteStream as createWriteStream3, existsSync as existsSync18, mkdirSync as mkdirSync14, readFileSync as readFileSync23, renameSync as renameSync3, rmSync as rmSync7, unwatchFile, watchFile, writeFileSync as writeFileSync15 } from "node:fs";
 import { createHash as createHash8 } from "node:crypto";
-import { join as join25, sep as sep5 } from "node:path";
+import { join as join26, sep as sep7 } from "node:path";
 function latestOf(progress) {
   let sections = progress.split(/^(?=## Iteration \d|### Judge \d|## The request changed)/m), last4 = (head) => sections.findLastIndex((s) => s.startsWith(head)), builder = last4("## Iteration"), judge = last4("### Judge"), note = last4("## The request changed");
   return ["The last builder's section and the last judge's verdict; paprika-loop/PROGRESS.md holds every session's.", ...[builder, judge, note > judge ? note : -1].filter((i) => i >= 0).sort((a2, b2) => a2 - b2).map((i) => sections[i].trim())].join(`
@@ -64080,7 +64643,7 @@ function session(o, prompt, systemFile, turns, file3, judge, killAt, resume) {
     ...plugin && o.pluginDir ? ["--plugin-dir", o.pluginDir] : [],
     ...resume ? ["--resume", resume] : []
   ], { CLAUDECODE, CLAUDE_CODE_ENTRYPOINT, ...env2 } = process.env;
-  return new Promise((resolve18) => {
+  return new Promise((resolve20) => {
     let [bin, ...pre] = claude.split(" ").filter(Boolean), proc = spawn7(bin, [...pre, ...args], { cwd: o.cwd, env: env2, stdio: ["ignore", "pipe", "pipe"] }), out = createWriteStream3(file3), buf = "", text2 = "", scored = null, result = null, err = "", done = !1, exit, sessionId, line2 = (l) => {
       let msg;
       try {
@@ -64120,7 +64683,7 @@ function session(o, prompt, systemFile, turns, file3, judge, killAt, resume) {
       if (out.end(), !result && err.trim())
         console.error(`paprika-loop: ${err.trim().split(`
 `).at(-1)}`);
-      resolve18({
+      resolve20({
         ok: !!result,
         text: text2,
         scored,
@@ -64144,38 +64707,38 @@ async function loop(opts) {
     minIterationMinutes: 5,
     claude: "claude",
     idleStop: !1,
-    builderPrompt: join25(ROOT, "skills", "paprika-loop", "builder.md"),
-    judgePrompt: join25(ROOT, "skills", "paprika-loop", "judge.md"),
-    pluginDir: ROOT.includes(`${sep5}plugins${sep5}cache${sep5}`) ? void 0 : ROOT,
+    builderPrompt: join26(ROOT, "skills", "paprika-loop", "builder.md"),
+    judgePrompt: join26(ROOT, "skills", "paprika-loop", "judge.md"),
+    pluginDir: ROOT.includes(`${sep7}plugins${sep7}cache${sep7}`) ? void 0 : ROOT,
     ...opts
-  }, dir = join25(o.cwd, "paprika-loop"), progress = join25(dir, "PROGRESS.md"), status = join25(dir, "loop.json"), promptFile = join25(dir, "PROMPT.md"), handoff = () => writeFileSync14(join25(dir, "LATEST.md"), latestOf(readFileSync22(progress, "utf8"))), brief = () => existsSync17(promptFile) ? readFileSync22(promptFile, "utf8") : "";
-  mkdirSync13(dir, { recursive: !0 });
-  let ignore = join25(dir, ".gitignore"), ignored = existsSync17(ignore) ? readFileSync22(ignore, "utf8") : `*.jsonl
+  }, dir = join26(o.cwd, "paprika-loop"), progress = join26(dir, "PROGRESS.md"), status = join26(dir, "loop.json"), promptFile = join26(dir, "PROMPT.md"), handoff = () => writeFileSync15(join26(dir, "LATEST.md"), latestOf(readFileSync23(progress, "utf8"))), brief = () => existsSync18(promptFile) ? readFileSync23(promptFile, "utf8") : "";
+  mkdirSync14(dir, { recursive: !0 });
+  let ignore = join26(dir, ".gitignore"), ignored = existsSync18(ignore) ? readFileSync23(ignore, "utf8") : `*.jsonl
 `;
   if (!/^\.revision\*$/m.test(ignored))
-    writeFileSync14(ignore, ignored.trimEnd() + `
+    writeFileSync15(ignore, ignored.trimEnd() + `
 .revision*
 `);
-  let before = existsSync17(status) ? JSON.parse(readFileSync22(status, "utf8")) : {}, previous2 = existsSync17(promptFile) ? readFileSync22(promptFile, "utf8") : null;
+  let before = existsSync18(status) ? JSON.parse(readFileSync23(status, "utf8")) : {}, previous2 = existsSync18(promptFile) ? readFileSync23(promptFile, "utf8") : null;
   if (previous2?.trim() !== o.prompt.trim())
-    writeFileSync14(promptFile, o.prompt.trim() + `
+    writeFileSync15(promptFile, o.prompt.trim() + `
 `);
-  if (!existsSync17(progress))
-    writeFileSync14(progress, "# Progress\n\nThe request is in PROMPT.md. Each session of the loop appends one section here: a builder's `## Iteration n` (Did, Saw, Next, Open) and the judge's `### Judge n` (its scores, Next). LATEST.md holds the last of each, rewritten by the loop after every session; the next builder reads the latest Judge's Next there first.\n");
+  if (!existsSync18(progress))
+    writeFileSync15(progress, "# Progress\n\nThe request is in PROMPT.md. Each session of the loop appends one section here: a builder's `## Iteration n` (Did, Saw, Next, Open) and the judge's `### Judge n` (its scores, Next). LATEST.md holds the last of each, rewritten by the loop after every session; the next builder reads the latest Judge's Next there first.\n");
   handoff();
-  let revision = join25(dir, ".revision"), lastPrompt = before.brief ?? previous2 ?? brief(), seen2 = "", written = null, fresh = () => {
+  let revision = join26(dir, ".revision"), lastPrompt = before.brief ?? previous2 ?? brief(), seen2 = "", written = null, fresh = () => {
     rmSync7(revision, { force: !0 }), seen2 = brief(), written = null;
   };
   if (watchFile(promptFile, { interval: 1000 }, () => {
     let now = brief();
-    if (written !== null && !existsSync17(revision))
+    if (written !== null && !existsSync18(revision))
       seen2 = written;
     let changes = diffLines(seen2, now);
     if (!changes) {
       rmSync7(revision, { force: !0 }), written = null;
       return;
     }
-    writeFileSync14(revision, `paprika-loop/PROMPT.md changed while this session runs; what changed is what the person wants next:
+    writeFileSync15(revision, `paprika-loop/PROMPT.md changed while this session runs; what changed is what the person wants next:
 ${changes}
 `), written = now;
   }).unref(), spawnSync4("git", ["rev-parse", "--is-inside-work-tree"], { cwd: o.cwd, stdio: "ignore" }).status !== 0)
@@ -64188,7 +64751,7 @@ ${changes}
   for (let n = (iterations.at(-1)?.n ?? 0) + 1;(deadline - Date.now()) / 60000 >= o.minIterationMinutes; n++) {
     let t0 = Date.now(), left = Math.round((deadline - t0) / 60000), head0 = spawnSync4("git", ["rev-parse", "-q", "--verify", "HEAD"], { cwd: o.cwd, encoding: "utf8" }).stdout.trim() || EMPTY_TREE(o.cwd), now = brief(), changes = diffLines(lastPrompt, now);
     if (lastPrompt = now, changes)
-      writeFileSync14(progress, readFileSync22(progress, "utf8").trimEnd() + `
+      writeFileSync15(progress, readFileSync23(progress, "utf8").trimEnd() + `
 
 ## The request changed
 
@@ -64199,7 +64762,7 @@ ${changes}
       briefFrom = iterations.length;
     let last32 = iterations.slice(briefFrom).filter((i) => i.score !== null).slice(-3), flat = last32.length === 3 && last32.every((i) => i.score === last32[0].score) ? ` The last three judges (iterations ${last32[0].n} to ${last32[2].n}) each scored ${last32[0].score}: what those sessions changed did not move the score.` : "";
     fresh();
-    let b2 = await session(o, BUILDER_PROMPT(n, left, iterations.length === 0, !!changes, flat), o.builderPrompt, o.builderTurns, join25(dir, `stream-${n}.jsonl`), !1, deadline + GRACE_MS);
+    let b2 = await session(o, BUILDER_PROMPT(n, left, iterations.length === 0, !!changes, flat), o.builderPrompt, o.builderTurns, join26(dir, `stream-${n}.jsonl`), !1, deadline + GRACE_MS);
     if (b2.ok)
       crashes = 0;
     else if (++crashes > 1) {
@@ -64210,15 +64773,15 @@ ${changes}
       stopped = b2.limit;
       break;
     }
-    if (!new RegExp(`^## Iteration ${n}\\b`, "m").test(readFileSync22(progress, "utf8")))
-      writeFileSync14(progress, readFileSync22(progress, "utf8").trimEnd() + `
+    if (!new RegExp(`^## Iteration ${n}\\b`, "m").test(readFileSync23(progress, "utf8")))
+      writeFileSync15(progress, readFileSync23(progress, "utf8").trimEnd() + `
 
 ## Iteration ${n}
 
 ${b2.text.trim() || "(no reply)"}
 `);
-    if (handoff(), existsSync17(join25(o.cwd, "node_modules")) && spawnSync4("git", ["check-ignore", "-q", "node_modules"], { cwd: o.cwd }).status !== 0)
-      writeFileSync14(join25(o.cwd, ".gitignore"), (existsSync17(join25(o.cwd, ".gitignore")) ? readFileSync22(join25(o.cwd, ".gitignore"), "utf8").trimEnd() + `
+    if (handoff(), existsSync18(join26(o.cwd, "node_modules")) && spawnSync4("git", ["check-ignore", "-q", "node_modules"], { cwd: o.cwd }).status !== 0)
+      writeFileSync15(join26(o.cwd, ".gitignore"), (existsSync18(join26(o.cwd, ".gitignore")) ? readFileSync23(join26(o.cwd, ".gitignore"), "utf8").trimEnd() + `
 ` : "") + `node_modules/
 `);
     if (spawnSync4("git", ["ls-files", "--error-unmatch", "node_modules"], { cwd: o.cwd, stdio: "ignore" }).status === 0)
@@ -64239,10 +64802,10 @@ ${b2.text.trim() || "(no reply)"}
     }
     if (changed) {
       stale = 0, fresh();
-      let judged = briefKey(brief()), j2 = await session(o, JUDGE_PROMPT(n), o.judgePrompt, o.judgeTurns, join25(dir, `judge-stream-${n}.jsonl`), !0, deadline + GRACE_MS);
+      let judged = briefKey(brief()), j2 = await session(o, JUDGE_PROMPT(n), o.judgePrompt, o.judgeTurns, join26(dir, `judge-stream-${n}.jsonl`), !0, deadline + GRACE_MS);
       if (j2.ok && !j2.limit && j2.sessionId && !j2.scored) {
         fresh();
-        let more = await session(o, VERDICT_PROMPT, o.judgePrompt, 2, join25(dir, `judge-stream-${n}-verdict.jsonl`), !0, deadline + GRACE_MS, j2.sessionId), keep = !more.scored && SCORE_LINE.test(j2.text) ? { text: j2.text } : {};
+        let more = await session(o, VERDICT_PROMPT, o.judgePrompt, 2, join26(dir, `judge-stream-${n}-verdict.jsonl`), !0, deadline + GRACE_MS, j2.sessionId), keep = !more.scored && SCORE_LINE.test(j2.text) ? { text: j2.text } : {};
         if (more.text.trim())
           j2 = { ...more, ok: !0, turns: j2.turns + more.turns, ...more.ok ? {} : { tokens: j2.tokens, costUsd: j2.costUsd }, ...keep };
       }
@@ -64251,8 +64814,8 @@ ${b2.text.trim() || "(no reply)"}
         break;
       }
       let verdict2 = (j2.scored ?? j2.text).replace(/^#+\s*Judge[^\n]*\n/, "").trim();
-      if (writeFileSync14(join25(dir, `judge-${n}.md`), verdict2 + `
-`), writeFileSync14(progress, readFileSync22(progress, "utf8").trimEnd() + `
+      if (writeFileSync15(join26(dir, `judge-${n}.md`), verdict2 + `
+`), writeFileSync15(progress, readFileSync23(progress, "utf8").trimEnd() + `
 
 ### Judge ${n}
 
@@ -64281,7 +64844,7 @@ ${verdict2 || "(no reply)"}
 `);
   if (stopped)
     console.error(`paprika-loop: stopped, usage limit: ${stopped}`);
-  return writeFileSync14(join25(dir, "REPORT.md"), text2 + `
+  return writeFileSync15(join26(dir, "REPORT.md"), text2 + `
 `), { iterations, best, text: text2 };
 }
 var PLUGIN_TOOL = "mcp__plugin_paprika3d_paprika__", ALLOWED, NO_PUBLISH, JUDGE_DISALLOWED, NO_PLUGIN, GRACE_MS = 300000, EXIT_MS = 1e4, ROOT, HOOK2, SETTINGS = (plugin) => JSON.stringify({ ...plugin ? {} : NO_PLUGIN, hooks: { PostToolUse: [{ hooks: [{ type: "command", command: `test -f "\${CLAUDE_PROJECT_DIR:-.}/paprika-loop/.revision" && exec ${HOOK2} || true`, timeout: 5 }] }] } }), BUILDER_PROMPT = (n, left, first2, changed, flat = "") => `This is session ${n} of a loop that builds the request in paprika-loop/PROMPT.md; about ${left} minutes of the loop are left, and this session does as many of the improvements as fit in it. First read paprika-loop/LATEST.md (the last builder's section and the last judge's verdict; PROGRESS.md holds every session's, for history) and run \`git log --oneline -5\`. ${first2 ? "Nothing is built yet: write the page whole and as impressive as you can make it from the request, risks welcome, then run and polish it with the tools." : `The latest "Judge" section's Next list is the judge's three next improvements; the tools show what each change did.`}${changed ? " paprika-loop/PROMPT.md changed since the last session: LATEST.md shows the changed lines, and the Judge's Next list was written before them." : ""}${flat} Then append a section \`## Iteration ${n}\` to paprika-loop/PROGRESS.md with four short parts: Did, Saw (the look's numbers and fault lines), Next, Open. Write it while you still have room, then stop: no summary.`, JUDGE_PROMPT = (n) => `You judge session ${n} of a loop that builds the request in paprika-loop/PROMPT.md. Read it and paprika-loop/LATEST.md (PROGRESS.md holds every session's section), open the page with the \`open\` tool and judge it as your instructions say. Reply with a section the next builder will read: the scores from 1 to 10, one line each with the evidence in the page's own object names; then "Next:" and the three improvements your instructions ask for, concrete enough to start on (each checked against the last Iteration's Did and Open: what was done there is not asked again, and what its Open records as found nothing or impossible needs a different way); then, on its own last line, \`SCORE: n\` with the mean to one decimal.`, VERDICT_PROMPT = "Your turns are up. Write the verdict now from what you saw: the score lines, Next, and `SCORE: n` on the last line.", SCORE_LINE, VERDICT_END, EMPTY_TREE = (cwd2) => spawnSync4("git", ["hash-object", "-t", "tree", "--stdin"], { cwd: cwd2, input: "", encoding: "utf8" }).stdout.trim(), lines2 = (s) => s.split(`
@@ -64292,15 +64855,15 @@ var PLUGIN_TOOL = "mcp__plugin_paprika3d_paprika__", ALLOWED, NO_PUBLISH, JUDGE_
     throw Error(`git ${args[0]}: ${r.stderr.trim()}`);
   return r.stdout.trim();
 }, writeJson = (file3, data) => {
-  writeFileSync14(`${file3}.tmp`, JSON.stringify(data, null, 2) + `
+  writeFileSync15(`${file3}.tmp`, JSON.stringify(data, null, 2) + `
 `), renameSync3(`${file3}.tmp`, file3);
 };
 var init_loop = __esm(() => {
-  ALLOWED = `Bash,Edit,Write,Read,Glob,Grep,${PLUGIN_TOOL}*`, NO_PUBLISH = `${PLUGIN_TOOL}publish`, JUDGE_DISALLOWED = `Edit,Write,NotebookEdit,Bash,${NO_PUBLISH}`, NO_PLUGIN = { enabledPlugins: { "paprika3d@paprika3d": !1, "paprika3d@paprika3d-dev": !1 } }, ROOT = join25(import.meta.dirname, ".."), HOOK2 = existsSync17(join25(ROOT, "hooks", "revision.js")) ? `node '${join25(ROOT, "hooks", "revision.js")}'` : `bun run '${join25(ROOT, "hooks", "revision.ts")}'`, SCORE_LINE = /^[\s*_`]*SCORE:\**\s*(\d+(?:\.\d+)?)/m, VERDICT_END = /^[\s*_`]*SCORE:\**\s*\d+(?:\.\d+)?(?:\s*\/\s*10)?[\s*_`.]*$/;
+  ALLOWED = `Bash,Edit,Write,Read,Glob,Grep,${PLUGIN_TOOL}*`, NO_PUBLISH = `${PLUGIN_TOOL}publish`, JUDGE_DISALLOWED = `Edit,Write,NotebookEdit,Bash,${NO_PUBLISH}`, NO_PLUGIN = { enabledPlugins: { "paprika3d@paprika3d": !1, "paprika3d@paprika3d-dev": !1 } }, ROOT = join26(import.meta.dirname, ".."), HOOK2 = existsSync18(join26(ROOT, "hooks", "revision.js")) ? `node '${join26(ROOT, "hooks", "revision.js")}'` : `bun run '${join26(ROOT, "hooks", "revision.ts")}'`, SCORE_LINE = /^[\s*_`]*SCORE:\**\s*(\d+(?:\.\d+)?)/m, VERDICT_END = /^[\s*_`]*SCORE:\**\s*\d+(?:\.\d+)?(?:\s*\/\s*10)?[\s*_`.]*$/;
 });
 
-import { existsSync as existsSync18, readFileSync as readFileSync23 } from "fs";
-import { join as join26, resolve as resolve18 } from "path";
+import { existsSync as existsSync19, readFileSync as readFileSync24 } from "fs";
+import { join as join27, resolve as resolve20 } from "path";
 import { spawnSync as spawnSync5 } from "child_process";
 
 init_state();
@@ -64413,19 +64976,19 @@ function readState2(cwd) {
 }
 
 function selfInstall() {
-  let root = join26(import.meta.dirname, ".."), run3 = (cmd) => {
+  let root = join27(import.meta.dirname, ".."), run3 = (cmd) => {
     if (spawnSync5(cmd[0], cmd.slice(1), { cwd: root, stdio: ["ignore", 2, 2] }).status !== 0)
       console.error(`paprika3d: ${cmd.join(" ")} failed in ${root}`), process.exit(1);
   };
-  if (!existsSync18(join26(root, "node_modules", "puppeteer-core")))
+  if (!existsSync19(join27(root, "node_modules", "puppeteer-core")))
     run3([process.execPath, "install", "--frozen-lockfile"]);
-  if (!existsSync18(join26(root, "runtime", "dist", "index.js")))
+  if (!existsSync19(join27(root, "runtime", "dist", "index.js")))
     run3([process.execPath, "runtime/build.ts"]);
-  if (!existsSync18(join26(root, "geo", "dist", "studio.js")))
+  if (!existsSync19(join27(root, "geo", "dist", "studio.js")))
     run3([process.execPath, "geo/build.ts"]);
-  if (!existsSync18(join26(root, "fx", "dist", "fx.js")))
+  if (!existsSync19(join27(root, "fx", "dist", "fx.js")))
     run3([process.execPath, "fx/build.ts"]);
-  if (!existsSync18(join26(root, "state", "dist", "physics-worker.js")))
+  if (!existsSync19(join27(root, "state", "dist", "physics-worker.js")))
     run3([process.execPath, "state/build.ts"]);
 }
 if (import.meta.filename.endsWith(".ts"))
@@ -64464,7 +65027,7 @@ switch (REPO || !["contract-lint", "bench"].includes(cmd) ? cmd : void 0) {
     await serve2();
     break;
   case "check": {
-    let dir = resolve18(value("--cwd") ?? "."), url2 = value("--url"), command2 = value("--command"), ci = flag("--ci"), json3 = flag("--json"), ref = value("--edit-ref"), edit = ref ? { ref, file: value("--edit-file") ?? "", time: value("--edit-time") ?? (/* @__PURE__ */ new Date()).toISOString(), session: value("--session") ?? "" } : void 0;
+    let dir = resolve20(value("--cwd") ?? "."), url2 = value("--url"), command2 = value("--command"), ci = flag("--ci"), json3 = flag("--json"), ref = value("--edit-ref"), edit = ref ? { ref, file: value("--edit-file") ?? "", time: value("--edit-time") ?? (/* @__PURE__ */ new Date()).toISOString(), session: value("--session") ?? "" } : void 0;
     try {
       let s = readState2(dir), r = (!url2 || url2 === s.url) && (!command2 || command2 === s.command) ? await askServer(dir, { edit, ci }, s.server) : null, footer = process.env.PAPRIKA3D_TESTED_WITH ? (await Promise.resolve().then(() => exports_tested_with)).testedWith(process.env, json3) : "", print = (r2) => console.log(json3 ? JSON.stringify({ passed: r2.passed, failed: r2.failed, changed: r2.changed, text: r2.text }) : r2.text + footer);
       if (r)
@@ -64485,7 +65048,7 @@ switch (REPO || !["contract-lint", "bench"].includes(cmd) ? cmd : void 0) {
     for (let f of args) {
       let errs;
       try {
-        errs = validateContract(JSON.parse(readFileSync23(f, "utf8")));
+        errs = validateContract(JSON.parse(readFileSync24(f, "utf8")));
       } catch (e) {
         errs = [e.message];
       }
@@ -64517,14 +65080,14 @@ switch (REPO || !["contract-lint", "bench"].includes(cmd) ? cmd : void 0) {
     break;
   }
   case "loop": {
-    let file3 = value("--prompt-file"), prompt = value("--prompt") ?? (file3 ? readFileSync23(file3, "utf8") : void 0), minutes = Number(value("--minutes"));
+    let file3 = value("--prompt-file"), prompt = value("--prompt") ?? (file3 ? readFileSync24(file3, "utf8") : void 0), minutes = Number(value("--minutes"));
     if (!prompt || !(minutes > 0))
       console.error(USAGE), process.exit(1);
     let { loop: loop2 } = await Promise.resolve().then(() => (init_loop(), exports_loop)), path14 = (name) => {
       let v2 = value(name);
-      return v2 ? resolve18(v2) : void 0;
+      return v2 ? resolve20(v2) : void 0;
     }, opts = {
-      cwd: resolve18(value("--cwd") ?? "."),
+      cwd: resolve20(value("--cwd") ?? "."),
       prompt,
       minutes,
       model: value("--model"),

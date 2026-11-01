@@ -169,8 +169,9 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { cwd: CWD, path: { type: "string", description: "A .glb, .gltf or USD file, or a folder to report every one under, relative to cwd." },
       target: { type: "string", enum: ["site", "shopify"], description: "What to judge the files against (site by default)." },
       shrink: { type: "object", properties: { textures: { anyOf: [{ const: false }, { type: "number" }] }, out: { type: "string" } }, description: "Rewrite the file smaller: textures false drops them all (geometry only), a number caps each texture's longer side at that many pixels (WebP); out is the new file (<name>-opt.glb by default). Replies with before and after." } }, required: ["cwd"] } },
-  { name: "model_run", description: "Runs JavaScript against the modelling scene: a three.js scene this server keeps between calls, apart from any page, for building a model in code as in Blender, then saving it as a .glb the page loads. The code is an async function body with THREE, scene, geo (Manifold, started: geo.Manifold, geo.CrossSection, geo.toGeometry(manifold), geo.toManifold(geometry), geo.boolean(op, a, ...b)), scatter, find(name), stats(target) (vertices, triangles, bounds, closed, volume, genus per mesh), load(path) (a .glb from the project, an asset_search pick included, added to the scene and returned), save(path, object = scene) (a GLB under cwd; replies with its size and the line that loads it) and clear() in scope, and returns what it returns, as JSON, with up to 5 lines it logged. What it adds to scene stays for the next call and is saved to paprika3d/model/scene.glb after each run that changed it, so a restart loads it back; variables (a Manifold) do not last between calls. Manifold works in metres with Z up and angles in degrees; three is Y up. Name every object you make: model_look lists them by name.",
-    inputSchema: { type: "object", properties: { cwd: CWD, code: { type: "string", description: "An async function body, e.g. `const { Manifold, toGeometry } = geo; const m = Manifold.cube([1, 1, 1], true).subtract(Manifold.sphere(0.65, 48)); const mesh = new THREE.Mesh(toGeometry(m), new THREE.MeshStandardMaterial({ color: 0xb08050 })); mesh.name = \"block\"; scene.add(mesh); return stats(mesh)`." } }, required: ["cwd", "code"] } },
+  { name: "model_run", description: "Runs JavaScript against the modelling scene: a three.js scene this server keeps between calls, apart from any page, for building a model in code as in Blender, then saving it as a .glb the page loads. The code is an async function body with THREE, scene, geo (Manifold, started: geo.Manifold, geo.CrossSection, geo.toGeometry(manifold), geo.toManifold(geometry), geo.boolean(op, a, ...b)), scatter, find(name), stats(target) (vertices, triangles, bounds, closed, volume, genus per mesh), load(path) (a .glb, .obj or .fbx from the project, an asset_search pick included, added to the scene and returned), save(path, object = scene) (a GLB under cwd; replies with its size and the line that loads it) and clear() in scope, and returns what it returns, as JSON, with up to 5 lines it logged. What it adds to scene stays for the next call and is saved to paprika3d/model/scene.glb after each run that changed it, so a restart loads it back; variables (a Manifold) do not last between calls. Manifold works in metres with Z up and angles in degrees; three is Y up. Name every object you make: model_look lists them by name.",
+    inputSchema: { type: "object", properties: { cwd: CWD, code: { type: "string", description: "An async function body, e.g. `const { Manifold, toGeometry } = geo; const m = Manifold.cube([1, 1, 1], true).subtract(Manifold.sphere(0.65, 48)); const mesh = new THREE.Mesh(toGeometry(m), new THREE.MeshStandardMaterial({ color: 0xb08050 })); mesh.name = \"block\"; scene.add(mesh); return stats(mesh)`." },
+      searched: { type: "string", description: "Optional: why this is built in code (\"by design: terrain\"), logged for the critic." } }, required: ["cwd", "code"] } },
   { name: "model_look", description: "Shows the modelling scene that `model_run` builds: one picture of it (or of `object`) from the front, right and top (orthographic, so sizes read true against the grid) and a three-quarter view, under a neutral studio light with a ground grid whose step it states, and one line per object: name, type, place, turn and scale, material (colour, roughness, metalness) and, for a mesh, triangles, size, whether it is closed, its volume and genus. With `object`, that object in full; with `cameras`, those views instead of the four.",
     inputSchema: { type: "object", properties: { cwd: CWD, object: { type: "string", description: "The name of an object in the modelling scene: frame the picture to it and list it in full." },
       cameras: { type: "array", maxItems: 9, description: "Up to 9 views in place of the four, each { label, position, lookAt } in the scene's metres (lookAt defaults to the middle of what is framed).", items: { type: "object", properties: { position: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 }, lookAt: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 }, label: { type: "string" } }, required: ["position", "label"] } },
@@ -199,17 +200,31 @@ const TOOLS = [
       image: { type: "string", description: "Models only: a picture under cwd (refs/01.jpg) or a look baseline's name, to rank models by how alike they look to it (with query, by both); the reply shows the image searched with." },
       crop: { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4, description: "With image: [left, top, right, bottom] in the picture's pixels, as `reference` reads them: the one thing to find, cut out of the scene." },
       sheet: { type: "boolean", description: "false leaves out the contact sheet, the picture of the shown hits' thumbnails in one row, numbered as the lines are (on by default)." },
+      save: { type: "string", description: "Also save the contact sheet to this .jpg under cwd." },
       pick: { type: "string", description: "An id to download, or the start of one that no other hit shown in this project (in any session) starts with." }, height: { type: "number", description: "With pick: scale a model to this many units tall." },
       textures: { type: "boolean", description: "With pick: false saves a model's geometry only, every texture dropped (for a model you colour or texture yourself)." },
       format: { type: "string", enum: ["glb", "usd"], description: "Models only. In a search, only models with a file of this format; with pick, the file to download: a model with both is saved as its GLB unless this is usd, and one with only a USD file (.usdz) as that, loaded with three's USDLoader (r183 or later)." },
       model: { type: "string", description: "Optional: your own model name, e.g. \"claude-opus-5-5\", sent with model searches and picks only, so the library can learn which agents its picks suit; nothing else about the session." } }, required: ["cwd"] } },
+  // paprika-make's picture sheets and the image and 3D key check (docs/plan-make-sheets-2026-10-30.md); paid only with a provider named
+  { name: "sheet", description: "Picture sheets for paprika-make's brief, and which image and 3D model keys this machine has. `check: true` names the keys found (never a value) and the running jobs; `pictures` with no provider composes a free sheet in Chrome (refs/sheets/LOOK.png, or `out`); `provider` and `prompt` make a look board, or start a turnaround or GLB model job, billed to the person's key. Details: skills/paprika-make/sheets.md.",
+    inputSchema: { type: "object", properties: { cwd: CWD, check: { type: "boolean", description: "Name the keys found, the recommendations and the jobs; nothing else is done." },
+      remember: { type: "string", enum: ["yes", "ask"], description: "\"yes\" keeps the person's yes to picture sheets across projects; \"ask\" forgets it." },
+      pictures: { type: "array", maxItems: 12, items: { type: "object", properties: { file: { type: "string" }, crop: { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4 }, label: { type: "string" } }, required: ["file"] }, description: "Files under cwd, each with an optional crop [left, top, right, bottom] and label." },
+      palette: { type: "array", maxItems: 12, items: { anyOf: [{ type: "string" }, { type: "object", properties: { hex: { type: "string" }, label: { type: "string" } }, required: ["hex"] }] }, description: "#rrggbb swatches, each with an optional name." },
+      notes: { type: "string", description: "One line under the free sheet." }, title: { type: "string" },
+      out: { type: "string", description: "The free sheet's .png or .jpg under cwd." },
+      provider: { type: "string", description: "A provider `check` found, or \"auto\"." },
+      kind: { type: "string", enum: ["look", "board", "turnaround", "model"], description: "look (free) without a provider; board, turnaround or model with one." },
+      prompt: { type: "string", description: "With a provider: what to make." },
+      name: { type: "string", description: "With a provider: the file's name." },
+      model: { type: "string", description: "With a provider: a model other than the table's." } }, required: ["cwd"] } },
   // in both builds (docs/plan-publish-2026-10-25.md, Jessica 2026-10-25)
   { name: "publish", description: "Publishes the project at https://<slug>.paprika3d.app (public; preview, invite-only), only when the person asks; never for another host. Never read or print ~/.config/paprika3d/credentials.json: this tool reads the key.",
     inputSchema: { type: "object", properties: { cwd: CWD, slug: { type: "string", description: "Subdomain (default: project name)." }, model: { type: "string", description: "Your model id." }, rotate: { type: "boolean", description: "Only replace this install's key." } }, required: ["cwd"] } },
 ];
 // every page tool takes the name of the game it works on (named games, at use() below)
 const GAME = { type: "string", description: "The name the game was opened under with the `open` tool, to act on (\"main\" by default; a subagent uses its own)." };
-for (const t of TOOLS) if (!["contract", "asset_search", "model_audit", "model_run", "model_look", "publish"].includes(t.name)) (t.inputSchema.properties as Record<string, unknown>).game = GAME;
+for (const t of TOOLS) if (!["contract", "asset_search", "model_audit", "model_run", "model_look", "sheet", "publish"].includes(t.name)) (t.inputSchema.properties as Record<string, unknown>).game = GAME;
 // the contract loop adds the contract and its check, the lean loop the spec-free invariants
 const HIDDEN = [...CONTRACT ? [] : ["contract", "check"], ...LEAN ? [] : ["invariants"]];
 const LOOP_NOTES: Record<string, string> = CONTRACT ? { open: " When cwd holds a game contract, the result ends with its first check.", perf: " With optimize, it ends with the final `check` of the whole contract." } : {};
@@ -873,7 +888,7 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
   // the modelling scene is a page of the shared Chrome, launched when first needed, as reference's canvas is
   async model_run(a) {
     if (!(await chrome?.catch(() => null))?.connected) chrome = launchChrome();
-    const r = await modelRun(chrome!, resolve(a.cwd), a.code);
+    const r = await modelRun(chrome!, resolve(a.cwd), a.code, a.searched);
     return r.failed ? fail(r.text) : text(r.text);
   },
   async model_look(a) {
@@ -906,6 +921,13 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
     const s = await search({ ...a, image: cut }, agent, a.cwd && resolve(a.cwd), a.sheet === false ? undefined : shared);
     const jpeg = (data: string): Content => ({ type: "image", data, mimeType: "image/jpeg" });
     return { content: [{ type: "text", text: s.text }, ...cut ? [jpeg(cut)] : [], ...s.sheet ? [jpeg(s.sheet)] : []] };
+  },
+  async sheet(a) {
+    const { sheet } = await import("./sheet.ts");
+    // the free sheet and any crop are drawn in the shared Chrome's canvas, launched when first needed
+    const shared = () => { if (!chrome) chrome = launchChrome(); return chrome.then(b => b.connected ? b : (chrome = launchChrome())); };
+    const r = await sheet(shared, a as never);
+    return { content: [{ type: "text", text: r.text }, ...r.jpeg ? [{ type: "image" as const, data: r.jpeg, mimeType: "image/jpeg" }] : []] };
   },
 };
 
@@ -1043,7 +1065,7 @@ export async function guarded<T>(p: Promise<T>, name: string, page: () => Game |
 // raised; the other page tools did not, so a frame loop that threw every frame read "within budget" in `perf` and a
 // shader that failed to compile read as objects "never visible" in `look` (AA-3D full-1).
 const told = new WeakMap<Game, number>();
-const OWN_ERRORS = new Set(["open", "observe", "interact", "eval", "check", "invariants", "test", "contract", "asset_search", "model_audit", "model_run", "model_look", "publish"]);
+const OWN_ERRORS = new Set(["open", "observe", "interact", "eval", "check", "invariants", "test", "contract", "asset_search", "model_audit", "model_run", "model_look", "sheet", "publish"]);
 /** Page errors, the same ones counted once each, or "" when there are none. */
 export function errorsText(errors: string[]): string {
   if (!errors.length) return "";

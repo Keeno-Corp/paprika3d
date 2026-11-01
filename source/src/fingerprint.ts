@@ -7,7 +7,9 @@ import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { extname, join, sep } from "node:path";
 import { createHash } from "node:crypto";
 
-const SKIP_DIRS = new Set(["node_modules", "dist", "build"]);
+// paprika3d/ at any depth: a game in a subfolder of the project keeps its runs there, and hashing them reloaded the page
+// on every call and failed a call whose walk met a run folder deleted under it (#209)
+const SKIP_DIRS = new Set(["node_modules", "dist", "build", "paprika3d", "paprika-loop"]);
 // geo.js, fx.js and three-runtime.js are the harness's own bundles, copied in and kept current by it: a newer copy is not an
 // iteration (and three-runtime.js is 113 KB read on every check); game-tests.json changes when `interact` saves a check,
 // which must not reload the page or count as an edit
@@ -41,6 +43,11 @@ export function fingerprints(cwd: string, { assets = false } = {}): { sources: s
   return { sources: h.digest("hex"), assets: ha.digest("hex") };
 }
 
+// a file or folder deleted after its folder was listed (another session's run folder, an editor's temp file) is not there
+const gone = <T>(fn: () => T, skip = true): T | undefined => {
+  try { return fn(); } catch (e) { if (!skip || (e as NodeJS.ErrnoException).code !== "ENOENT") throw e; }
+};
+
 /** Calls `visit` with each file's path under `cwd` (relative, `/`-separated, sorted) the fingerprint walks: source files,
     and binary assets with `binary` true. */
 export function sourceFiles(cwd: string, visit: (path: string, binary: boolean) => void) {
@@ -59,7 +66,9 @@ export function sourceFiles(cwd: string, visit: (path: string, binary: boolean) 
     } catch { return { dir: false, file: false }; } // a dangling link
   };
   const walk = (rel: string) => {
-    const entries = readdirSync(join(cwd, rel), { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const entries = gone(() => readdirSync(join(cwd, rel), { withFileTypes: true }), rel !== "");
+    if (!entries) return;
+    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     for (const e of entries) {
       const path = rel ? `${rel}/${e.name}` : e.name;
       // a .md is notes for people and agents (a review, a README), never page code: one written mid-play reloaded the page (#53)
@@ -67,7 +76,7 @@ export function sourceFiles(cwd: string, visit: (path: string, binary: boolean) 
       const { dir, file } = e.isSymbolicLink() ? follow(path) : { dir: e.isDirectory(), file: e.isFile() };
       if (dir) {
         if (!e.name.startsWith(".") && !SKIP_DIRS.has(e.name)) walk(path);
-      } else if (file) visit(path, BINARY.has(extname(e.name).toLowerCase()));
+      } else if (file) gone(() => visit(path, BINARY.has(extname(e.name).toLowerCase())));
     }
   };
   walk("");

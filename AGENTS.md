@@ -1,6 +1,8 @@
-# paprika3d (the three.js toolset for coding agents)
+# paprika3d (three.js games and 3D pages, end to end)
 
-This is the paprika3d plugin: an MCP server, `paprika`, whose tools let a coding agent open, look at, play, measure and fix
+This is the paprika3d plugin. In Claude Code, `/paprika3d:paprika-make <request>` takes a new three.js game or 3D page
+from references and a design doc to the build, and `/paprika3d:paprika-loop <request> for <time>` keeps improving it;
+other agents get the skills with `npx skills add paprika3d/paprika3d`. Underneath is an MCP server, `paprika`, whose tools let a coding agent open, look at, play, measure and fix
 three.js, React Three Fiber and WebGL pages in headless Chrome (or Firefox: `open`'s `browser`) on a paused, seeded clock. Use it on any such page you
 write or change (a game, a product viewer, a simulation, a shader demo). The page needs no changes to be opened, looked
 at and driven. Build the first version whole and as impressive as you can, risks welcome: these tools make debugging
@@ -49,7 +51,8 @@ match `event.code`.
   `model_audit` reports .glb, .gltf and USD files against a site or Shopify budget, `model_run` and `model_look` build
   and picture a model in code (three.js and Manifold) and save it as a .glb, and `asset_search` finds a ready-made
   model (CC BY or CC0), PBR texture or HDRI sky in the hosted library and puts it in the project with its loading code
-  and credit line.
+  and credit line. `sheet` names the image and 3D keys set (never a value), composes a free look board from reference
+  pictures, and with the person's key makes a look board, a character turnaround or a 3D model.
 - `send_feedback` sends the paprika3d team a bug or criticism of the harness itself, never the user's code or files.
 - Runs are saved in `<project>/paprika3d/runs/`; add `paprika3d/` to the project's `.gitignore`.
 - Publishing (`publish`, a preview, invite-only) is only for when the user asks for a paprika3d.app link. Never read,

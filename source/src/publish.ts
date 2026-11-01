@@ -36,7 +36,9 @@ export const INVITE_URL = "https://paprika3d.com/waitlist";
 // ---- build -------------------------------------------------------------------------------------------------------
 
 /** Folders and files never published: the harness's, the loop's, the package manager's and anything hidden. */
-const SKIP_DIRS = new Set(["node_modules", "paprika3d", "paprika-loop"]);
+// refs/study (trailer frames, study pictures), refs/sheets (generated and composed boards) and refs/assets (contact sheets,
+// web candidates' previews from any page) are the brief's, never a page's
+const SKIP_DIRS = new Set(["node_modules", "paprika3d", "paprika-loop", "refs/study", "refs/sheets", "refs/assets"]);
 const SKIP_FILES = new Set(["game-tests.json", "package.json", "package-lock.json", "bun.lock", "bun.lockb", "yarn.lock", "pnpm-lock.yaml", "CLAUDE.md", "AGENTS.md"]);
 /** Sources and notes a page never fetches: skipped without a warning. */
 const QUIET = /\.(ts|tsx|jsx|cts|mts|md|lock|yaml|yml|toml|sh|py|log)$|(^|\/)tsconfig[^/]*\.json$/i;

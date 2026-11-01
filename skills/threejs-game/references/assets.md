@@ -40,3 +40,18 @@ It reads meshes, UsdPreviewSurface, OpenPBR and MaterialX UsdPreviewSurface mate
 ## Ready-made assets: `asset_search`
 
 `asset_search` finds ready-made models (57,732, CC BY or CC0), PBR textures and HDRIs (CC0) in a hosted library, and puts the one picked into the project with its loading code at real-world scale and a model's credit line in `CREDITS.md` beside it. `textures: false` with a pick keeps a model's geometry only; `format: "usd"` finds and picks models with a USD file; `image` with `crop` searches by a piece of a reference picture, for a thing words miss. `geo.js` and `fx.js` are the options with nothing to download.
+
+`save: "refs/assets/<thing>.jpg"` with a search writes its contact sheet to that file, numbered as the reply's lines are, for a person to look at in their own viewer.
+
+## Where a thing comes from: four sources
+
+| Source | What it gives | Time, cost |
+|---|---|---|
+| The library (`asset_search`) | 57,732 models (CC BY or CC0), PBR textures and HDRIs (CC0), by words or by a reference crop, at real size, credited in CREDITS.md | seconds, free |
+| Free models on the web | CC0 and CC BY models from Poly Haven, ambientCG, Poly Pizza, Kenney, Quaternius, Sketchfab (download with a token) and others, the licence read on the asset's own page | minutes, free |
+| Generation with the person's key | a GLB from a reference crop through `sheet` `kind: "model"` (fal, Meshy, Tripo; `sheet` with `check: true` names the keys found) | 1 to 5 minutes, about $0.05 to $0.40 a model |
+| Code | `model_run` with three and Manifold, seen with `model_look`, saved as a GLB | minutes, free |
+
+A model from a source usually looks better than one built in code, so the first `model_run` call that adds geometry in a project with no model search on record gets one line saying so at the top of its reply (once per project; the work is done either way). `searched` on `model_run` logs why a thing is built in code ("by design: terrain", "fox courier: nothing fit, all hits realistic") to `paprika3d/sourcing.json`, where `asset_search` logs its model searches too, and leaves the line out of that one call. A project's `LOOK.md` `## Assets` line, when there is one, gives the style filter every search uses (low-poly is `style: "low-poly"`, `maxTris: 5000`).
+
+A web file in FBX or OBJ becomes a GLB in the modelling scene: `model_run` with `const m = await load("downloads/fox.fbx"); await save("assets/fox.glb", m)`, then `model_audit` on the GLB. Every file from the web or from generation goes through `model_audit` (size, triangles, textures) and one `model_look` before the page loads it, gets its height from the design (`m.scale.setScalar(height / size.y)`), and is credited in CREDITS.md with its name, its author (the creator's name as the asset's page gives it; CC BY requires it), its file URL, page URL and licence: `- Low Poly Fox by Jane Doe, CC BY 4.0 (https://...file.glb, from https://...page)`.

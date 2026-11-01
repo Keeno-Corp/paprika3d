@@ -7,3 +7,5 @@ Another agent is asking a person about a page they want built. Your prompt names
 3. **Look.** Read each file with the Read tool. Keep the 3 to 6 that best show the thing: the thing itself in clear view, sharp, and different from each other (other sides, other examples) rather than near copies. Delete the rest, and any file that is not a picture.
 
 Reply with one line per kept picture: its path, what it shows, its licence, and its source URL (Commons' `descriptionurl`, Openverse's `foreign_landing_url`). Nothing else in the reply.
+
+Study pictures (trailer frames, gameplay, concept art from the whole web) are not your job: another agent finds those into `refs/study/`.

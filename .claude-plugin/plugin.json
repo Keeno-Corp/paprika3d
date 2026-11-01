@@ -1,7 +1,7 @@
 {
   "name": "paprika3d",
-  "version": "0.3.2",
-  "description": "Three.js MCP server and Claude Code plugin: screenshot, play, test and profile the three.js pages your coding agent builds. It tells the agent what is on screen, what never appears, what each input changed and what a frame costs. With it: model files and a hosted library of models, textures and skies, models built in code, skills that build a page from a short brief, and publishing to paprika3d.app (preview, invite-only).",
+  "version": "0.4.0",
+  "description": "Three.js MCP server and Claude Code plugin: build three.js games and 3D pages end to end, from references and a design doc to playtesting, models and a published link. /paprika3d:paprika-make pulls references (it asks before a web search for study references), writes a style sheet, character sheets and a design doc, asking you the creative calls, picks where each key model comes from and builds the page; /paprika3d:paprika-loop keeps improving it for the time you give it. Its tools see what is on screen and what never appears, play inputs on exact frames and time each frame. Models come from a library of 57,732 (CC BY or CC0), from code, or from your own fal, Meshy or Tripo key; picture sheets use your own fal, OpenAI or Gemini key; publishing to paprika3d.app is a preview, invite-only.",
   "keywords": [
     "threejs",
     "three.js",
@@ -19,6 +19,26 @@
   "homepage": "https://paprika3d.com/docs",
   "repository": "https://github.com/paprika3d/paprika3d",
   "license": "Apache-2.0",
+  "userConfig": {
+    "image_provider": {
+      "type": "string",
+      "title": "Image provider",
+      "description": "The image service your key is for, or none. Optional: without a key, LOOK.png is built from your references for free.",
+      "options": [
+        "none",
+        "fal",
+        "openai",
+        "gemini"
+      ],
+      "default": "none"
+    },
+    "image_key": {
+      "type": "string",
+      "title": "Image key",
+      "description": "That provider's API key.",
+      "sensitive": true
+    }
+  },
   "mcpServers": {
     "paprika": {
       "command": "node",
@@ -26,7 +46,11 @@
         "${CLAUDE_PLUGIN_ROOT}/hooks/start.js",
         "${CLAUDE_PLUGIN_ROOT}/src/cli.js",
         "serve"
-      ]
+      ],
+      "env": {
+        "PAPRIKA3D_IMAGE_PROVIDER": "${user_config.image_provider}",
+        "PAPRIKA3D_IMAGE_KEY": "${user_config.image_key}"
+      }
     }
   },
   "hooks": "./hooks/hooks.json"

@@ -70,7 +70,10 @@ function sourceFiles(cwd, visit) {
       return { dir: !1, file: !1 };
     }
   }, walk = (rel) => {
-    let entries = readdirSync(join(cwd, rel), { withFileTypes: !0 }).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    let entries = gone(() => readdirSync(join(cwd, rel), { withFileTypes: !0 }), rel !== "");
+    if (!entries)
+      return;
+    entries.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
     for (let e of entries) {
       let path = rel ? `${rel}/${e.name}` : e.name;
       if (SKIP_TOP.has(path) || isStoreCopy(e.name, entries) || /\.md$/i.test(e.name))
@@ -80,14 +83,21 @@ function sourceFiles(cwd, visit) {
         if (!e.name.startsWith(".") && !SKIP_DIRS.has(e.name))
           walk(path);
       } else if (file)
-        visit(path, BINARY.has(extname(e.name).toLowerCase()));
+        gone(() => visit(path, BINARY.has(extname(e.name).toLowerCase())));
     }
   };
   walk("");
 }
-var SKIP_DIRS, SKIP_TOP, isStoreCopy = (name, entries) => name === "game-state.js" || name === "physics-worker.js" && entries.some((e) => e.name === "game-state.js"), BINARY, fingerprint = (cwd) => fingerprints(cwd).sources;
+var SKIP_DIRS, SKIP_TOP, isStoreCopy = (name, entries) => name === "game-state.js" || name === "physics-worker.js" && entries.some((e) => e.name === "game-state.js"), BINARY, fingerprint = (cwd) => fingerprints(cwd).sources, gone = (fn, skip = !0) => {
+  try {
+    return fn();
+  } catch (e) {
+    if (!skip || e.code !== "ENOENT")
+      throw e;
+  }
+};
 var init_fingerprint = __esm(() => {
-  SKIP_DIRS = /* @__PURE__ */ new Set(["node_modules", "dist", "build"]), SKIP_TOP = /* @__PURE__ */ new Set(["paprika3d", "paprika-loop", "geo.js", "fx.js", "three-runtime.js", "game-contract.json", "game-tests.json", "game-runtime.json", "public/game-runtime.json"]), BINARY = /* @__PURE__ */ new Set([
+  SKIP_DIRS = /* @__PURE__ */ new Set(["node_modules", "dist", "build", "paprika3d", "paprika-loop"]), SKIP_TOP = /* @__PURE__ */ new Set(["paprika3d", "paprika-loop", "geo.js", "fx.js", "three-runtime.js", "game-contract.json", "game-tests.json", "game-runtime.json", "public/game-runtime.json"]), BINARY = /* @__PURE__ */ new Set([
     ".png",
     ".jpg",
     ".jpeg",
