@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.1 (2026-11-01)
+
+A game moved in whole 1/60 s steps stood still on 40% of its frames on a 100 Hz screen, and no tool could see it,
+because every tool steps the clock 1/60 s at a time. `interact` now adds a `Motion at 100 Hz` line: normally once after
+each edit, a play that holds a key for 12 frames or more is played again on a page of its own at 10 ms a frame, and the
+line says when the subject or a camera stands still on 20% or more of those frames. Chrome only. On the games it was
+tried on, it added about 0.4 to 1.4 s to that one call.
+
+The skill's time rule had come to read as a request for a fixed step, which is how agents came to write this. It now
+asks for each frame's elapsed time, and a fixed step (physics, rewind) draws between its last two steps. game-state's
+`loop()` gains `between()` for that.
+
+The `Motion` line says when a turn came though only a forward or back key was held: a player drifting left under W alone
+used to read as a plain "turned 18° left".
+
 ## 0.4.0 (2026-11-01)
 
 `/paprika3d:paprika-make` writes a style sheet (`LOOK.md`), character sheets (`CHARACTERS.md`) and for a game a design

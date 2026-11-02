@@ -213,4 +213,6 @@ Now when you ask for the next thing ("make it speed up as it grows"), both rules
 
 - Add a game over screen with a restart key: [how to add a game over screen](/guides/add-a-game-over-screen).
 - Keep the longest snake between visits: [how to save the high score of a game](/guides/save-the-high-score).
+- A second game that is all numbers and upgrades: [how to make a clicker game](/guides/make-a-clicker-game).
+- Making one against a deadline: [how to make a game for a game jam](/guides/make-a-game-for-a-game-jam).
 - Then pick a second game from the table, a little larger than the first.

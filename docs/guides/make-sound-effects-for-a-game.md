@@ -240,3 +240,4 @@ Play with the sound on and press each key once, slowly. If a sound is missing, o
 - Give the same events something to see: [how to make a game feel good](/guides/make-a-game-feel-good).
 - Make the scene look better: [how to make my game look better](/guides/make-my-game-look-better).
 - Let friends hear it: [how to put your game online](/guides/put-your-game-online).
+- A game built around a beat: [how to make a rhythm game](/guides/make-a-rhythm-game).

@@ -250,3 +250,4 @@ Take a screenshot before each change and after it, and put them side by side at 
 - Make each catch and hit react: [how to make a game feel good](/guides/make-a-game-feel-good).
 - Give it sound: [how to make sound effects for a game](/guides/make-sound-effects-for-a-game).
 - Show it to people: [how to put your game online](/guides/put-your-game-online).
+- A low-resolution pixel look, on purpose: [how to make a 3d game look pixelated](/guides/make-a-3d-game-look-pixelated).

@@ -222,3 +222,4 @@ Serve the folder with `npx serve my-game`, play it once from start to finish wit
 - Make it look better: [how to make my game look better](/guides/make-my-game-look-better).
 - Give it sound: [how to make sound effects for a game](/guides/make-sound-effects-for-a-game).
 - Give your friends more to play: [how to make levels in a game](/guides/make-levels-in-a-game).
+- Let it fill the whole screen, on a phone too: [how to make a browser game full screen](/guides/make-a-browser-game-full-screen).

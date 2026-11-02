@@ -219,7 +219,7 @@ Measure your own game on a machine with a GPU before deciding; the reply above i
 
 ## Without a worker: one fixed step on the main thread
 
-Jitter often has nothing to do with workers. It comes from stepping physics by the frame's elapsed time, or on a timer, and drawing in between. A physics step of fixed size inside the animation frame, followed by the render, fixes it on the main thread; move the step to a worker when it is too slow to share the frame. This page does that with a hand-written step for 300 balls and a ball you push, and needs nothing but three:
+Jitter often has nothing to do with workers. It comes from stepping physics by the frame's elapsed time, or on a timer, and drawing in between. A physics step of fixed size inside the animation frame, followed by the render, fixes it on the main thread; move the step to a worker when it is too slow to share the frame. On a 100 or 120 Hz display some frames then get no step, so what the player watches is drawn between its last two steps, as [the time guide](/guides/control-time-threejs-tests) shows. This page does that with a hand-written step for 300 balls and a ball you push, and needs nothing but three:
 
 ```html
 <!-- verify -->

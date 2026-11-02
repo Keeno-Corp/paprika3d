@@ -16,6 +16,7 @@ import type { AddressInfo } from "node:net";
 import { once } from "node:events";
 import { AsyncLocalStorage } from "node:async_hooks";
 import puppeteer, { type Browser, type BrowserContext, type ConsoleMessage, type KeyInput, type MouseButton, type Page } from "puppeteer-core";
+import type { Step } from "./input.ts";
 import { harnessDir } from "./state.ts";
 import { VIEWPORT } from "./contract.ts";
 import { SOFTWARE_GL } from "./budgets.ts";
@@ -184,6 +185,8 @@ export interface Game {
   /** Keys pressed through page.keyboard and mouse buttons (`mouse:left`) not released yet. Chrome's input state outlives
       a navigation, so reload() and settle() release them: a second down of a held key arrives as a repeat, which most games ignore. */
   held: Set<string>;
+  /** The steps `act` played since the last load, which `pacing` plays again on a page of its own. */
+  played: Step[];
   /** The size an `interact` resize set and the size before it, put back by the next reload when nothing else changed it. */
   resized?: { width: number; height: number; back: { width: number; height: number } };
   /** WebGL runs on a software renderer (SwiftShader on a machine with no GPU), so frame times say nothing of a real one. */
@@ -574,7 +577,7 @@ export async function openGame(opts: OpenOptions): Promise<Game> {
       game.held.clear();
     };
     const game: Game = {
-      browser: b, engine: { name: other ?? "chromium", version: await seat.version, ...instead && { instead } }, page, url, root, files, runDir, config, errors, warned, serverLog, held: new Set(), info, loads,
+      browser: b, engine: { name: other ?? "chromium", version: await seat.version, ...instead && { instead } }, page, url, root, files, runDir, config, errors, warned, serverLog, held: new Set(), played: [], info, loads,
       loadMs,
       gpu, adapter, software: SOFTWARE_GL.test(gpu) || /fallback|swiftshader/i.test(adapter),
       alive: seat.alive,
@@ -609,6 +612,7 @@ export async function openGame(opts: OpenOptions): Promise<Game> {
         return game.queue(async () => {
           if (next) await game.configure(next);
           await letGo();
+          game.played = [];
           await page.evaluate("scrollTo(0, 0)").catch(() => {}); // Chrome restores a reloaded page's scroll; a reload starts at the top, as an open does
           // an `interact` resize lasts until the next reload: a saved check run after one played at 390 px and failed
           // (feel-8); a size a viewports look set since is that look's to put back

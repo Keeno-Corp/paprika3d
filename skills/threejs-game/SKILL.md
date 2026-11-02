@@ -61,7 +61,7 @@ window.__game = {
 ### Rules
 
 - **Start.** The game plays as soon as the page loads: no title screen, no click to start, nothing over the first frame (loading text, a dim veil, a fade). `open` pauses at frame 0. A title screen the user asks for puts `started` in `observe()` and `setState`, so a `{ state: { started: true } }` step skips it.
-- **Time.** The harness steps frames of 1/60 s on a fake clock (`requestAnimationFrame`, `performance.now`, `Date`, timers, CSS animations and transitions). Advance the game by each frame's elapsed time, at most 0.1 s a frame, with a fixed step inside an accumulator. The clock reads 60 s at frame 0. Never read real time some other way.
+- **Time.** The harness steps frames of 1/60 s on a fake clock (`requestAnimationFrame`, `performance.now`, `Date`, timers, CSS animations and transitions). Advance the game by each frame's elapsed time, at most 0.1 s a frame. A fixed step (physics, rewind) runs in an accumulator and draws between its last two steps (`prev + (cur - prev) * acc / STEP`), or movement stutters on a 100 or 120 Hz display. The clock reads 60 s at frame 0. Never read real time some other way.
 - **Randomness.** A game-state game uses `state.random()`; a game that keeps its own state uses `Math.random`, which the harness seeds.
 - **setState** takes effect at once, even before the first frame, and the game's start-up must not undo it. Objects merge; lists are replaced whole.
 - **observe()** returns plain JSON, never three.js objects. Lists keep their order.

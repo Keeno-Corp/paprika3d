@@ -45,7 +45,7 @@ const STATE = "window.__game?.observe ? __game.observe() : null";
 // shallowest within a few cm), else the best-ranked name, not the first met: AA-3D's AI karts (kart_ruby) were built
 // before the player's (player).
 const NAMES = ["player", "hero", "avatar", "kart", "car", "vehicle", "ship", "plane", "boat"];
-const motionStart = (at: [number, number] | null) => `(() => {
+export const motionStart = (at: [number, number] | null) => `(() => {
   const s0f = window.__game?.subject, s0 = typeof s0f === "function" ? (() => { try { return s0f(); } catch {} })() : s0f, scene = window.__harness.mainScene(), at = ${JSON.stringify(at)}, NAMES = ${JSON.stringify(NAMES)};
   const o = s0?.isObject3D ? s0 : typeof s0 === "string" ? scene?.getObjectByName(s0) : null;
   let subject = o, best = Infinity;
@@ -66,7 +66,7 @@ const motionStart = (at: [number, number] | null) => `(() => {
 })()`;
 
 /** Where the state puts its player: the best-ranked NAMES key holding { x, z }, { position: { x, z } } or { position: [x, y, z] }. */
-function statePos(state: unknown): [number, number] | null {
+export function statePos(state: unknown): [number, number] | null {
   if (!state || typeof state !== "object") return null;
   const keys = Object.keys(state);
   for (const n of NAMES) for (const k of keys) if (k.toLowerCase().startsWith(n)) {
@@ -76,9 +76,19 @@ function statePos(state: unknown): [number, number] | null {
   return null;
 }
 
+// A forward or back key held with nothing that can steer: a turn is then not the player's. A camera that eased off the
+// heading turned a player left 27° a second under W while the controls followed the camera, and the agent read "turned 18° left" as a fact (2026-11-01).
+const FORWARD = /^(KeyW|KeyS|ArrowUp|ArrowDown|[wWsS])$/, STEERS_NOT = /^(Space| |Shift(Left|Right)?|mouse:.*)$/;
+function straightKey(steps: Step[], held: string[]): string | undefined {
+  if (steps.some(s => "mouse" in s || "touch" in s || "action" in s || "state" in s)) return;
+  const keys = [...new Set([...held, ...steps.flatMap(s => "key" in s && s.down !== false ? [s.key as string] : [])])].filter(k => !STEERS_NOT.test(k));
+  return keys.length === 1 && FORWARD.test(keys[0]!) ? keys[0] : undefined;
+}
+
 /** The Motion line from the subject's samples ([x, y, z, frame]), or undefined when it went straight and kept moving. */
-/** `released`: the frame the steps' last key went up; a stop from that frame on is the release, not a wall (#69). */
-export function motionText(m: { name: string; samples: number[][] } | null, released?: number): string | undefined {
+/** `released`: the frame the steps' last key went up; a stop from that frame on is the release, not a wall (#69). `only`: the one
+    key held, when nothing could steer (straightKey()). */
+export function motionText(m: { name: string; samples: number[][] } | null, released?: number, only?: string): string | undefined {
   const TURN = 15; // degrees; a first guess
   if (!m || m.samples.length < 3) return;
   const s = m.samples, wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -90,7 +100,7 @@ export function motionText(m: { name: string; samples: number[][] } | null, rele
   const turn = Math.round(moving.slice(1).reduce((t, g, i) => t + wrap(g.dir - moving[i]!.dir), 0) * 180 / Math.PI);
   const last = seg.findLastIndex(g => g.d > 0.05 * most), stopped = seg.filter(g => g.d > 0.2 * most).length >= 5 && last < seg.length - 10 && !(released !== undefined && seg[last]!.at[3]! >= released) ? seg[last]!.at[3] : null; // moved over 5 frames or more, then still for 10 or more (a one-frame step is not a stop)
   const out: string[] = [];
-  if (Math.abs(turn) >= TURN) out.push(`its direction of travel turned ${Math.abs(turn)}° ${turn > 0 ? "left" : "right"}`);
+  if (Math.abs(turn) >= TURN) out.push(`its direction of travel turned ${Math.abs(turn)}° ${turn > 0 ? "left" : "right"}${only ? ` though only ${only} was held (a wall it slid along, or a camera that moves by itself while the controls follow it)` : ""}`);
   if (stopped !== null) out.push(`it stopped at frame ${stopped} and did not move again`);
   if (!out.length) return;
   // the path's length and the straight line, apart: a box hopping in place "moved 23 units" (opinion-5, feel-4)
@@ -217,7 +227,7 @@ export function act(game: Game, steps: Step[], { trace, expect, record }: ActOpt
     const setup = n ? await run(game, steps.slice(0, n)) : { frames: 0 };
     await game.page.evaluate(motionStart(statePos(n ? await game.page.evaluate(STATE) : before))).catch(() => {});
     if (trace) await game.page.evaluate(traceStart(trace));
-    const played = n ? steps.slice(n) : steps;
+    const played = n ? steps.slice(n) : steps, heldBefore = [...game.held];
     let clip: Clip | undefined, video: Video | undefined, hint: string | undefined, frames: number, released: number | undefined;
     // the stable build has no video (server.ts); the channel test folds at build time, so its bundle holds no mp4-muxer
     if (process.env.PAPRIKA3D_CHANNEL !== "stable" && record === "video") {
@@ -245,7 +255,8 @@ export function act(game: Game, steps: Step[], { trace, expect, record }: ActOpt
       clip = await stop();
       frames = clip.gameFrames;
     } else ({ hint, frames, released } = await run(game, played, undefined, n));
-    const motion = motionText(await game.page.evaluate("window.__harnessMotion?.end() ?? null").catch(() => null) as Parameters<typeof motionText>[0], released);
+    const motion = motionText(await game.page.evaluate("window.__harnessMotion?.end() ?? null").catch(() => null) as Parameters<typeof motionText>[0], released, Array.isArray(played) ? straightKey(played, heldBefore) : undefined);
+    if (Array.isArray(steps)) game.played.push(...steps);
     const rows = trace ? await game.page.evaluate("window.__harnessTrace?.end() ?? []") as unknown[][] : [];
     const after = await game.page.evaluate(STATE), end = await game.page.evaluate(`({ audio: window.__harness?.audio ?? 0, names: window.__harness?.sounds?.slice(${named}) ?? [] })`) as { audio: number; names: string[] };
     const sound = soundText(heard, end.audio, end.names);

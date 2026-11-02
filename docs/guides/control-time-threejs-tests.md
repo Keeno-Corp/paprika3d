@@ -315,12 +315,12 @@ The real frames came 15.2 ms apart, so the page saw frames of about twice that, 
 
 The real-time numbers differ from run to run, since they depend on how evenly this machine delivered frames during the play; across the runs made for this section, `fixed` peaked at 1.533 every time, while `perSecond`'s peak and `perFrame`'s airtime moved with the frames. The test is still the paused clock plus code that uses time; this play is a way to see the difference.
 
-The accumulator is a few lines, as in the page above. Drawing the fixed-step state as it is can look uneven when frames and steps do not line up; the usual answer keeps the previous step's position and draws `prev + (cur - prev) * (acc / STEP)` between the two. game-state's `loop()` runs the same accumulator for a game that keeps its state there, one 1/60 s tick per 1/60 s elapsed, as [the physics guide](/guides/threejs-physics-web-worker) shows, and cannon-es's `world.step(1 / 60, dt, 3)` runs one inside the physics world. With `{ clock: { timescale: 0.5 } }` the same play gives each frame half its real time, the 120 Hz direction; on this host its frames came unevenly in the run made for it, so this guide shows the slow direction.
+The accumulator is a few lines, as in the page above. Drawing the fixed-step state as it is can look uneven when frames and steps do not line up; the usual answer keeps the previous step's position and draws `prev + (cur - prev) * (acc / STEP)` between the two. game-state's `loop()` runs the same accumulator for a game that keeps its state there, one 1/60 s tick per 1/60 s elapsed, as [the physics guide](/guides/threejs-physics-web-worker) shows, with `between` to draw a pose between its last two ticks, and cannon-es's `world.step(1 / 60, dt, 3)` runs one inside the physics world. With `{ clock: { timescale: 0.5 } }` the same play gives each frame half its real time, the 120 Hz direction; on this host its frames came unevenly in the run made for it, so this guide shows the slow direction.
 
 ## What paprika3d does not do
 
 - It does not cap a page's frame rate. Limiting the frame rate is the page's job (below).
-- It steps the paused clock at 1/60 s a frame and nothing else, so it does not replay a page as a slower or faster display would. A per-frame mover passes on the paused clock; reading the code for a fixed step per frame is the check.
+- It steps the paused clock at 1/60 s a frame, so it does not replay a page as a slower or faster display would. The one exception is `interact`, which after an edit plays a held key once more on a page of its own at 10 ms a frame and says when the subject stands still on some of those frames. A per-frame mover still passes on the paused clock; reading the code for a fixed step per frame is the check.
 - `record` paces real-time play at 60 Hz, so it can show a page on a machine slower than that, never one faster.
 
 ## Pitfalls

@@ -1,7 +1,8 @@
 // The game loop: owns requestAnimationFrame, the physics step, rewind and the bridge, so a game writes only its state,
 // its bodies and `tick(inputs)`. A tick is 1/60 s of game time, and a display draws 30 to 144 frames a second, so each
 // animation frame adds its elapsed time (at most 0.1 s) to what the game owes and runs one tick per 1/60 s owed, then
-// renders once: two ticks a frame at 30 fps, one every other frame at 120. The rAF timestamp is the one read of time in
+// renders once: two ticks a frame at 30 fps, one every other frame at 120, so `between` draws a pose between its last two
+// ticks or a frame with no tick shows no move and it stutters. The rAF timestamp is the one read of time in
 // the store code, and only here; the harness's fake clock passes its virtual time, 1/60 s a frame, so under it every
 // frame is exactly one tick (half a millisecond of tolerance) and rewind, replay and `__clock.hold()` see no change.
 // Each tick takes the last physics step into the state, then runs `tick` with the inputs act() and real key events
@@ -24,6 +25,9 @@ export type Loop = {
   back(n: number): Promise<number>;
   /** Ticks run, minus ticks gone back. */
   readonly now: number;
+  /** A pose to draw: call the result in `render` each frame for `read()`'s numbers where they are at this frame's time,
+      between their last two ticks; on the harness's clock, in step with the ticks, exactly the newest. */
+  between(read: () => number[]): () => number[];
   readonly game: Game;
   readonly rewind: Rewind<unknown>;
 };
@@ -44,6 +48,8 @@ export function loop<S extends Shape>({ state, physics, tick, render, describe, 
 }): Loop {
   const queue: unknown[] = [];
   let replaying = false, running: Promise<void> | null = null, last: number | null = null, owed = 0;
+  let alpha = 1; // where this frame draws, from the tick before the newest (0) to the newest (1); `between` reads it
+  const poses: (() => void)[] = []; // `between`'s, read at every tick: a frame's later ticks run after its render
   const game = bridge(state, { describe, act: i => { queue.push(i); }, physics });
   const setState = game.setState;
   game.setState = partial => { setState(partial); queue.push({ [SET]: structuredClone(partial) }); };
@@ -54,6 +60,7 @@ export function loop<S extends Shape>({ state, physics, tick, render, describe, 
       if (replaying) for (const i of inputs) if (i?.[SET]) setState(i[SET]); // live, it was applied when called
       if (physics && !physics.step()) throw new Error("a frame ran before its physics step came back");
       tick(inputs.filter(i => !i?.[SET]));
+      for (const note of poses) note();
     },
   });
   // A frame stays running until its last tick's physics reply is back, which ready() would wait for anyway; render() has
@@ -65,12 +72,17 @@ export function loop<S extends Shape>({ state, physics, tick, render, describe, 
   };
   const frame = (now: number) => {
     requestAnimationFrame(frame);
-    owed = replaying ? 0 : Math.min(owed + (last === null ? STEP : now - last), 100); last = now;
+    const elapsed = last === null ? STEP : now - last;
+    owed = replaying ? 0 : Math.min(owed + elapsed, 100); last = now;
+    const clock = (globalThis as { __clock?: { hold?(p: Promise<unknown>): void } }).__clock;
+    let n = 0;
     if (!running && !replaying && (physics?.ready ?? true) && owed >= STEP - 0.5) {
-      const n = Math.floor((owed + 0.5) / STEP); owed -= n * STEP; // ±0.5 ms: the fake clock's 16.667 ms is one tick, never none or two
+      n = Math.floor((owed + 0.5) / STEP); owed -= n * STEP; // ±0.5 ms: the fake clock's 16.667 ms is one tick, never none or two
       running = run(n);
-      (globalThis as { __clock?: { hold?(p: Promise<unknown>): void } }).__clock?.hold?.(running);
+      clock?.hold?.(running);
     }
+    // on the harness's clock the state as it is, so a look shows what observe says; else past 1 for the ticks still to run
+    alpha = clock && n === 1 && Math.abs(elapsed - STEP) <= 0.5 ? 1 : Math.max(n - 1, 0) + Math.min(Math.max(owed / STEP, 0), 1);
     render?.();
   };
   requestAnimationFrame(frame);
@@ -84,6 +96,11 @@ export function loop<S extends Shape>({ state, physics, tick, render, describe, 
       try { await running; queue.length = 0; return await rw.back(n); } finally { replaying = false; }
     },
     get now() { return rw.now; },
+    between(read) {
+      let cur = read(), was = cur;
+      poses.push(() => { was = cur; cur = read(); });
+      return () => cur.map((v, i) => { const a = was[i] ?? v; return a + (v - a) * alpha; });
+    },
     game,
     rewind: rw,
   };

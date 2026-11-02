@@ -229,3 +229,5 @@ Getting a small game to run is a small part of the work. The rest is the loop: d
 - How a three.js page is put together, part by part: [how to make a 3D browser game](/guides/how-to-make-a-3d-browser-game).
 - Making the catch feel good, with a pop, a flash or a sound: [how to make a game feel good](/guides/make-a-game-feel-good).
 - What changes when an agent can see and play its game, with measured results: [build a three.js game with an AI agent](/guides/ai-agent-build-threejs-game).
+- Building a whole game in a weekend: [how to make a game for a game jam](/guides/make-a-game-for-a-game-jam).
+- A game made for one person: [how to make a game for my girlfriend](/guides/make-a-game-for-my-girlfriend).

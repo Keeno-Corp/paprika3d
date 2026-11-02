@@ -230,3 +230,4 @@ Watch the event slowly. Record the screen while you play (most computers have a 
 - Add more to play: [how to make levels in a game](/guides/make-levels-in-a-game).
 - Send it to a friend: [how to put your game online](/guides/put-your-game-online).
 - The whole build loop with an agent (describe, run, look, play): [how to vibe code a game](/guides/how-to-vibe-code-a-game) and [build a three.js game with an AI agent](/guides/ai-agent-build-threejs-game).
+- A game built around hits that land hard: [how to make a fighting game](/guides/make-a-fighting-game).

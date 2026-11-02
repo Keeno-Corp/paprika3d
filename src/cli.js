@@ -45995,6 +45995,7 @@ ${INJECT}`)).identifier, load = async (go) => {
       warned,
       serverLog,
       held: /* @__PURE__ */ new Set,
+      played: [],
       info,
       loads,
       loadMs,
@@ -46032,7 +46033,7 @@ ${INJECT}`)).identifier;
         return game.queue(async () => {
           if (next)
             await game.configure(next);
-          await letGo(), await page.evaluate("scrollTo(0, 0)").catch(() => {});
+          await letGo(), game.played = [], await page.evaluate("scrollTo(0, 0)").catch(() => {});
           let v2 = page.viewport(), r = game.resized;
           if (game.resized = void 0, v2 && r && v2.width === r.width && v2.height === r.height)
             await page.setViewport({ ...v2, ...r.back });
@@ -46443,6 +46444,7 @@ ${INJECT2}`)).identifier, load = async (go) => {
       warned,
       serverLog,
       held: /* @__PURE__ */ new Set,
+      played: [],
       info,
       loads,
       loadMs,
@@ -46480,7 +46482,7 @@ ${INJECT2}`)).identifier;
         return game.queue(async () => {
           if (next)
             await game.configure(next);
-          await letGo(), await page.evaluate("scrollTo(0, 0)").catch(() => {});
+          await letGo(), game.played = [], await page.evaluate("scrollTo(0, 0)").catch(() => {});
           let v2 = page.viewport(), r = game.resized;
           if (game.resized = void 0, v2 && r && v2.width === r.width && v2.height === r.height)
             await page.setViewport({ ...v2, ...r.back });
@@ -48086,7 +48088,13 @@ function statePos(state) {
       }
   return null;
 }
-function motionText(m, released) {
+function straightKey(steps, held) {
+  if (steps.some((s) => ("mouse" in s) || ("touch" in s) || ("action" in s) || ("state" in s)))
+    return;
+  let keys = [.../* @__PURE__ */ new Set([...held, ...steps.flatMap((s) => ("key" in s) && s.down !== !1 ? [s.key] : [])])].filter((k) => !STEERS_NOT.test(k));
+  return keys.length === 1 && FORWARD.test(keys[0]) ? keys[0] : void 0;
+}
+function motionText(m, released, only) {
   if (!m || m.samples.length < 3)
     return;
   let s = m.samples, wrap = (a3) => Math.atan2(Math.sin(a3), Math.cos(a3)), seg = s.slice(1).map((b3, i) => {
@@ -48097,7 +48105,7 @@ function motionText(m, released) {
     return;
   let moving = seg.filter((g) => g.h > 0.2 * flat && g.h > 0.000001), turn = Math.round(moving.slice(1).reduce((t, g, i) => t + wrap(g.dir - moving[i].dir), 0) * 180 / Math.PI), last3 = seg.findLastIndex((g) => g.d > 0.05 * most), stopped = seg.filter((g) => g.d > 0.2 * most).length >= 5 && last3 < seg.length - 10 && !(released !== void 0 && seg[last3].at[3] >= released) ? seg[last3].at[3] : null, out = [];
   if (Math.abs(turn) >= 15)
-    out.push(`its direction of travel turned ${Math.abs(turn)}° ${turn > 0 ? "left" : "right"}`);
+    out.push(`its direction of travel turned ${Math.abs(turn)}° ${turn > 0 ? "left" : "right"}${only ? ` though only ${only} was held (a wall it slid along, or a camera that moves by itself while the controls follow it)` : ""}`);
   if (stopped !== null)
     out.push(`it stopped at frame ${stopped} and did not move again`);
   if (!out.length)
@@ -48178,7 +48186,7 @@ function act(game, steps, { trace, expect, record } = {}) {
     let before = await game.page.evaluate(STATE), [heard, named] = await game.page.evaluate(AUDIO), n = Array.isArray(steps) ? ((i) => i < 0 ? steps.length : i)(steps.findIndex((s) => !isSetup(s))) : 0, setup = n ? await run(game, steps.slice(0, n)) : { frames: 0 };
     if (await game.page.evaluate(motionStart(statePos(n ? await game.page.evaluate(STATE) : before))).catch(() => {}), trace)
       await game.page.evaluate(traceStart(trace));
-    let played = n ? steps.slice(n) : steps, clip, video, hint, frames, released;
+    let played = n ? steps.slice(n) : steps, heldBefore = [...game.held], clip, video, hint, frames, released;
     if (record) {
       let stop = await startRecording(game);
       try {
@@ -48193,7 +48201,10 @@ record: the clip ends at the failed step: ${c.path} (${c.seconds} s), four momen
       clip = await stop(), frames = clip.gameFrames;
     } else
       ({ hint, frames, released } = await run(game, played, void 0, n));
-    let motion = motionText(await game.page.evaluate("window.__harnessMotion?.end() ?? null").catch(() => null), released), rows = trace ? await game.page.evaluate("window.__harnessTrace?.end() ?? []") : [], after = await game.page.evaluate(STATE), end = await game.page.evaluate(`({ audio: window.__harness?.audio ?? 0, names: window.__harness?.sounds?.slice(${named}) ?? [] })`), sound = soundText(heard, end.audio, end.names), traced = trace?.map((p) => [p, traceOf(p, rows.map((r) => ((c) => c && typeof c === "object" && !("type" in c) ? void 0 : c)(r[trace.indexOf(p)])))]), vs = want && verdicts(want, after);
+    let motion = motionText(await game.page.evaluate("window.__harnessMotion?.end() ?? null").catch(() => null), released, Array.isArray(played) ? straightKey(played, heldBefore) : void 0);
+    if (Array.isArray(steps))
+      game.played.push(...steps);
+    let rows = trace ? await game.page.evaluate("window.__harnessTrace?.end() ?? []") : [], after = await game.page.evaluate(STATE), end = await game.page.evaluate(`({ audio: window.__harness?.audio ?? 0, names: window.__harness?.sounds?.slice(${named}) ?? [] })`), sound = soundText(heard, end.audio, end.names), traced = trace?.map((p) => [p, traceOf(p, rows.map((r) => ((c) => c && typeof c === "object" && !("type" in c) ? void 0 : c)(r[trace.indexOf(p)])))]), vs = want && verdicts(want, after);
     return {
       before,
       after,
@@ -48433,7 +48444,7 @@ var STATE = "window.__game?.observe ? __game.observe() : null", NAMES, motionSta
   // the scene until frame 1, and sampling the pose before it added a false first step (#176: 4.34 units for a 4-unit run)
   if (on) { if (window.__harness.main()?.[1].screen) sample(); requestAnimationFrame(tick); }
   window.__harnessMotion = { end: () => { on = false; delete window.__harnessMotion; return subject ? { name: subject.name || subject.type, samples } : null; } };
-})()`, AUDIO = "[window.__harness?.audio ?? 0, window.__harness?.sounds?.length ?? 0]", soundText = (before, after, names = []) => !after ? "" : after > before ? `Sound: ${after - before} started during these steps${names.length ? ` (${names.join(", ")})` : ""}.` : `Sound: none started during these steps (${after} since load).`, TRACE_MAX = 600, traceStart = (paths) => `(() => {
+})()`, FORWARD, STEERS_NOT, AUDIO = "[window.__harness?.audio ?? 0, window.__harness?.sounds?.length ?? 0]", soundText = (before, after, names = []) => !after ? "" : after > before ? `Sound: ${after - before} started during these steps${names.length ? ` (${names.join(", ")})` : ""}.` : `Sound: none started during these steps (${after} since load).`, TRACE_MAX = 600, traceStart = (paths) => `(() => {
   const paths = ${JSON.stringify(paths)}, rows = [], get = (o, p) => p.split(".").reduce((v, k) => v?.[k], o);
   const sample = () => { let s; try { s = window.__game?.observe?.(); } catch {}
     rows.push(paths.map(p => { const v = get(s, p); return v === null || ["number", "string", "boolean"].includes(typeof v) ? v : v === undefined ? {} : { type: typeof v }; })); };
@@ -48454,6 +48465,7 @@ var init_input = __esm(() => {
   init_contract();
   init_record();
   NAMES = ["player", "hero", "avatar", "kart", "car", "vehicle", "ship", "plane", "boat"];
+  FORWARD = /^(KeyW|KeyS|ArrowUp|ArrowDown|[wWsS])$/, STEERS_NOT = /^(Space| |Shift(Left|Right)?|mouse:.*)$/;
   KINDS = ["key", "mouse", "wheel", "resize", "scroll", "touch", "wait", "clock", "state", "until", "action"], FIELDS = {
     key: ["key", "down", "frames"],
     mouse: ["mouse", "x", "y", "button", "relative", "frames"],
@@ -62027,6 +62039,74 @@ var init_lint = __esm(() => {
   ], CODE = /* @__PURE__ */ new Set([".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".html", ".vue", ".svelte"]), MAP = /["']three["']\s*:\s*["'][^"']*?three@([\w.^~-]+)/, CURRENT = minor("0.186.1") || minor(json(resolve15(import.meta.dirname, "../node_modules/three/package.json"))?.version);
 });
 
+import { rmSync as rmSync6 } from "node:fs";
+function stillShare(poses) {
+  let d = poses.slice(1).map((b2, i) => Math.hypot(b2[0] - poses[i][0], b2[1] - poses[i][1], b2[2] - poses[i][2])), moved = d.filter((x2) => x2 > 0.000001).sort((x2, y) => x2 - y);
+  if (moved.length < 5)
+    return null;
+  let tiny = 0.25 * moved[moved.length >> 1], still = (x2) => x2 < tiny, span = d.slice(d.findIndex((x2) => !still(x2)), d.findLastIndex((x2) => !still(x2)) + 1), run2 = 0, longest = 0;
+  for (let x2 of span)
+    longest = Math.max(longest, run2 = still(x2) ? run2 + 1 : 0);
+  return longest > 3 ? 0 : span.filter(still).length / span.length;
+}
+async function measure2(seat, game, steps, first2, browser, cwd) {
+  let keys = [...new Set(steps.slice(first2).filter(holds2).map((s) => s.key))], probe2 = seat.probe = await openGame2({ url: game.url, cwd, browser, viewport: game.page.viewport() ?? void 0, config: game.config });
+  try {
+    let earlier = game.played.slice(0, game.played.length - steps.length), r = await act(probe2, [...earlier, ...steps.slice(0, first2), ...keys.map((key2) => ({ key: key2, down: !0 })), { wait: RUNUP }]), out = await probe2.page.evaluate(`(async () => {
+      const h = window.__harness, cams = [...new Set([...h.views.values()].map(v => v.camera))], cameras = cams.map(() => []); // every view's: a game drawn into a render target shows it on a quad under a camera that never moves
+      ${motionStart(statePos(r.after))};
+      let on = true;
+      const tick = () => { if (!on) return; cams.forEach((cam, i) => { cam.updateWorldMatrix(true, false); const e = cam.matrixWorld.elements; cameras[i].push([e[12], e[13], e[14]]); }); requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+      h.skip = true;
+      try { await __clock.step(${FRAMES}, ${MS}); } finally { h.skip = false; on = false; }
+      return { subject: window.__harnessMotion?.end() ?? null, cameras };
+    })()`), seen2 = [[out.subject?.name, stillShare(out.subject?.samples ?? [])], ...out.cameras.map((c) => ["the camera", stillShare(c)])];
+    if (seen2.every(([, share]) => share === null))
+      return null;
+    let bad = seen2.find(([, share]) => share !== null && share >= STILL);
+    return !bad ? "" : `Motion at 100 Hz (${bad[0]}): it stands still on ${Math.round(bad[1] * 100)}% of frames while ${keys.join(" + ")} is held, which a 100 or 120 Hz screen shows as stutter though every frame here looks even. A thing moved in whole 1/60 s steps is drawn between its last two (prev + (cur - prev) * acc / STEP, or game-state's between()); or move it by the frame's elapsed time.`;
+  } finally {
+    await probe2.close().catch(() => {}), rmSync6(probe2.runDir, { recursive: !0, force: !0 });
+  }
+}
+async function pacing(game, steps, chrome2, cwd) {
+  if (game.engine.name !== "chromium" || !Array.isArray(steps))
+    return;
+  let first2 = steps.findIndex(holds2);
+  if (first2 < 0)
+    return;
+  let print = fingerprint(cwd), was = tried.get(game), tries = was?.print === print ? was.tries : 0;
+  if (tries >= TRIES)
+    return;
+  tried.set(game, { print, tries: tries + 1 });
+  let seat = {}, timer2;
+  try {
+    let browser = await chrome2(), line2 = await Promise.race([
+      measure2(seat, game, steps, first2, browser, cwd),
+      new Promise((done) => {
+        timer2 = setTimeout(() => {
+          seat.probe?.close().catch(() => {}), done(null);
+        }, MAX_MS);
+      })
+    ]);
+    if (line2 === null)
+      return;
+    return tried.set(game, { print, tries: TRIES }), line2 || void 0;
+  } catch {
+    return;
+  } finally {
+    clearTimeout(timer2);
+  }
+}
+var RUNUP = 12, FRAMES = 30, MS = 10, STILL = 0.2, TRIES = 3, MAX_MS = 15000, holds2 = (s) => ("key" in s) && (s.down === !0 || s.down === void 0 && (s.frames ?? 1) >= RUNUP), tried;
+var init_pacing = __esm(() => {
+  init_browser2();
+  init_fingerprint();
+  init_input();
+  tried = /* @__PURE__ */ new WeakMap;
+});
+
 import { isAbsolute as isAbsolute5, relative as relative11 } from "node:path";
 function serverText(log, cwd) {
   let found = log.flatMap((l, i) => {
@@ -62142,11 +62222,11 @@ async function installed(client) {
   if (!FEEDBACK)
     return;
   try {
-    let f = join22(telemetryDir(), "pinged"), body = JSON.stringify({ ...base(), client: client.slice(0, 64) }), version = "0.4.0";
-    if (existsSync14(f) && readFileSync19(f, "utf8") === "0.4.0")
+    let f = join22(telemetryDir(), "pinged"), body = JSON.stringify({ ...base(), client: client.slice(0, 64) }), version = "0.4.1";
+    if (existsSync14(f) && readFileSync19(f, "utf8") === "0.4.1")
       return;
     if (await post("/install", body))
-      writeFileSync11(f, "0.4.0");
+      writeFileSync11(f, "0.4.1");
   } catch {}
 }
 function told() {
@@ -62160,7 +62240,7 @@ function stopEvent(asked) {
 `);
   } catch {}
 }
-var off, ON = !1, FEEDBACK, URL3 = "https://paprika3d-telemetry.paprika3d.workers.dev", KEY = "9cf6093e07a2c1cc94161e84dbdb59268440ff04d06b7be9", telemetryDir = () => join22(harnessHome(), "telemetry"), run2, KINDS3, id = "", base = () => ({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), install: install2(), run: run2, version: "0.4.0", os: platform(), node: process.versions.node.split(".")[0] }), scrub = (s) => (s.split(`
+var off, ON = !1, FEEDBACK, URL3 = "https://paprika3d-telemetry.paprika3d.workers.dev", KEY = "9cf6093e07a2c1cc94161e84dbdb59268440ff04d06b7be9", telemetryDir = () => join22(harnessHome(), "telemetry"), run2, KINDS3, id = "", base = () => ({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), install: install2(), run: run2, version: "0.4.1", os: platform(), node: process.versions.node.split(".")[0] }), scrub = (s) => (s.split(`
 `)[0] ?? "").replace(/[a-z]+:\/\/\S+/gi, "<url>").replace(/(?:[A-Za-z]:\\|~?\/)[^\s:'"`,)]+/g, "<path>").slice(0, 160), extra, last3 = null, post = (path14, body) => !URL3 ? Promise.resolve(!1) : fetch(URL3 + path14, { method: "POST", headers: { "content-type": "application/json", "x-paprika3d-key": KEY }, body, signal: AbortSignal.timeout(3000) }).then((r) => r.ok, () => !1), REPORT_TOOL, reports = 0, REPORT_ASK;
 var init_telemetry = __esm(() => {
   init_state();
@@ -63186,7 +63266,7 @@ async function mint(who) {
     client_version,
     model: who.model ?? null,
     os: platform2(),
-    plugin_version: "0.4.0"
+    plugin_version: "0.4.1"
   }, headers: invite ? { "x-paprika3d-invite": invite } : {} });
   if (!had)
     writePrivate(join24(configDir(), "install-id"), install3);
@@ -63252,7 +63332,7 @@ async function publish(cwd, who, opts = {}) {
   try {
     if (!key2)
       key2 = await mint(who), minted = !0;
-    let agent = { install: installId(), client: who.client === "unknown" ? null : who.client, model: who.model ?? null, plugin_version: "0.4.0" }, chosen = opts.slug ? { slug: opts.slug, kept: !0 } : slugFor(cwd, api3), slug3 = chosen.slug, s;
+    let agent = { install: installId(), client: who.client === "unknown" ? null : who.client, model: who.model ?? null, plugin_version: "0.4.1" }, chosen = opts.slug ? { slug: opts.slug, kept: !0 } : slugFor(cwd, api3), slug3 = chosen.slug, s;
     for (let tries = 0;!s; tries++)
       try {
         s = await call("/v1/publish", { json: { slug: slug3, files: manifest, agent }, secret: key2.secret });
@@ -63356,7 +63436,7 @@ __export(exports_server, {
   checkArgs: () => checkArgs,
   answer: () => answer
 });
-import { copyFileSync as copyFileSync2, existsSync as existsSync17, mkdirSync as mkdirSync13, readdirSync as readdirSync8, readFileSync as readFileSync22, rmSync as rmSync6, writeFileSync as writeFileSync14 } from "node:fs";
+import { copyFileSync as copyFileSync2, existsSync as existsSync17, mkdirSync as mkdirSync13, readdirSync as readdirSync8, readFileSync as readFileSync22, rmSync as rmSync7, writeFileSync as writeFileSync14 } from "node:fs";
 import { basename as basename5, join as join25, relative as relative14, resolve as resolve19 } from "node:path";
 import { cpus as cpus3, loadavg as loadavg2 } from "node:os";
 import { createHash as createHash7, randomBytes } from "node:crypto";
@@ -63784,7 +63864,7 @@ ${said.join(`
 async function handle(method, params) {
   switch (method) {
     case "initialize":
-      return client = [params?.clientInfo?.name, params?.clientInfo?.version].filter(Boolean).join("/") || client, installed(client), { protocolVersion: params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "paprika3d", title: "paprika3d", version: "0.4.0" }, instructions: INSTRUCTIONS };
+      return client = [params?.clientInfo?.name, params?.clientInfo?.version].filter(Boolean).join("/") || client, installed(client), { protocolVersion: params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "paprika3d", title: "paprika3d", version: "0.4.1" }, instructions: INSTRUCTIONS };
     case "ping":
       return {};
     case "tools/list":
@@ -63915,6 +63995,7 @@ var init_server = __esm(() => {
   init_assets();
   init_fingerprint();
   init_lint();
+  init_pacing();
   init_open();
   init_state();
   init_telemetry();
@@ -63955,7 +64036,7 @@ var init_server = __esm(() => {
     },
     {
       name: "interact",
-      description: "Plays `steps` on the open page frame by frame and returns what changed in the state (the whole state when nothing did), the console lines and errors the steps raised, a Motion line when the subject turned or stopped under a held key, and a Sound line on a page that makes sound. Each mouse and touch step names the object under it and its distance. `expect` adds one ✓ or ✗ line per path; `save` keeps the play as a check `test` reruns, only when every entry holds. A malformed step fails the call before anything plays; a failing `expect` entry is reported, not raised. Use `feel` to measure how an event reacts on screen, `observe` to read the state without playing, and `eval` to set it with code. Options in full: the skill's references/tools.md.",
+      description: "Plays `steps` on the open page frame by frame and returns what changed in the state (the whole state when nothing did), the console lines and errors the steps raised, a Motion line when the subject turned or stopped under a held key or would stutter on a 100 Hz screen, and a Sound line on a page that makes sound. Each mouse and touch step names the object under it and its distance. `expect` adds one ✓ or ✗ line per path; `save` keeps the play as a check `test` reruns, only when every entry holds. A malformed step fails the call before anything plays; a failing `expect` entry is reported, not raised. Use `feel` to measure how an event reacts on screen, `observe` to read the state without playing, and `eval` to set it with code. Options in full: the skill's references/tools.md.",
       inputSchema: { type: "object", properties: {
         steps: { type: "array", items: { type: "object" }, description: 'Steps, in order: { key, frames? } (held, then released); { key, down: true|false } (held across steps); { mouse: click|dblclick|down|up|move, x, y }; { mouse: move, relative: [dx, dy] } (pointer lock); { wheel: deltaY, x?, y? }; { resize: [w, h] }; { scroll: px | { progress: 0..1 } | { to: "#id" } }; { touch: start|move|end|tap, x, y }; { wait: frames, draw? }; { action, ...args } (window.__game.act); { state: {...} } (window.__game.setState, then one frame); { until: {...}, max? } (until the state holds, values as `expect`\'s; `max` 600 frames by default); { clock: { timescale?, paused? } } (paused: false plays in real time; the clock reads 60 s at frame 0 on purpose). Each step advances `frames` (default 1) and draws only its last (draw: true draws each); `frames: 0` sends it on the same frame as the next.' },
         look: { type: "boolean", description: "Also return `look`'s picture after the steps." },
@@ -64133,10 +64214,10 @@ var init_server = __esm(() => {
       } catch (e) {
         if (src.includes(JSON.stringify(String(a2.prompt).trim())))
           throw Error(`${draft} is not JSON (${e.message}); fix it and call \`contract\` again with the same prompt.`);
-        rmSync6(draft);
+        rmSync7(draft);
       }
       if (typeof raw?.prompt === "string" && raw.prompt.trim() !== String(a2.prompt).trim())
-        rmSync6(draft), raw = null;
+        rmSync7(draft), raw = null;
       if (!raw)
         return harnessDir(dir), writeFileSync14(brief, `${contractInstructions(a2.prompt)}
 
@@ -64150,11 +64231,11 @@ It issues the contract and replies with the keypoints and the observe() schema; 
       } catch (e) {
         let keep = typeof raw.prompt === "string";
         if (!keep)
-          rmSync6(draft, { force: !0 });
+          rmSync7(draft, { force: !0 });
         throw Error(`${e.message}
 ${keep ? `Fix ${draft}` : `Write ${draft} again, with the prompt in "prompt",`} and call \`contract\` again with the same prompt.`);
       }
-      rmSync6(draft, { force: !0 });
+      rmSync7(draft, { force: !0 });
       let hash = createHash7("sha256").update(readFileSync22(join25(dir, "game-contract.json"))).digest("hex"), state = issueContract(dir, hash, c.issued), runDir = join25(dir, "paprika3d", "runs", c.issued.replace(/[:.]/g, "-"));
       mkdirSync13(runDir, { recursive: !0 });
       let copy = join25(runDir, "game-contract.json");
@@ -64295,8 +64376,12 @@ Run folder: ${game.runDir}`);
         }
       });
       noteTest(g, void 0, keyFramesOf(a2.steps, r.framesRun));
-      let reply = capAct(r.after, r.changed), verb = a2.save !== void 0 ? savedVerb(cwd, a2.save) : "Saved", n = a2.save !== void 0 && r.passed ? saveTest(cwd, a2.save, a2.steps ?? [], predicates(a2.expect)) : 0, saved = a2.save === void 0 ? "" : !n ? "Not saved: an Expect entry failed, and a saved check must pass when it is saved." : `${verb} check "${a2.save}" in game-tests.json (${n === 1 ? "1 check" : `${n} checks`} now); \`test\` reruns them all, each from a fresh reload${n === 1 ? ", and the after-edit hook reruns them after each edit, speaking only when one starts or stops failing" : ""}.`, body2 = JSON.stringify({ ...reply, ...hovered && { hover: hovered }, ...logs.length > 0 && { logs }, ...errors.length > 0 && { errors: uniq2(errors.map((e) => e.split(`
-`)[0].slice(0, 300)), 5) } }) + [r.motion, r.sound, r.hint, r.traceText, r.expect, saved, r.clip && clipText(r.clip, g), r.video && videoText(r.video)].map((l2) => l2 ? `
+      let paced = a2.record ? void 0 : await pacing(g, a2.steps, async () => {
+        if (!(await chrome2?.catch(() => null))?.connected)
+          chrome2 = launchChrome2();
+        return chrome2;
+      }, cwd), reply = capAct(r.after, r.changed), verb = a2.save !== void 0 ? savedVerb(cwd, a2.save) : "Saved", n = a2.save !== void 0 && r.passed ? saveTest(cwd, a2.save, a2.steps ?? [], predicates(a2.expect)) : 0, saved = a2.save === void 0 ? "" : !n ? "Not saved: an Expect entry failed, and a saved check must pass when it is saved." : `${verb} check "${a2.save}" in game-tests.json (${n === 1 ? "1 check" : `${n} checks`} now); \`test\` reruns them all, each from a fresh reload${n === 1 ? ", and the after-edit hook reruns them after each edit, speaking only when one starts or stops failing" : ""}.`, body2 = JSON.stringify({ ...reply, ...hovered && { hover: hovered }, ...logs.length > 0 && { logs }, ...errors.length > 0 && { errors: uniq2(errors.map((e) => e.split(`
+`)[0].slice(0, 300)), 5) } }) + [r.motion, paced, r.sound, r.hint, r.traceText, r.expect, saved, r.clip && clipText(r.clip, g), r.video && videoText(r.video)].map((l2) => l2 ? `
 ${l2}` : "").join(""), strip = r.clip?.strip ?? r.video?.strip;
       if (!a2.look)
         return strip ? withPicture(g, text(body2), strip) : text(body2);
@@ -64598,7 +64683,7 @@ __export(exports_loop, {
   loop: () => loop
 });
 import { spawn as spawn7, spawnSync as spawnSync4 } from "node:child_process";
-import { createWriteStream as createWriteStream3, existsSync as existsSync18, mkdirSync as mkdirSync14, readFileSync as readFileSync23, renameSync as renameSync3, rmSync as rmSync7, unwatchFile, watchFile, writeFileSync as writeFileSync15 } from "node:fs";
+import { createWriteStream as createWriteStream3, existsSync as existsSync18, mkdirSync as mkdirSync14, readFileSync as readFileSync23, renameSync as renameSync3, rmSync as rmSync8, unwatchFile, watchFile, writeFileSync as writeFileSync15 } from "node:fs";
 import { createHash as createHash8 } from "node:crypto";
 import { join as join26, sep as sep7 } from "node:path";
 function latestOf(progress) {
@@ -64727,7 +64812,7 @@ async function loop(opts) {
     writeFileSync15(progress, "# Progress\n\nThe request is in PROMPT.md. Each session of the loop appends one section here: a builder's `## Iteration n` (Did, Saw, Next, Open) and the judge's `### Judge n` (its scores, Next). LATEST.md holds the last of each, rewritten by the loop after every session; the next builder reads the latest Judge's Next there first.\n");
   handoff();
   let revision = join26(dir, ".revision"), lastPrompt = before.brief ?? previous2 ?? brief(), seen2 = "", written = null, fresh = () => {
-    rmSync7(revision, { force: !0 }), seen2 = brief(), written = null;
+    rmSync8(revision, { force: !0 }), seen2 = brief(), written = null;
   };
   if (watchFile(promptFile, { interval: 1000 }, () => {
     let now = brief();
@@ -64735,7 +64820,7 @@ async function loop(opts) {
       seen2 = written;
     let changes = diffLines(seen2, now);
     if (!changes) {
-      rmSync7(revision, { force: !0 }), written = null;
+      rmSync8(revision, { force: !0 }), written = null;
       return;
     }
     writeFileSync15(revision, `paprika-loop/PROMPT.md changed while this session runs; what changed is what the person wants next:
@@ -64827,7 +64912,7 @@ ${verdict2 || "(no reply)"}
     }
     it.minutes = Math.round((Date.now() - t0) / 6000) / 10, save();
   }
-  unwatchFile(promptFile), rmSync7(revision, { force: !0 });
+  unwatchFile(promptFile), rmSync8(revision, { force: !0 });
   let run3 = iterations.slice(earlier), cost = run3.reduce((s, i) => s + i.costUsd, 0), latest = iterations.findLast((i) => i.commit)?.commit, text2 = [
     "# paprika-loop report",
     "",

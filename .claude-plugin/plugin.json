@@ -1,6 +1,6 @@
 {
   "name": "paprika3d",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Three.js MCP server and Claude Code plugin: build three.js games and 3D pages end to end, from references and a design doc to playtesting, models and a published link. /paprika3d:paprika-make pulls references (it asks before a web search for study references), writes a style sheet, character sheets and a design doc, asking you the creative calls, picks where each key model comes from and builds the page; /paprika3d:paprika-loop keeps improving it for the time you give it. Its tools see what is on screen and what never appears, play inputs on exact frames and time each frame. Models come from a library of 57,732 (CC BY or CC0), from code, or from your own fal, Meshy or Tripo key; picture sheets use your own fal, OpenAI or Gemini key; publishing to paprika3d.app is a preview, invite-only.",
   "keywords": [
     "threejs",
