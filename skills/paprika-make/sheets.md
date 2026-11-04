@@ -42,6 +42,8 @@ style: low-poly · maxTris 5000 · asked · sources: library, web, generate (mes
 
 **The Checks** are three to five lines, each verifiable with one `look` (`sample` at pixels, its `Subject`, `Lighting:` and `Surfaces:` lines) or one `interact`. They are what the critic and a loop's judge hold the page to, so each names the look and the number that shows it.
 
+**A `(builder's call)` line is where a page comes out like every other.** Two agents given one brief draw nearly the same page, and these came back on briefs that did not ask for them: a warm key light under pale blue haze; neon magenta and cyan on near-black for an arcade subject; dark translucent rounded panels, pill buttons and a small caption of the controls along the bottom edge; Trebuchet MS. They are defaults, not bans: a picture, the person's words or the subject can call for any of them. A `(builder's call)` line that lands on one with nothing behind it has not been decided yet.
+
 **The Assets line** is the answer to the asset style question, mapped onto `asset_search`'s filters for every search in the project:
 
 | Answer | `asset_search` filters | Words for web searches and generation prompts |

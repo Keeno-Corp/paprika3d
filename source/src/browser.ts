@@ -8,7 +8,7 @@
 // __clock.step(n) returns a promise: make it the evaluated expression's value (page.evaluate awaits it) or await it in an
 // async function; only its first frame runs before it returns.
 import { createReadStream, readFileSync, readdirSync, mkdirSync, rmSync, statSync, existsSync, type Dirent } from "node:fs";
-import { join, resolve, relative, normalize, isAbsolute, dirname, extname, delimiter } from "node:path";
+import { join, resolve, relative, isAbsolute, dirname, extname, posix, win32 } from "node:path";
 import { homedir } from "node:os";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -22,26 +22,34 @@ import { VIEWPORT } from "./contract.ts";
 import { SOFTWARE_GL } from "./budgets.ts";
 import type { EngineName, Rack } from "./engines.ts";
 
-const DEFAULT_CHROME = process.platform === "linux" ? "/usr/bin/google-chrome" : "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 /** Chrome: PAPRIKA3D_CHROME as given, else the first found of the platform's install, one on PATH, and the newest in
  *  Playwright's or Puppeteer's cache (a tester's agent took a sudo detour for /usr/bin/google-chrome with Playwright's
- *  Chromium installed, 2026-10-20); with none, the platform's path, so the error names it. */
-function findChrome(): string {
-  if (process.env.PAPRIKA3D_CHROME) return process.env.PAPRIKA3D_CHROME;
-  const names = new Set(["chrome", "Chromium", "Google Chrome for Testing"]), home = homedir();
+ *  Chromium installed, 2026-10-20), then on Windows Edge, which is Chromium and on nearly every machine there; with none,
+ *  the platform's path, so the error names it (Windows read the macOS path: report 6a4c74df). */
+export function findChrome(platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env, exists: (p: string) => boolean = existsSync): string {
+  if (env.PAPRIKA3D_CHROME) return env.PAPRIKA3D_CHROME;
+  const win = platform === "win32", path = win ? win32 : posix;
+  const fallback = win ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" : platform === "linux" ? "/usr/bin/google-chrome" : "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+  const names = new Set(["chrome", "chrome.exe", "Chromium", "Google Chrome for Testing"]), home = homedir();
   // the first executable under a cache, folder names sorted descending so a later version comes first
   const newest = (d: string, depth = 0): string | undefined => {
     let list: Dirent[]; try { list = readdirSync(d, { withFileTypes: true }).sort((a, b) => b.name.localeCompare(a.name)); } catch { return; }
     for (const e of list) {
-      const p = join(d, e.name);
+      const p = path.join(d, e.name);
       if (e.isFile() && names.has(e.name)) return p;
       if (e.isDirectory() && depth < 6) { const f = newest(p, depth + 1); if (f) return f; }
     }
   };
-  const onPath = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"].flatMap(n => (process.env.PATH ?? "").split(delimiter).filter(Boolean).map(d => join(d, n)));
-  return [DEFAULT_CHROME, ...onPath].find(p => existsSync(p))
-    ?? [".cache/ms-playwright", "Library/Caches/ms-playwright", ".cache/puppeteer/chrome"].map(d => newest(join(home, d))).find(Boolean)
-    ?? DEFAULT_CHROME;
+  const under = (dirs: (string | undefined)[], rest: string) => dirs.filter((d): d is string => !!d).map(d => path.join(d, rest));
+  const onPath = (bins: string[]) => bins.flatMap(n => (env.PATH ?? "").split(path.delimiter).filter(Boolean).map(d => path.join(d, n)));
+  const { ProgramFiles: files, "ProgramFiles(x86)": files86, LOCALAPPDATA: local } = env;
+  const installs = win ? [fallback, ...under([files, files86, local], "Google\\Chrome\\Application\\chrome.exe"), ...under([files, local], "Chromium\\Application\\chrome.exe")] : [fallback];
+  const caches = win ? under([home], ".cache/puppeteer/chrome").concat(under([local], "ms-playwright")) : under([home], ".cache/ms-playwright").concat(under([home], "Library/Caches/ms-playwright"), under([home], ".cache/puppeteer/chrome"));
+  const edge = win ? [...under([files86, files], "Microsoft\\Edge\\Application\\msedge.exe"), ...onPath(["msedge.exe"])] : [];
+  return [...installs, ...onPath(win ? ["chrome.exe", "chromium.exe"] : ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"])].find(exists)
+    ?? caches.map(d => newest(d)).find(Boolean)
+    ?? edge.find(exists)
+    ?? fallback;
 }
 export const CHROME = findChrome();
 export const CHROME_ARGS = [`--window-size=${VIEWPORT.width},${VIEWPORT.height}`, "--disable-frame-rate-limit",
@@ -349,7 +357,8 @@ async function serveStatic(root: string, threeOnly = false): Promise<{ server: S
     try { answer(req, res); } catch { if (!res.headersSent) res.writeHead(400).end("bad request"); else res.destroy(); }
   });
   const answer = (req: IncomingMessage, res: ServerResponse) => {
-    const url = normalize(decodeURIComponent(new URL(req.url ?? "/", "http://127.0.0.1").pathname)), three = url.startsWith(THREE_DIR);
+    // posix: a URL's path on every system; node's own normalize gives backslashes on Windows, which THREE_DIR never matches
+    const url = posix.normalize(decodeURIComponent(new URL(req.url ?? "/", "http://127.0.0.1").pathname)), three = url.startsWith(THREE_DIR);
     const path = join(root, url);
     if (relative(root, path).startsWith("..") || (threeOnly && !three)) return res.writeHead(403).end("forbidden");
     let file = path, st = statSync(path, { throwIfNoEntry: false });

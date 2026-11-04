@@ -22,7 +22,7 @@ export const SAID: Record<EngineName, string> = { firefox: "firefox" };
 export const FIREFOX_PREFS = { "webgl.sanitize-unmasked-renderer": false, "privacy.resistFingerprinting": false, "layout.frame_rate": 0 };
 
 /** Firefox used unless PAPRIKA3D_FIREFOX names another (read per call, as tests set it). */
-const firefox = () => process.env.PAPRIKA3D_FIREFOX || (process.platform === "linux" ? "/usr/bin/firefox" : "/Applications/Firefox.app/Contents/MacOS/firefox");
+const firefox = () => process.env.PAPRIKA3D_FIREFOX || (process.platform === "linux" ? "/usr/bin/firefox" : process.platform === "win32" ? "C:\\Program Files\\Mozilla Firefox\\firefox.exe" : "/Applications/Firefox.app/Contents/MacOS/firefox");
 
 /** Firefox's executable, or the line saying it is not there. */
 export function engine(name: EngineName): string {

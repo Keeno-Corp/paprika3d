@@ -65,8 +65,10 @@ export function event(tool: string, args: Record<string, any>, r: Reply, ms: num
 }
 
 /** POSTs to the team's Worker within 3 s; false when it is unset, down or slow. */
-export const post = (path: string, body: string) => !URL ? Promise.resolve(false)
-  : fetch(URL + path, { method: "POST", headers: { "content-type": "application/json", "x-paprika3d-key": KEY }, body, signal: AbortSignal.timeout(3_000) }).then(r => r.ok, () => false);
+/** The Worker's status for a POST, or 0 when it did not answer. */
+const postStatus = (path: string, body: string): Promise<number> => !URL ? Promise.resolve(0)
+  : fetch(URL + path, { method: "POST", headers: { "content-type": "application/json", "x-paprika3d-key": KEY }, body, signal: AbortSignal.timeout(3_000) }).then(r => r.status, () => 0);
+export const post = (path: string, body: string) => postStatus(path, body).then(s => s >= 200 && s < 300);
 
 export const REPORT_TOOL = { name: "send_feedback", description: "Sends the paprika3d team a bug, feedback or criticism about the harness itself (not about the user's page): a reply that was wrong or unclear, a tool that hung, errored or got in your way, a check you disagree with, or something you needed and no tool gave. It attaches the last tool call's name, options and error, never the page's code or files. One line back; carry on with the task after it.",
   inputSchema: { type: "object", properties: { kind: { type: "string", enum: ["bug", "feedback", "criticism"] }, text: { type: "string", description: "What happened and what you expected, in a few sentences (2,000 characters at most)." } }, required: ["kind", "text"] } };
@@ -90,14 +92,15 @@ export async function report(kind: string, text: string, runDir?: string): Promi
   return `Saved in ${copy}; it is sent when the session stops. Carry on with the task.`;
 }
 
-/** The stable build's ping, once per install and version, at the client's first `initialize`: the install id, version, os, node and the MCP client's name. Sent again next start when the Worker does not answer. */
+/** The stable build's ping, once per install and version, at the client's first `initialize`: the install id, version, os, node and the MCP client's name. Sent again next start only when the Worker does not answer or fails: its 429 is an answer, and a retry at every start is no longer once per install (#202). */
 export async function installed(client: string) {
   if (process.env.PAPRIKA3D_CHANNEL !== "stable" || !FEEDBACK) return; // folds at build time: the dev bundle holds no ping
   try {
     const f = join(telemetryDir(), "pinged"), body = JSON.stringify({ ...base(), client: client.slice(0, 64) }); // base() makes the folder
     const version = process.env.PAPRIKA3D_VERSION ?? "0.0.0-src";
     if (existsSync(f) && readFileSync(f, "utf8") === version) return;
-    if (await post("/install", body)) writeFileSync(f, version);
+    const answer = await postStatus("/install", body);
+    if (answer && answer < 500) writeFileSync(f, version);
   } catch {}
 }
 

@@ -33,7 +33,7 @@ claude plugin install paprika3d@paprika3d
 npm install three
 ```
 
-Chrome is found at its usual install path on macOS and Linux, on PATH, or in Playwright's or Puppeteer's cache; anywhere else, set `PAPRIKA3D_CHROME` to the Chrome executable. Then ask Claude Code for the game, or to test a game you already have, in your own words. The plugin's skill has Claude Code open and play the page as it builds. The rest of this guide shows the calls it makes and what comes back.
+Chrome is found at its usual install path on macOS, Linux or Windows, on PATH, or in Playwright's or Puppeteer's cache; anywhere else, set `PAPRIKA3D_CHROME` to the Chrome executable. Then ask Claude Code for the game, or to test a game you already have, in your own words. The plugin's skill has Claude Code open and play the page as it builds. The rest of this guide shows the calls it makes and what comes back.
 
 ## The game
 

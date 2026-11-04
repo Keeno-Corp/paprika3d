@@ -49,7 +49,7 @@ export interface Pixels { brightness: number; saturation: number; black: number;
       `rest`: the hues without the one object over half the frame (a ground or sky), named, so it does not hide the rest's colours (#178) */ objects?: { share: number; brightness: number; saturation: number; black: number; hues: Record<string, number>; rest?: { name: string; share: number; hues: Record<string, number> } } }
 /** The canvas: its drawing buffer and CSS size, the page's DPR, the renderer's pixel ratio (null without three.js), and
     whether its size followed the page's when the page narrowed (null when not tried; "fixed": a fixed buffer CSS scales at its shape). */
-export interface Canvas { buffer: [number, number]; css: [number, number]; dpr: number; ratio: number | null; resized: boolean | "fixed" | null }
+export interface Canvas { buffer: [number, number]; css: [number, number]; dpr: number; ratio: number | null; resized: boolean | "fixed" | null; /** the page asked for hard pixels (CSS image-rendering), so a small buffer is its look */ pixelated?: boolean }
 /** The page-canvas seam (`__harness.seam()`): what shows through a transparent canvas, and the HTML over it (labels, and
     the page's own HUD, menus and controls). */
 export interface Seam {
@@ -620,12 +620,16 @@ type Where = [number, NeverVisible["where"], (string | null)?, (string | null)?,
 const runs = new WeakMap<Game, { n: number; all: Set<string>; seen: Set<string>; where: Map<string, Where> }>();
 
 /** The second copy of three for a game without the runtime layer: the project's own three when it is the game's
-    revision, served by the harness, else the same revision from jsDelivr. */
-export function threeUrl(game: Game, revision: string, webgpu = false) {
+    revision, served by the harness and the page may import it, else the same revision from jsDelivr. A page's
+    Content-Security-Policy can refuse the harness's http server (every *.paprika3d.app game's allows https: alone, #176). */
+export async function threeUrl(game: Game, revision: string, webgpu = false) {
   const build = webgpu ? "three.webgpu.js" : "three.module.js";
   try {
     const v = JSON.parse(readFileSync(join(game.root, "node_modules/three/package.json"), "utf8")).version;
-    if (v.split(".")[1] === revision) return new URL(`node_modules/three/build/${build}`, game.files).href;
+    if (v.split(".")[1] === revision) {
+      const own = new URL(`node_modules/three/build/${build}`, game.files);
+      if (own.origin === new URL(game.page.url()).origin || await game.page.evaluate(`import(${JSON.stringify(own.href)}).then(() => true, () => false)`)) return own.href;
+    }
   } catch {}
   return `https://cdn.jsdelivr.net/npm/three@0.${revision}/build/${build}`;
 }
@@ -695,7 +699,7 @@ export function look(game: Game, { moved = false, peek = false, edited = false, 
     const png = Buffer.from(await screenshot(page, picture)).toString("base64");
     const st = await page.evaluate(PIXELS_FN, png).catch(() => null) as (Omit<Pixels, "changed"> & { grid: number[] }) | null;
     const c = await page.evaluate(CANVAS) as (Omit<Canvas, "resized"> & { frame: number; reduce: boolean }) | null;
-    const canvas = c ? { buffer: c.buffer, css: c.css, dpr: c.dpr, ratio: c.ratio, resized } : undefined;
+    const canvas = c ? { buffer: c.buffer, css: c.css, dpr: c.dpr, ratio: c.ratio, resized, pixelated: c.pixelated } : undefined;
     const known = await knownOf(page), ct = canvasText(canvas).join(""), flags = /stretches|did not run|nothing shows/.test(ct), canvasKnown = flags ? known.line(ct) : undefined;
     const canvasSame = !!canvasKnown || ct === lastCanvas.get(game) && !flags;
     if (!peek) lastCanvas.set(game, ct);
@@ -716,7 +720,10 @@ export function look(game: Game, { moved = false, peek = false, edited = false, 
     // Only a solid colour counts: covers() says "an image" for an opaque gradient and a see-through vignette PNG alike
     const veil = covers.find(c => c.over >= 0.9 && c.opacity >= 0.95 && /^rgb\(/.test(c.background ?? ""));
     // the PNG goes as an argument, not pasted into the code (puppeteer scans every code string), and only when PIXELS failed
-    const r = await page.evaluate(PASS_FN, threeUrl(game, revision, webgpu), st ? null : png, !fights) as
+    const three = await threeUrl(game, revision, webgpu);
+    const r = await page.evaluate(PASS_FN, three, st ? null : png, !fights).catch(e => {
+      throw /dynamically imported module/.test(String(e?.message)) ? new Error(`look cannot name what is on screen: this page could not import a copy of three from ${three}. Its Content-Security-Policy refused it, or the network is down.`) : e;
+    }) as
       { png: string; pixels: number; objects: Pixels["objects"] | null; edge: number[] | null; entries: [string, number, number, number, number, number, boolean, [number, number, OnScreen["runs"] | null] | null][]; names: string[]; seen: string[]; missing: [string, Where][]; rect: [number, number, number, number]; depth: Look["depth"] | null; surface: Look["surface"] | null;
         subject: (Omit<Subject, "share" | "bbox"> & { n: number; box: [number, number, number, number] | null }) | { name: string; absent: true } | null };
     if (r.png) writeFileSync(ids, Buffer.from(r.png, "base64"));
@@ -919,7 +926,7 @@ export const FRAME = "Math.max(0, Math.round((__clock.now() - 60000) * 0.06))";
 // The canvas's sizes, plus the frame and whether the page asks for reduced motion, for the Canvas and Pixels lines.
 const CANVAS = `(() => { const h = window.__harness, c = h.canvas(), r = h.main()?.[1].renderer ?? h.renderers[0]; if (!c) return null;
   const b = c.getBoundingClientRect();
-  return { buffer: [c.width, c.height], css: [Math.round(b.width), Math.round(b.height)], dpr: devicePixelRatio, ratio: r?.getPixelRatio?.() ?? null,
+  return { buffer: [c.width, c.height], css: [Math.round(b.width), Math.round(b.height)], dpr: devicePixelRatio, ratio: r?.getPixelRatio?.() ?? null, pixelated: /pixelated|crisp-edges/.test(getComputedStyle(c).imageRendering),
     frame: ${FRAME}, reduce: matchMedia("(prefers-reduced-motion: reduce)").matches }; })()`;
 
 /** A screenshot of the page in CSS pixels at any DPR, so boxes in it are the page coordinates mouse steps take (#32). */
@@ -980,8 +987,9 @@ export function canvasText(c: Canvas | undefined): string[] {
   const cap = r !== null && (r < c.dpr ? `capped below DPR ${c.dpr}` : c.dpr > 2 ? "no cap" : "");
   const ratio = r === null ? "no three.js renderer" : `renderer pixel ratio ${+r.toFixed(3)}${cap ? `, ${cap}` : ""}`;
   const resize = c.resized === null ? "" : c.resized === "fixed" ? "; a fixed buffer CSS scales at its own shape (or a resize handler that waits for frames)" : c.resized ? "; resize handler ran" : "; resize handler did not run: the canvas kept its size when the page shrank (a debounced one waits for frames)";
-  const stretched = r !== null && c.resized !== "fixed" && (Math.abs(bw - cw * r) > Math.max(2, r) || Math.abs(bh - ch * r) > Math.max(2, r))
-    ? ` The buffer is not CSS size × pixel ratio, so the browser stretches it: call renderer.setSize when the canvas's size changes.` : "";
+  const off = r !== null && c.resized !== "fixed" && (Math.abs(bw - cw * r) > Math.max(2, r) || Math.abs(bh - ch * r) > Math.max(2, r));
+  // a low-resolution game asks for hard pixels: setSize at full size would remove the look it chose (#210)
+  const stretched = !off ? "" : c.pixelated ? " CSS image-rendering scales it up in hard pixels." : ` The buffer is not CSS size × pixel ratio, so the browser stretches it: call renderer.setSize when the canvas's size changes.`;
   const empty = !(bw && bh && cw && ch) ? ` The canvas is 0 px ${!(bh && ch) ? "tall" : "wide"}, so nothing shows: give it (or its container) a size, then call renderer.setSize.` : "";
   return [`Canvas: ${bw}x${bh} buffer for ${cw}x${ch} CSS at DPR ${c.dpr} (${ratio})${resize}.${empty || stretched}`];
 }
@@ -1519,7 +1527,7 @@ export function probe(game: Game, points: number[][], cam?: Cam): Promise<string
       const { views, revision, webgpu } = await page.evaluate(`({ views: __harness.views.size, revision: String(__harness.revision), webgpu: !!__harness.main()?.[1].renderer.isWebGPURenderer })`) as
         { views: number; revision: string; webgpu: boolean };
       if (!views) throw new Error(NOT_DRAWN);
-      const url = threeUrl(game, revision, webgpu), lines: string[] = [];
+      const url = await threeUrl(game, revision, webgpu), lines: string[] = [];
       let untested = false;
       for (const p of points) { // an evaluate each, so a slow page answers guarded()'s ping between points
         const r = await page.evaluate(PROBE_FN, p, url) as { line: string; drew?: boolean; untested?: boolean };

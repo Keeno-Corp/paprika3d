@@ -190,11 +190,12 @@ async function installed(client) {
   if (!FEEDBACK)
     return;
   try {
-    let f = join3(telemetryDir(), "pinged"), body = JSON.stringify({ ...base(), client: client.slice(0, 64) }), version = "0.4.1";
-    if (existsSync3(f) && readFileSync3(f, "utf8") === "0.4.1")
+    let f = join3(telemetryDir(), "pinged"), body = JSON.stringify({ ...base(), client: client.slice(0, 64) }), version = "0.4.2";
+    if (existsSync3(f) && readFileSync3(f, "utf8") === "0.4.2")
       return;
-    if (await post("/install", body))
-      writeFileSync2(f, "0.4.1");
+    let answer = await postStatus("/install", body);
+    if (answer && answer < 500)
+      writeFileSync2(f, "0.4.2");
   } catch {}
 }
 function told() {
@@ -208,8 +209,8 @@ function stopEvent(asked) {
 `);
   } catch {}
 }
-var off, ON = !1, FEEDBACK, URL = "https://paprika3d-telemetry.paprika3d.workers.dev", KEY = "9cf6093e07a2c1cc94161e84dbdb59268440ff04d06b7be9", telemetryDir = () => join3(harnessHome(), "telemetry"), run, KINDS, id = "", base = () => ({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), install: install(), run, version: "0.4.1", os: platform(), node: process.versions.node.split(".")[0] }), scrub = (s) => (s.split(`
-`)[0] ?? "").replace(/[a-z]+:\/\/\S+/gi, "<url>").replace(/(?:[A-Za-z]:\\|~?\/)[^\s:'"`,)]+/g, "<path>").slice(0, 160), extra, last = null, post = (path, body) => !URL ? Promise.resolve(!1) : fetch(URL + path, { method: "POST", headers: { "content-type": "application/json", "x-paprika3d-key": KEY }, body, signal: AbortSignal.timeout(3000) }).then((r) => r.ok, () => !1), REPORT_TOOL, reports = 0, REPORT_ASK;
+var off, ON = !1, FEEDBACK, URL = "https://paprika3d-telemetry.paprika3d.workers.dev", KEY = "9cf6093e07a2c1cc94161e84dbdb59268440ff04d06b7be9", telemetryDir = () => join3(harnessHome(), "telemetry"), run, KINDS, id = "", base = () => ({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), install: install(), run, version: "0.4.2", os: platform(), node: process.versions.node.split(".")[0] }), scrub = (s) => (s.split(`
+`)[0] ?? "").replace(/[a-z]+:\/\/\S+/gi, "<url>").replace(/(?:[A-Za-z]:\\|~?\/)[^\s:'"`,)]+/g, "<path>").slice(0, 160), extra, last = null, postStatus = (path, body) => !URL ? Promise.resolve(0) : fetch(URL + path, { method: "POST", headers: { "content-type": "application/json", "x-paprika3d-key": KEY }, body, signal: AbortSignal.timeout(3000) }).then((r) => r.status, () => 0), post = (path, body) => postStatus(path, body).then((s) => s >= 200 && s < 300), REPORT_TOOL, reports = 0, REPORT_ASK;
 var init_telemetry = __esm(() => {
   init_state();
   off = /^(1|true)$/i.test(process.env.DO_NOT_TRACK ?? "") || process.env.PAPRIKA3D_TELEMETRY === "0", FEEDBACK = !off, run = randomUUID().slice(0, 8), KINDS = ["key", "mouse", "wheel", "resize", "scroll", "touch", "wait", "clock", "state", "until", "action"];
@@ -222,7 +223,7 @@ var init_telemetry = __esm(() => {
   REPORT_ASK = FEEDBACK ? "\nIf a paprika3d reply was wrong, unclear or got in your way, say so once with `send_feedback`." : "";
 });
 
-import { existsSync as existsSync4, readFileSync as readFileSync4, writeFileSync as writeFileSync3 } from "node:fs";
+import { existsSync as existsSync4, readFileSync as readFileSync4, realpathSync, writeFileSync as writeFileSync3 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as join4, relative, resolve as resolve2 } from "node:path";
 import { json } from "node:stream/consumers";
@@ -239,7 +240,12 @@ var mtime = (f) => {
 function sessionRuns(transcript, sessionId, batch = []) {
   if (typeof transcript !== "string" || !existsSync(transcript))
     return null;
-  let sub = join(dirname(transcript), sessionId, "subagents"), files = [transcript, ...existsSync(sub) ? readdirSync(sub).filter((f) => f.endsWith(".jsonl")).map((f) => join(sub, f)) : []], ids = /* @__PURE__ */ new Set, runs = /* @__PURE__ */ new Set, named = (json) => {
+  let sub = join(dirname(transcript), sessionId, "subagents");
+  return runsIn([transcript, ...existsSync(sub) ? readdirSync(sub).filter((f) => f.endsWith(".jsonl")).map((f) => join(sub, f)) : []], batch);
+}
+var leadRuns = (transcript) => typeof transcript === "string" && existsSync(transcript) ? runsIn([transcript]) : [];
+function runsIn(files, batch = []) {
+  let ids = /* @__PURE__ */ new Set, runs = /* @__PURE__ */ new Set, named = (json) => {
     for (let m of json.matchAll(/(?:Run folder|Picture): (\/[^"\\]*?\/paprika3d\/runs\/[^"\\/]+)/g))
       runs.add(m[1]);
   };
@@ -315,12 +321,25 @@ var tests = mine.map((run2) => {
   } catch {
     return null;
   }
-}).filter((t) => t !== null).sort((a, b) => Date.parse(b.at) - Date.parse(a.at)), last2 = tests[0], root = last2 && resolve2(last2.run, "..", "..", ".."), changed = root && last2 ? sourcesSince(root, Date.parse(last2.at)).map((p) => relative(root, p)) : [], todo = [], asked = [], ask = (key, line) => {
+}).filter((t) => t !== null).sort((a, b) => Date.parse(b.at) - Date.parse(a.at)), last2 = tests[0], root = last2 && resolve2(last2.run, "..", "..", ".."), ran = last2 && (() => {
+  try {
+    return JSON.parse(readFileSync4(join4(last2.run, "ran.json"), "utf8")).files;
+  } catch {
+    return null;
+  }
+})(), real = (p) => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}, files = ran && new Set(ran.map(real)), changed = root && last2 ? sourcesSince(root, Date.parse(last2.at), (p) => !files || files.has(real(p))).map((p) => relative(root, p)) : [], todo = [], asked = [], ask = (key, line) => {
   todo.push(line), asked.push(key);
 };
-if (!last2)
-  ask("unplayed", "This session opened the game but never played or looked at it (`interact`, `look`).");
-else if (changed.length)
+if (!last2) {
+  if (leadRuns(input.transcript_path).some((r) => existsSync4(r)))
+    ask("unplayed", "This session opened the game but never played or looked at it (`interact`, `look`).");
+} else if (changed.length)
   ask("changed", `${changed.slice(0, 5).join(", ")}${changed.length > 5 ? ` and ${changed.length - 5} more` : ""} changed after your last \`interact\` or \`look\`: the final version was never played or seen.`);
 if (last2?.faults.length)
   ask("faults", `Your last \`look\` reported:

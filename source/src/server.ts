@@ -30,7 +30,7 @@ import { act, hover, type Step } from "./input.ts";
 import { look, lookFrom, lookText, faultLines, faultDiff, faultsNow, coversText, views, cameras, namedCam, sheet, viewports, viewportsText, sheetText, shortText, scrollSweep, zoom, zoomOutside, probe, opening, saveBaseline, compareBaseline, colours, type Cover, type Look, type SheetItem } from "./look.ts";
 import { feel } from "./feel.ts";
 import { COLOUR_SPACES } from "./lighting.ts";
-import { pageAssets, perf, compare, RUN_S, RUN_WARM_MS, RUNS_FLOOR, RUNS_CAP, CALL_CAP_S, passesText, costsText, overlayText, variantSetup, variantUrl, firstFrame, NETWORKS, LIGHTS, manyLights, lightsText, type Lights, type Variant, type PerfResult, type Network } from "./perf.ts";
+import { pageAssets, pageRan, perf, compare, RUN_S, RUN_WARM_MS, RUNS_FLOOR, RUNS_CAP, CALL_CAP_S, passesText, costsText, overlayText, variantSetup, variantUrl, firstFrame, NETWORKS, LIGHTS, manyLights, lightsText, type Lights, type Variant, type PerfResult, type Network } from "./perf.ts";
 import { BUDGETS, SOFTWARE_NOTE, budgetText, type Budget } from "./budgets.ts";
 import { optimize } from "./optimize.ts";
 import { assetsText, CONVERT, shrink, shrinkFix, shrinkText } from "./glb.ts";
@@ -1166,6 +1166,7 @@ export function checkArgs(name: string, args: Record<string, any>, openCwd: stri
   return outside.length && outside.every(Boolean) ? outside.at(-1)! : null;
 }
 
+const NOTES_RAN = new Set(["look", "interact", "eval"]); // the tools that call noteTest
 function call(name: string, args: Record<string, any>): Promise<Result> {
   const tool = !HIDDEN.includes(name) && TOOL_FNS[name]; // a hidden tool is not called by name either
   if (!tool) throw { code: -32602, message: `unknown tool ${name}` };
@@ -1190,6 +1191,8 @@ function call(name: string, args: Record<string, any>): Promise<Result> {
     if (game && !selfFresh(name, args) && owed.delete(game)) await game.reload();
     if (game) hookReset.delete(game);
     const r = await tool(args);
+    // what the page ran, for the finish check; a look or play that failed is not its last look (noteTest)
+    if (game && NOTES_RAN.has(name) && !r.isError) { const g = game; await g.queue(() => pageRan(g)).then(files => writeFileSync(join(g.runDir, "ran.json"), JSON.stringify({ files }))).catch(() => {}); }
     // after an error's first line and the lines it threw at: a reply that began "Reloaded (sources changed)" read as that (#166)
     if (note && r.content[0]?.type === "text") r.content[0] = { type: "text", text: r.isError ? r.content[0].text.replace(/^.*(\nat .*)*/, l => `${l}\n${note.trimEnd()}`) : note + r.content[0].text };
     if (game && !OWN_ERRORS.has(name) && !optimizing && r.content[0]?.type === "text") r.content[0] = { type: "text", text: r.content[0].text + errorsText(game.errors.slice(from)) };

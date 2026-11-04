@@ -207,7 +207,7 @@ init_fingerprint();
 init_state();
 import { existsSync as existsSync3, readFileSync as readFileSync4, realpathSync as realpathSync2, writeFileSync as writeFileSync2 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname as dirname3, extname as extname2, join as join4, resolve, sep as sep2 } from "node:path";
+import { basename, dirname as dirname3, extname as extname2, join as join4, resolve, sep as sep2 } from "node:path";
 import { spawnSync } from "node:child_process";
 import { json } from "node:stream/consumers";
 
@@ -238,7 +238,12 @@ var mtime = (f) => {
 function sessionRuns(transcript, sessionId, batch = []) {
   if (typeof transcript !== "string" || !existsSync2(transcript))
     return null;
-  let sub = join3(dirname2(transcript), sessionId, "subagents"), files = [transcript, ...existsSync2(sub) ? readdirSync2(sub).filter((f) => f.endsWith(".jsonl")).map((f) => join3(sub, f)) : []], ids = /* @__PURE__ */ new Set, runs = /* @__PURE__ */ new Set, named = (json) => {
+  let sub = join3(dirname2(transcript), sessionId, "subagents");
+  return runsIn([transcript, ...existsSync2(sub) ? readdirSync2(sub).filter((f) => f.endsWith(".jsonl")).map((f) => join3(sub, f)) : []], batch);
+}
+var leadRuns = (transcript) => typeof transcript === "string" && existsSync2(transcript) ? runsIn([transcript]) : [];
+function runsIn(files, batch = []) {
+  let ids = /* @__PURE__ */ new Set, runs = /* @__PURE__ */ new Set, named = (json) => {
     for (let m of json.matchAll(/(?:Run folder|Picture): (\/[^"\\]*?\/paprika3d\/runs\/[^"\\/]+)/g))
       runs.add(m[1]);
   };
@@ -334,15 +339,20 @@ var real = (p) => {
   }
 }, projectOf = (run) => real(resolve(run, "..", "..", "..")), runs, opened = () => runs !== void 0 ? runs : runs = sessionRuns(input.transcript_path, String(input.session_id ?? ""), calls)?.map(projectOf) ?? null;
 function remind() {
-  let mark = join4(tmpdir(), `paprika3d-reminded-${session.replace(/[^\w.-]/g, "_")}`);
+  let mark = join4(tmpdir(), `paprika3d-reminded-${String(input.session_id ?? "").replace(/[^\w.-]/g, "_")}`);
   if (existsSync3(mark))
     process.exit(0);
-  let cwd = resolve(input.cwd ?? "."), page = (f) => /\.(html|jsx?|tsx?)$/.test(f) && THREE.test(readOr(f)), pages = edits.map((e) => resolve(cwd, e.file)).filter(page), since = !pages.length && shell.length && !cwd.split(sep2).includes("node_modules") ? sessionBegan(input.transcript_path) : 0;
+  let cwd = resolve(input.cwd ?? "."), page = (f) => /\.(html|jsx?|tsx?)$/.test(f) && THREE.test(readOr(f)), pages = edits.map((e) => resolve(cwd, e.file)).filter(page), commands = shell.map((c) => String(c.tool_input?.command ?? "")).join(`
+`), since = !pages.length && shell.length && !cwd.split(sep2).includes("node_modules") ? sessionBegan(input.transcript_path) : 0;
   if (since)
-    pages.push(...sourcesSince(cwd, since, page, 1));
+    pages.push(...sourcesSince(cwd, since, (f) => commands.includes(basename(f)) && page(f), 1));
   if (!pages.length)
     process.exit(0);
-  writeFileSync2(mark, "");
+  try {
+    writeFileSync2(mark, "", { flag: "wx" });
+  } catch {
+    process.exit(0);
+  }
   let roots = [cwd, ...pages.map((p) => dirname3(p))], mine = opened();
   if (!!mine && roots.some((r) => {
     let p = real(r);

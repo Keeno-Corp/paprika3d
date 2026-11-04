@@ -342,7 +342,7 @@ function run(game: Game, steps: Step[], deadline?: number, offset = 0, film?: ()
     const missed = new Map<string, string>(), over = new Map<string, string>();
     let three: string | undefined, scrolled = false;
     const aim = async (kind: string, x: number, y: number, dom = true) => {
-      three ??= threeUrl(game, String(await page.evaluate("__harness.revision")));
+      three ??= await threeUrl(game, String(await page.evaluate("__harness.revision")));
       // a visible control under the pointer ("" from hit) took the click: nothing to say, and nothing in the scene under it
       const [on, at] = await page.evaluate(`(async () => { const on = ${dom} && __harness.hit(${+x}, ${+y}); return [on, on === "" ? null : await __harness.pick(${+x}, ${+y}, ${JSON.stringify(three)})]; })()`)
         .catch(() => [null, null]) as [string | null | false, string | null];

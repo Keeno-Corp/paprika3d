@@ -146,6 +146,35 @@ export async function pageAssets(game: Game): Promise<Assets> {
   return fetchedAssets(game.root, new URL(game.page.url()).origin, lists.flat());
 }
 
+/** ranFiles() for the page as it stands: the window's Resource Timing and each running worker's, as pageAssets() reads them. */
+export async function pageRan(game: Game): Promise<string[] | null> {
+  let workers: ReturnType<HarnessPage["workers"]> = [];
+  try { workers = game.page.workers(); } catch {} // an engine with none to list
+  const lists = await Promise.all([game.page.evaluate(FETCHED), ...workers.map(w => w.evaluate(FETCHED).catch(() => []))]) as Fetched[][];
+  return ranFiles(game.root, game.page.url(), lists.flat().map(f => f.url));
+}
+
+/** The files under `root` a page at `pageUrl` ran, for the finish check (hooks/before-stop.ts): its document and what it
+    fetched from its own origin, under `root` or `root/public` (Vite's), past dependencies and a dev server's own modules.
+    null when a script it ran is no source here (a build's output, a page from elsewhere): its sources are never fetched by name. */
+export function ranFiles(root: string, pageUrl: string, urls: string[]): string[] | null {
+  const page = new URL(pageUrl), files = new Set<string>();
+  const onDisk = (path: string) => {
+    for (const base of [root, join(root, "public")]) for (const f of [join(base, path), join(base, path, "index.html")]) {
+      if (statSync(f, { throwIfNoEntry: false })?.isFile()) return f;
+    }
+  };
+  for (const u of [page.href, ...urls]) {
+    let url: URL, path: string; try { url = new URL(u); path = decodeURIComponent(url.pathname); } catch { continue; }
+    if (url.origin !== page.origin || path.startsWith("/node_modules/") || path.startsWith("/@")) continue;
+    const f = onDisk(path), built = f && /(^|\/)(dist|build)\//.test(relative(root, f));
+    // shortcut: a build is told by its folder or a script not on disk; a bundle written beside its sources reads as source, so edits to those sources go unflagged
+    if (u === page.href ? !f || built : /\.(m?js|jsx|tsx?)$/.test(path) && (!f || built)) return null;
+    if (f) files.add(f);
+  }
+  return [...files];
+}
+
 /** The asset files (ASSET_EXTS: models, textures, environment maps, audio, video, fonts, wasm, never scripts, so a dev
     server's prebundled dependencies do not count) in what the page fetched, one per URL path (a `?v=` or Vite's `?import`
     twin is the same file): their MB, the largest three, how many gave no size (another origin's with no

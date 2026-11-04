@@ -45607,7 +45607,7 @@ async function rack(name, o) {
     throw await browser.close().catch(() => {}), e;
   }
 }
-var BROWSERS, SAID, FIREFOX_PREFS, firefox = () => process.env.PAPRIKA3D_FIREFOX || (process.platform === "linux" ? "/usr/bin/firefox" : "/Applications/Firefox.app/Contents/MacOS/firefox"), EngineUnsupported, shimNotes, NAMED, pageError = (h) => (e) => {
+var BROWSERS, SAID, FIREFOX_PREFS, firefox = () => process.env.PAPRIKA3D_FIREFOX || (process.platform === "linux" ? "/usr/bin/firefox" : process.platform === "win32" ? "C:\\Program Files\\Mozilla Firefox\\firefox.exe" : "/Applications/Firefox.app/Contents/MacOS/firefox"), EngineUnsupported, shimNotes, NAMED, pageError = (h) => (e) => {
   let named = e?.name === "Error" ? e.message.match(NAMED) : null;
   if (named)
     e.name = named[1], e.message = named[2];
@@ -45657,22 +45657,23 @@ __export(exports_browser, {
   openGame: () => openGame,
   launchChrome: () => launchChrome,
   gpuLine: () => gpuLine,
+  findChrome: () => findChrome,
   NOT_GAME: () => NOT_GAME,
   NAV_LOST: () => NAV_LOST,
   CHROME_ARGS: () => CHROME_ARGS,
   CHROME: () => CHROME
 });
 import { createReadStream as createReadStream2, readFileSync as readFileSync8, readdirSync as readdirSync3, mkdirSync as mkdirSync4, rmSync as rmSync4, statSync as statSync5, existsSync as existsSync7 } from "node:fs";
-import { join as join8, resolve as resolve7, relative as relative3, normalize as normalize2, isAbsolute as isAbsolute3, dirname as dirname8, extname as extname2, delimiter } from "node:path";
+import { join as join8, resolve as resolve7, relative as relative3, isAbsolute as isAbsolute3, dirname as dirname8, extname as extname2, posix as posix2, win32 } from "node:path";
 import { homedir as homedir2 } from "node:os";
 import { spawn as spawn4 } from "node:child_process";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { AsyncLocalStorage } from "node:async_hooks";
-function findChrome() {
-  if (process.env.PAPRIKA3D_CHROME)
-    return process.env.PAPRIKA3D_CHROME;
-  let names = /* @__PURE__ */ new Set(["chrome", "Chromium", "Google Chrome for Testing"]), home = homedir2(), newest = (d, depth = 0) => {
+function findChrome(platform = process.platform, env2 = process.env, exists = existsSync7) {
+  if (env2.PAPRIKA3D_CHROME)
+    return env2.PAPRIKA3D_CHROME;
+  let win = platform === "win32", path14 = win ? win32 : posix2, fallback2 = win ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" : platform === "linux" ? "/usr/bin/google-chrome" : "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", names = /* @__PURE__ */ new Set(["chrome", "chrome.exe", "Chromium", "Google Chrome for Testing"]), home = homedir2(), newest = (d, depth = 0) => {
     let list;
     try {
       list = readdirSync3(d, { withFileTypes: !0 }).sort((a2, b2) => b2.name.localeCompare(a2.name));
@@ -45680,7 +45681,7 @@ function findChrome() {
       return;
     }
     for (let e of list) {
-      let p = join8(d, e.name);
+      let p = path14.join(d, e.name);
       if (e.isFile() && names.has(e.name))
         return p;
       if (e.isDirectory() && depth < 6) {
@@ -45689,8 +45690,8 @@ function findChrome() {
           return f;
       }
     }
-  }, onPath = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"].flatMap((n) => (process.env.PATH ?? "").split(delimiter).filter(Boolean).map((d) => join8(d, n)));
-  return [DEFAULT_CHROME, ...onPath].find((p) => existsSync7(p)) ?? [".cache/ms-playwright", "Library/Caches/ms-playwright", ".cache/puppeteer/chrome"].map((d) => newest(join8(home, d))).find(Boolean) ?? DEFAULT_CHROME;
+  }, under = (dirs, rest) => dirs.filter((d) => !!d).map((d) => path14.join(d, rest)), onPath = (bins) => bins.flatMap((n) => (env2.PATH ?? "").split(path14.delimiter).filter(Boolean).map((d) => path14.join(d, n))), { ProgramFiles: files, "ProgramFiles(x86)": files86, LOCALAPPDATA: local } = env2, installs = win ? [fallback2, ...under([files, files86, local], "Google\\Chrome\\Application\\chrome.exe"), ...under([files, local], "Chromium\\Application\\chrome.exe")] : [fallback2], caches = win ? under([home], ".cache/puppeteer/chrome").concat(under([local], "ms-playwright")) : under([home], ".cache/ms-playwright").concat(under([home], "Library/Caches/ms-playwright"), under([home], ".cache/puppeteer/chrome")), edge = win ? [...under([files86, files], "Microsoft\\Edge\\Application\\msedge.exe"), ...onPath(["msedge.exe"])] : [];
+  return [...installs, ...onPath(win ? ["chrome.exe", "chromium.exe"] : ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"])].find(exists) ?? caches.map((d) => newest(d)).find(Boolean) ?? edge.find(exists) ?? fallback2;
 }
 function uniq(l, n, last2 = !1) {
   let c = /* @__PURE__ */ new Map;
@@ -45812,7 +45813,7 @@ async function serveStatic(root, threeOnly = !1) {
         res.destroy();
     }
   }), answer = (req, res) => {
-    let url = normalize2(decodeURIComponent(new URL(req.url ?? "/", "http://127.0.0.1").pathname)), three = url.startsWith(THREE_DIR), path14 = join8(root, url);
+    let url = posix2.normalize(decodeURIComponent(new URL(req.url ?? "/", "http://127.0.0.1").pathname)), three = url.startsWith(THREE_DIR), path14 = join8(root, url);
     if (relative3(root, path14).startsWith("..") || threeOnly && !three)
       return res.writeHead(403).end("forbidden");
     let file3 = path14, st = statSync5(path14, { throwIfNoEntry: !1 });
@@ -46063,7 +46064,7 @@ ${INJECT}`)).identifier;
     throw served?.server.close(), served?.server.closeAllConnections(), proc?.stdin.end(), e;
   }
 }
-var DEFAULT_CHROME, CHROME, CHROME_ARGS, INJECT, NOT_GAME, launched, versions, chromeVersion = (b2) => versions.get(b2) ?? (versions.set(b2, b2.version().then((v2) => v2.replace(/^\D*\//, ""), () => "")), versions.get(b2)), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), NAV_LOST, GPU_NAME = `(() => { const gl = document.createElement("canvas").getContext("webgl"); if (!gl) return "";
+var CHROME, CHROME_ARGS, INJECT, NOT_GAME, launched, versions, chromeVersion = (b2) => versions.get(b2) ?? (versions.set(b2, b2.version().then((v2) => v2.replace(/^\D*\//, ""), () => "")), versions.get(b2)), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), NAV_LOST, GPU_NAME = `(() => { const gl = document.createElement("canvas").getContext("webgl"); if (!gl) return "";
   const name = gl.getParameter(gl.getExtension("WEBGL_debug_renderer_info")?.UNMASKED_RENDERER_WEBGL ?? gl.RENDERER);
   gl.getExtension("WEBGL_lose_context")?.loseContext(); return String(name); })()`, ADAPTER = `(async () => { const r = window.__harness?.renderers.find(r => r.backend?.isWebGPUBackend); if (!r) return "";
   const i = r.backend.device?.adapterInfo ?? (await navigator.gpu?.requestAdapter())?.info; if (!i) return "";
@@ -46086,7 +46087,6 @@ var init_browser = __esm(() => {
   init_state();
   init_contract();
   init_budgets();
-  DEFAULT_CHROME = process.platform === "linux" ? "/usr/bin/google-chrome" : "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
   CHROME = findChrome(), CHROME_ARGS = [
     `--window-size=${VIEWPORT.width},${VIEWPORT.height}`,
     "--disable-frame-rate-limit",
@@ -46112,16 +46112,16 @@ var init_browser = __esm(() => {
 });
 
 import { createReadStream as createReadStream3, readFileSync as readFileSync9, readdirSync as readdirSync4, mkdirSync as mkdirSync5, rmSync as rmSync5, statSync as statSync6, existsSync as existsSync8 } from "node:fs";
-import { join as join9, resolve as resolve8, relative as relative4, normalize as normalize3, isAbsolute as isAbsolute4, dirname as dirname9, extname as extname3, delimiter as delimiter2 } from "node:path";
+import { join as join9, resolve as resolve8, relative as relative4, isAbsolute as isAbsolute4, dirname as dirname9, extname as extname3, posix as posix3, win32 as win322 } from "node:path";
 import { homedir as homedir3 } from "node:os";
 import { spawn as spawn5 } from "node:child_process";
 import { createServer as createServer2 } from "node:http";
 import { once as once2 } from "node:events";
 import { AsyncLocalStorage as AsyncLocalStorage2 } from "node:async_hooks";
-function findChrome2() {
-  if (process.env.PAPRIKA3D_CHROME)
-    return process.env.PAPRIKA3D_CHROME;
-  let names = /* @__PURE__ */ new Set(["chrome", "Chromium", "Google Chrome for Testing"]), home = homedir3(), newest = (d, depth = 0) => {
+function findChrome2(platform = process.platform, env2 = process.env, exists = existsSync8) {
+  if (env2.PAPRIKA3D_CHROME)
+    return env2.PAPRIKA3D_CHROME;
+  let win = platform === "win32", path14 = win ? win322 : posix3, fallback2 = win ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" : platform === "linux" ? "/usr/bin/google-chrome" : "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", names = /* @__PURE__ */ new Set(["chrome", "chrome.exe", "Chromium", "Google Chrome for Testing"]), home = homedir3(), newest = (d, depth = 0) => {
     let list;
     try {
       list = readdirSync4(d, { withFileTypes: !0 }).sort((a2, b2) => b2.name.localeCompare(a2.name));
@@ -46129,7 +46129,7 @@ function findChrome2() {
       return;
     }
     for (let e of list) {
-      let p = join9(d, e.name);
+      let p = path14.join(d, e.name);
       if (e.isFile() && names.has(e.name))
         return p;
       if (e.isDirectory() && depth < 6) {
@@ -46138,8 +46138,8 @@ function findChrome2() {
           return f;
       }
     }
-  }, onPath = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"].flatMap((n) => (process.env.PATH ?? "").split(delimiter2).filter(Boolean).map((d) => join9(d, n)));
-  return [DEFAULT_CHROME2, ...onPath].find((p) => existsSync8(p)) ?? [".cache/ms-playwright", "Library/Caches/ms-playwright", ".cache/puppeteer/chrome"].map((d) => newest(join9(home, d))).find(Boolean) ?? DEFAULT_CHROME2;
+  }, under = (dirs, rest) => dirs.filter((d) => !!d).map((d) => path14.join(d, rest)), onPath = (bins) => bins.flatMap((n) => (env2.PATH ?? "").split(path14.delimiter).filter(Boolean).map((d) => path14.join(d, n))), { ProgramFiles: files, "ProgramFiles(x86)": files86, LOCALAPPDATA: local } = env2, installs = win ? [fallback2, ...under([files, files86, local], "Google\\Chrome\\Application\\chrome.exe"), ...under([files, local], "Chromium\\Application\\chrome.exe")] : [fallback2], caches = win ? under([home], ".cache/puppeteer/chrome").concat(under([local], "ms-playwright")) : under([home], ".cache/ms-playwright").concat(under([home], "Library/Caches/ms-playwright"), under([home], ".cache/puppeteer/chrome")), edge = win ? [...under([files86, files], "Microsoft\\Edge\\Application\\msedge.exe"), ...onPath(["msedge.exe"])] : [];
+  return [...installs, ...onPath(win ? ["chrome.exe", "chromium.exe"] : ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"])].find(exists) ?? caches.map((d) => newest(d)).find(Boolean) ?? edge.find(exists) ?? fallback2;
 }
 function uniq2(l, n, last2 = !1) {
   let c = /* @__PURE__ */ new Map;
@@ -46261,7 +46261,7 @@ async function serveStatic2(root, threeOnly = !1) {
         res.destroy();
     }
   }), answer = (req, res) => {
-    let url = normalize3(decodeURIComponent(new URL(req.url ?? "/", "http://127.0.0.1").pathname)), three = url.startsWith(THREE_DIR2), path14 = join9(root, url);
+    let url = posix3.normalize(decodeURIComponent(new URL(req.url ?? "/", "http://127.0.0.1").pathname)), three = url.startsWith(THREE_DIR2), path14 = join9(root, url);
     if (relative4(root, path14).startsWith("..") || threeOnly && !three)
       return res.writeHead(403).end("forbidden");
     let file3 = path14, st = statSync6(path14, { throwIfNoEntry: !1 });
@@ -46512,7 +46512,7 @@ ${INJECT2}`)).identifier;
     throw served?.server.close(), served?.server.closeAllConnections(), proc?.stdin.end(), e;
   }
 }
-var DEFAULT_CHROME2, CHROME2, CHROME_ARGS2, INJECT2, NOT_GAME2, launched2, versions2, chromeVersion2 = (b2) => versions2.get(b2) ?? (versions2.set(b2, b2.version().then((v2) => v2.replace(/^\D*\//, ""), () => "")), versions2.get(b2)), sleep2 = (ms) => new Promise((r) => setTimeout(r, ms)), NAV_LOST2, GPU_NAME2 = `(() => { const gl = document.createElement("canvas").getContext("webgl"); if (!gl) return "";
+var CHROME2, CHROME_ARGS2, INJECT2, NOT_GAME2, launched2, versions2, chromeVersion2 = (b2) => versions2.get(b2) ?? (versions2.set(b2, b2.version().then((v2) => v2.replace(/^\D*\//, ""), () => "")), versions2.get(b2)), sleep2 = (ms) => new Promise((r) => setTimeout(r, ms)), NAV_LOST2, GPU_NAME2 = `(() => { const gl = document.createElement("canvas").getContext("webgl"); if (!gl) return "";
   const name = gl.getParameter(gl.getExtension("WEBGL_debug_renderer_info")?.UNMASKED_RENDERER_WEBGL ?? gl.RENDERER);
   gl.getExtension("WEBGL_lose_context")?.loseContext(); return String(name); })()`, ADAPTER2 = `(async () => { const r = window.__harness?.renderers.find(r => r.backend?.isWebGPUBackend); if (!r) return "";
   const i = r.backend.device?.adapterInfo ?? (await navigator.gpu?.requestAdapter())?.info; if (!i) return "";
@@ -46535,7 +46535,6 @@ var init_browser2 = __esm(() => {
   init_state();
   init_contract();
   init_budgets();
-  DEFAULT_CHROME2 = process.platform === "linux" ? "/usr/bin/google-chrome" : "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
   CHROME2 = findChrome2(), CHROME_ARGS2 = [
     `--window-size=${VIEWPORT.width},${VIEWPORT.height}`,
     "--disable-frame-rate-limit",
@@ -48250,7 +48249,7 @@ function run(game, steps, deadline, offset = 0, film) {
         left -= k, frame += k;
       }
     }, untils = [], slow = 0, missed = /* @__PURE__ */ new Map, over = /* @__PURE__ */ new Map, three, scrolled = !1, aim = async (kind, x2, y, dom = !0) => {
-      three ??= threeUrl(game, String(await page.evaluate("__harness.revision")));
+      three ??= await threeUrl(game, String(await page.evaluate("__harness.revision")));
       let [on, at] = await page.evaluate(`(async () => { const on = ${dom} && __harness.hit(${+x2}, ${+y}); return [on, on === "" ? null : await __harness.pick(${+x2}, ${+y}, ${JSON.stringify(three)})]; })()`).catch(() => [null, null]);
       if (on && !missed.has(on))
         missed.set(on, `${kind} at (${x2}, ${y})`);
@@ -48915,11 +48914,14 @@ function coversText(covers) {
     return `Over the canvas: ${c.what} ${[shows, takes].filter(Boolean).join(" and ")}.`;
   });
 }
-function threeUrl(game, revision, webgpu = !1) {
+async function threeUrl(game, revision, webgpu = !1) {
   let build = webgpu ? "three.webgpu.js" : "three.module.js";
   try {
-    if (JSON.parse(readFileSync11(join11(game.root, "node_modules/three/package.json"), "utf8")).version.split(".")[1] === revision)
-      return new URL(`node_modules/three/build/${build}`, game.files).href;
+    if (JSON.parse(readFileSync11(join11(game.root, "node_modules/three/package.json"), "utf8")).version.split(".")[1] === revision) {
+      let own = new URL(`node_modules/three/build/${build}`, game.files);
+      if (own.origin === new URL(game.page.url()).origin || await game.page.evaluate(`import(${JSON.stringify(own.href)}).then(() => true, () => false)`))
+        return own.href;
+    }
   } catch {}
   return `https://cdn.jsdelivr.net/npm/three@0.${revision}/build/${build}`;
 }
@@ -48965,7 +48967,7 @@ function look(game, { moved = !1, peek = !1, edited = !1, hint = !0, surfaces: f
       throw Error(NOT_DRAWN);
     let run2 = runs.get(game) ?? { n: 0, all: /* @__PURE__ */ new Set, seen: /* @__PURE__ */ new Set, where: /* @__PURE__ */ new Map };
     runs.set(game, run2);
-    let n = ++run2.n, picture = join11(game.runDir, `look-${n}.png`), ids = join11(game.runDir, `look-${n}-ids.png`), png = Buffer.from(await screenshot(page, picture)).toString("base64"), st = await page.evaluate(PIXELS_FN, png).catch(() => null), c = await page.evaluate(CANVAS), canvas = c ? { buffer: c.buffer, css: c.css, dpr: c.dpr, ratio: c.ratio, resized } : void 0, known = await knownOf(page), ct = canvasText(canvas).join(""), flags = /stretches|did not run|nothing shows/.test(ct), canvasKnown = flags ? known.line(ct) : void 0, canvasSame = !!canvasKnown || ct === lastCanvas.get(game) && !flags;
+    let n = ++run2.n, picture = join11(game.runDir, `look-${n}.png`), ids = join11(game.runDir, `look-${n}-ids.png`), png = Buffer.from(await screenshot(page, picture)).toString("base64"), st = await page.evaluate(PIXELS_FN, png).catch(() => null), c = await page.evaluate(CANVAS), canvas = c ? { buffer: c.buffer, css: c.css, dpr: c.dpr, ratio: c.ratio, resized, pixelated: c.pixelated } : void 0, known = await knownOf(page), ct = canvasText(canvas).join(""), flags = /stretches|did not run|nothing shows/.test(ct), canvasKnown = flags ? known.line(ct) : void 0, canvasSame = !!canvasKnown || ct === lastCanvas.get(game) && !flags;
     if (!peek)
       lastCanvas.set(game, ct);
     let prev = lastGrid.get(game), pixels = st ? {
@@ -48984,7 +48986,9 @@ function look(game, { moved = !1, peek = !1, edited = !1, hint = !0, surfaces: f
       lastState.set(game, state);
     if (!views || c && !(c.buffer[0] && c.buffer[1]))
       return { picture, ids: "", onScreen: [], neverVisible: [], covers: [], subject: null, pixels, canvas, canvasSame, frame: c?.frame, ...stale };
-    let covers = await page.evaluate("__harness.covers()"), veil = covers.find((c2) => c2.over >= 0.9 && c2.opacity >= 0.95 && /^rgb\(/.test(c2.background ?? "")), r = await page.evaluate(PASS_FN, threeUrl(game, revision, webgpu), st ? null : png, !fights);
+    let covers = await page.evaluate("__harness.covers()"), veil = covers.find((c2) => c2.over >= 0.9 && c2.opacity >= 0.95 && /^rgb\(/.test(c2.background ?? "")), three = await threeUrl(game, revision, webgpu), r = await page.evaluate(PASS_FN, three, st ? null : png, !fights).catch((e) => {
+      throw /dynamically imported module/.test(String(e?.message)) ? Error(`look cannot name what is on screen: this page could not import a copy of three from ${three}. Its Content-Security-Policy refused it, or the network is down.`) : e;
+    });
     if (r.png)
       writeFileSync5(ids, Buffer.from(r.png, "base64"));
     if (veil) {
@@ -49176,7 +49180,7 @@ async function resizeProbe(game, probed) {
 function canvasText(c) {
   if (!c)
     return [];
-  let [bw, bh] = c.buffer, [cw, ch] = c.css, r = c.ratio, cap = r !== null && (r < c.dpr ? `capped below DPR ${c.dpr}` : c.dpr > 2 ? "no cap" : ""), ratio = r === null ? "no three.js renderer" : `renderer pixel ratio ${+r.toFixed(3)}${cap ? `, ${cap}` : ""}`, resize = c.resized === null ? "" : c.resized === "fixed" ? "; a fixed buffer CSS scales at its own shape (or a resize handler that waits for frames)" : c.resized ? "; resize handler ran" : "; resize handler did not run: the canvas kept its size when the page shrank (a debounced one waits for frames)", stretched = r !== null && c.resized !== "fixed" && (Math.abs(bw - cw * r) > Math.max(2, r) || Math.abs(bh - ch * r) > Math.max(2, r)) ? " The buffer is not CSS size × pixel ratio, so the browser stretches it: call renderer.setSize when the canvas's size changes." : "", empty3 = !(bw && bh && cw && ch) ? ` The canvas is 0 px ${!(bh && ch) ? "tall" : "wide"}, so nothing shows: give it (or its container) a size, then call renderer.setSize.` : "";
+  let [bw, bh] = c.buffer, [cw, ch] = c.css, r = c.ratio, cap = r !== null && (r < c.dpr ? `capped below DPR ${c.dpr}` : c.dpr > 2 ? "no cap" : ""), ratio = r === null ? "no three.js renderer" : `renderer pixel ratio ${+r.toFixed(3)}${cap ? `, ${cap}` : ""}`, resize = c.resized === null ? "" : c.resized === "fixed" ? "; a fixed buffer CSS scales at its own shape (or a resize handler that waits for frames)" : c.resized ? "; resize handler ran" : "; resize handler did not run: the canvas kept its size when the page shrank (a debounced one waits for frames)", stretched = !(r !== null && c.resized !== "fixed" && (Math.abs(bw - cw * r) > Math.max(2, r) || Math.abs(bh - ch * r) > Math.max(2, r))) ? "" : c.pixelated ? " CSS image-rendering scales it up in hard pixels." : " The buffer is not CSS size × pixel ratio, so the browser stretches it: call renderer.setSize when the canvas's size changes.", empty3 = !(bw && bh && cw && ch) ? ` The canvas is 0 px ${!(bh && ch) ? "tall" : "wide"}, so nothing shows: give it (or its container) a size, then call renderer.setSize.` : "";
   return [`Canvas: ${bw}x${bh} buffer for ${cw}x${ch} CSS at DPR ${c.dpr} (${ratio})${resize}.${empty3 || stretched}`];
 }
 function pixelNotes(p) {
@@ -49469,7 +49473,7 @@ function probe(game, points, cam) {
       let { views: views2, revision, webgpu } = await page.evaluate("({ views: __harness.views.size, revision: String(__harness.revision), webgpu: !!__harness.main()?.[1].renderer.isWebGPURenderer })");
       if (!views2)
         throw Error(NOT_DRAWN);
-      let url2 = threeUrl(game, revision, webgpu), lines = [], untested = !1;
+      let url2 = await threeUrl(game, revision, webgpu), lines = [], untested = !1;
       for (let p of points) {
         let r = await page.evaluate(PROBE_FN, p, url2);
         drew ||= !!r.drew, untested ||= !!r.untested, lines.push(`At (${p.join(", ")}): ${r.line}`);
@@ -50142,7 +50146,7 @@ var init_look = __esm(() => {
   c.width = w; c.height = h; x.imageSmoothingQuality = "high"; x.drawImage(i, 0, 0, w, h);
   return c.toDataURL("image/png").split(",")[1]; }`)(), lastState = /* @__PURE__ */ new WeakMap, lastGrid = /* @__PURE__ */ new WeakMap, lastCanvas = /* @__PURE__ */ new WeakMap, lastHint = /* @__PURE__ */ new WeakMap, lastNumbers = /* @__PURE__ */ new WeakMap, lastFaults = /* @__PURE__ */ new WeakMap, CANVAS = `(() => { const h = window.__harness, c = h.canvas(), r = h.main()?.[1].renderer ?? h.renderers[0]; if (!c) return null;
   const b = c.getBoundingClientRect();
-  return { buffer: [c.width, c.height], css: [Math.round(b.width), Math.round(b.height)], dpr: devicePixelRatio, ratio: r?.getPixelRatio?.() ?? null,
+  return { buffer: [c.width, c.height], css: [Math.round(b.width), Math.round(b.height)], dpr: devicePixelRatio, ratio: r?.getPixelRatio?.() ?? null, pixelated: /pixelated|crisp-edges/.test(getComputedStyle(c).imageRendering),
     frame: ${FRAME}, reduce: matchMedia("(prefers-reduced-motion: reduce)").matches }; })()`;
   COMPOSE = `(async (shots, labels) => {
   const imgs = await Promise.all(shots.map(s => createImageBitmap(${PNG_BLOB}(s))));
@@ -52408,6 +52412,38 @@ async function pageAssets(game) {
   } catch {}
   let lists = await Promise.all([game.page.evaluate(FETCHED), ...workers.map((w2) => w2.evaluate(FETCHED).catch(() => []))]);
   return fetchedAssets(game.root, new URL(game.page.url()).origin, lists.flat());
+}
+async function pageRan(game) {
+  let workers = [];
+  try {
+    workers = game.page.workers();
+  } catch {}
+  let lists = await Promise.all([game.page.evaluate(FETCHED), ...workers.map((w2) => w2.evaluate(FETCHED).catch(() => []))]);
+  return ranFiles(game.root, game.page.url(), lists.flat().map((f) => f.url));
+}
+function ranFiles(root, pageUrl, urls) {
+  let page = new URL(pageUrl), files = /* @__PURE__ */ new Set, onDisk = (path14) => {
+    for (let base of [root, join15(root, "public")])
+      for (let f of [join15(base, path14), join15(base, path14, "index.html")])
+        if (statSync9(f, { throwIfNoEntry: !1 })?.isFile())
+          return f;
+  };
+  for (let u of [page.href, ...urls]) {
+    let url2, path14;
+    try {
+      url2 = new URL(u), path14 = decodeURIComponent(url2.pathname);
+    } catch {
+      continue;
+    }
+    if (url2.origin !== page.origin || path14.startsWith("/node_modules/") || path14.startsWith("/@"))
+      continue;
+    let f = onDisk(path14), built = f && /(^|\/)(dist|build)\//.test(relative6(root, f));
+    if (u === page.href ? !f || built : /\.(m?js|jsx|tsx?)$/.test(path14) && (!f || built))
+      return null;
+    if (f)
+      files.add(f);
+  }
+  return [...files];
 }
 function fetchedAssets(root, origin, fetched) {
   let by = /* @__PURE__ */ new Map, parts = /* @__PURE__ */ new Set;
@@ -62222,11 +62258,12 @@ async function installed(client) {
   if (!FEEDBACK)
     return;
   try {
-    let f = join22(telemetryDir(), "pinged"), body = JSON.stringify({ ...base(), client: client.slice(0, 64) }), version = "0.4.1";
-    if (existsSync14(f) && readFileSync19(f, "utf8") === "0.4.1")
+    let f = join22(telemetryDir(), "pinged"), body = JSON.stringify({ ...base(), client: client.slice(0, 64) }), version = "0.4.2";
+    if (existsSync14(f) && readFileSync19(f, "utf8") === "0.4.2")
       return;
-    if (await post("/install", body))
-      writeFileSync11(f, "0.4.1");
+    let answer = await postStatus("/install", body);
+    if (answer && answer < 500)
+      writeFileSync11(f, "0.4.2");
   } catch {}
 }
 function told() {
@@ -62240,8 +62277,8 @@ function stopEvent(asked) {
 `);
   } catch {}
 }
-var off, ON = !1, FEEDBACK, URL3 = "https://paprika3d-telemetry.paprika3d.workers.dev", KEY = "9cf6093e07a2c1cc94161e84dbdb59268440ff04d06b7be9", telemetryDir = () => join22(harnessHome(), "telemetry"), run2, KINDS3, id = "", base = () => ({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), install: install2(), run: run2, version: "0.4.1", os: platform(), node: process.versions.node.split(".")[0] }), scrub = (s) => (s.split(`
-`)[0] ?? "").replace(/[a-z]+:\/\/\S+/gi, "<url>").replace(/(?:[A-Za-z]:\\|~?\/)[^\s:'"`,)]+/g, "<path>").slice(0, 160), extra, last3 = null, post = (path14, body) => !URL3 ? Promise.resolve(!1) : fetch(URL3 + path14, { method: "POST", headers: { "content-type": "application/json", "x-paprika3d-key": KEY }, body, signal: AbortSignal.timeout(3000) }).then((r) => r.ok, () => !1), REPORT_TOOL, reports = 0, REPORT_ASK;
+var off, ON = !1, FEEDBACK, URL3 = "https://paprika3d-telemetry.paprika3d.workers.dev", KEY = "9cf6093e07a2c1cc94161e84dbdb59268440ff04d06b7be9", telemetryDir = () => join22(harnessHome(), "telemetry"), run2, KINDS3, id = "", base = () => ({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), install: install2(), run: run2, version: "0.4.2", os: platform(), node: process.versions.node.split(".")[0] }), scrub = (s) => (s.split(`
+`)[0] ?? "").replace(/[a-z]+:\/\/\S+/gi, "<url>").replace(/(?:[A-Za-z]:\\|~?\/)[^\s:'"`,)]+/g, "<path>").slice(0, 160), extra, last3 = null, postStatus = (path14, body) => !URL3 ? Promise.resolve(0) : fetch(URL3 + path14, { method: "POST", headers: { "content-type": "application/json", "x-paprika3d-key": KEY }, body, signal: AbortSignal.timeout(3000) }).then((r) => r.status, () => 0), post = (path14, body) => postStatus(path14, body).then((s) => s >= 200 && s < 300), REPORT_TOOL, reports = 0, REPORT_ASK;
 var init_telemetry = __esm(() => {
   init_state();
   off = /^(1|true)$/i.test(process.env.DO_NOT_TRACK ?? "") || process.env.PAPRIKA3D_TELEMETRY === "0", FEEDBACK = !off, run2 = randomUUID().slice(0, 8), KINDS3 = ["key", "mouse", "wheel", "resize", "scroll", "touch", "wait", "clock", "state", "until", "action"];
@@ -62951,7 +62988,7 @@ import { spawn as spawn6 } from "node:child_process";
 import { createHash as createHash6, randomUUID as randomUUID2 } from "node:crypto";
 import { accessSync as accessSync3, chmodSync, constants as fsConstants, existsSync as existsSync16, lstatSync, mkdirSync as mkdirSync12, readdirSync as readdirSync7, readFileSync as readFileSync21, realpathSync as realpathSync3, statSync as statSync11, unlinkSync as unlinkSync2, writeFileSync as writeFileSync13 } from "node:fs";
 import { homedir as homedir5, platform as platform2 } from "node:os";
-import { join as join24, posix as posix2, relative as relative13, sep as sep6 } from "node:path";
+import { join as join24, posix as posix4, relative as relative13, sep as sep6 } from "node:path";
 function walk(root, dir, out, skip, links, depth = 0) {
   if (depth > MAX_DEPTH)
     return;
@@ -62989,9 +63026,9 @@ function vendored(cwd, pages, scripts, warnings) {
       }
       for (let [k, v2] of Object.entries(imports))
         if (typeof v2 === "string")
-          map2[k] = /^[a-z]+:/i.test(v2) ? "" : v2.startsWith("/") ? v2.slice(1) : posix2.join(posix2.dirname(page2), v2);
+          map2[k] = /^[a-z]+:/i.test(v2) ? "" : v2.startsWith("/") ? v2.slice(1) : posix4.join(posix4.dirname(page2), v2);
     }
-  let found2 = /* @__PURE__ */ new Set, queue = [], unmapped = /* @__PURE__ */ new Set, inside4 = (p) => !p.startsWith("../") && p !== ".." && !posix2.isAbsolute(p), add = (p) => {
+  let found2 = /* @__PURE__ */ new Set, queue = [], unmapped = /* @__PURE__ */ new Set, inside4 = (p) => !p.startsWith("../") && p !== ".." && !posix4.isAbsolute(p), add = (p) => {
     if (!p.startsWith("node_modules/") || !inside4(p) || found2.has(p))
       return;
     let abs = join24(cwd, p), st;
@@ -63015,14 +63052,14 @@ function vendored(cwd, pages, scripts, warnings) {
     if (spec = spec.split(/[?#]/)[0], !spec || /^[a-z][a-z0-9+.-]*:/i.test(spec))
       return null;
     if (spec.startsWith("/"))
-      return posix2.normalize(spec.slice(1));
+      return posix4.normalize(spec.slice(1));
     if (spec.startsWith("./") || spec.startsWith("../"))
-      return posix2.normalize(posix2.join(posix2.dirname(from2), spec));
+      return posix4.normalize(posix4.join(posix4.dirname(from2), spec));
     if (Object.hasOwn(map2, spec))
       return map2[spec] || null;
     let prefix = Object.keys(map2).filter((k) => k.endsWith("/") && spec.startsWith(k)).sort((a2, b2) => b2.length - a2.length)[0];
     if (prefix !== void 0)
-      return map2[prefix] ? posix2.normalize(map2[prefix] + spec.slice(prefix.length)) : null;
+      return map2[prefix] ? posix4.normalize(map2[prefix] + spec.slice(prefix.length)) : null;
     return unmapped.add(spec), null;
   }, scan = (file3, text, html) => {
     if (html)
@@ -63038,7 +63075,7 @@ function vendored(cwd, pages, scripts, warnings) {
         add(p);
     }
     for (let spec of all(NODE_MODULES, text))
-      add(posix2.normalize(spec.startsWith("/") ? spec.slice(1) : posix2.join(posix2.dirname(file3), spec)));
+      add(posix4.normalize(spec.startsWith("/") ? spec.slice(1) : posix4.join(posix4.dirname(file3), spec)));
   };
   for (let f of [...pages, ...scripts])
     scan(f, readFileSync21(join24(cwd, f), "utf8"), /\.html?$/.test(f));
@@ -63266,7 +63303,7 @@ async function mint(who) {
     client_version,
     model: who.model ?? null,
     os: platform2(),
-    plugin_version: "0.4.1"
+    plugin_version: "0.4.2"
   }, headers: invite ? { "x-paprika3d-invite": invite } : {} });
   if (!had)
     writePrivate(join24(configDir(), "install-id"), install3);
@@ -63332,7 +63369,7 @@ async function publish(cwd, who, opts = {}) {
   try {
     if (!key2)
       key2 = await mint(who), minted = !0;
-    let agent = { install: installId(), client: who.client === "unknown" ? null : who.client, model: who.model ?? null, plugin_version: "0.4.1" }, chosen = opts.slug ? { slug: opts.slug, kept: !0 } : slugFor(cwd, api3), slug3 = chosen.slug, s;
+    let agent = { install: installId(), client: who.client === "unknown" ? null : who.client, model: who.model ?? null, plugin_version: "0.4.2" }, chosen = opts.slug ? { slug: opts.slug, kept: !0 } : slugFor(cwd, api3), slug3 = chosen.slug, s;
     for (let tries = 0;!s; tries++)
       try {
         s = await call("/v1/publish", { json: { slug: slug3, files: manifest, agent }, secret: key2.secret });
@@ -63801,6 +63838,10 @@ function call2(name, args) {
     if (game)
       hookReset.delete(game);
     let r = await tool(args);
+    if (game && NOTES_RAN.has(name) && !r.isError) {
+      let g = game;
+      await g.queue(() => pageRan(g)).then((files) => writeFileSync14(join25(g.runDir, "ran.json"), JSON.stringify({ files }))).catch(() => {});
+    }
     if (note && r.content[0]?.type === "text")
       r.content[0] = { type: "text", text: r.isError ? r.content[0].text.replace(/^.*(\nat .*)*/, (l) => `${l}
 ${note.trimEnd()}`) : note + r.content[0].text };
@@ -63864,7 +63905,7 @@ ${said.join(`
 async function handle(method, params) {
   switch (method) {
     case "initialize":
-      return client = [params?.clientInfo?.name, params?.clientInfo?.version].filter(Boolean).join("/") || client, installed(client), { protocolVersion: params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "paprika3d", title: "paprika3d", version: "0.4.1" }, instructions: INSTRUCTIONS };
+      return client = [params?.clientInfo?.name, params?.clientInfo?.version].filter(Boolean).join("/") || client, installed(client), { protocolVersion: params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "paprika3d", title: "paprika3d", version: "0.4.2" }, instructions: INSTRUCTIONS };
     case "ping":
       return {};
     case "tools/list":
@@ -63971,7 +64012,7 @@ Measured with the page's JavaScript slowed ${t}× (a weak laptop); the GPU was n
 }, sleep5 = (ms) => new Promise((r) => setTimeout(r, ms)), told3, OWN_ERRORS, NAVIGATED = `
 The page navigated while this ran, so the harness reloaded it: paused at frame 0. Run the call again. Do not reload the page yourself: after an edit, the next call reloads it.`, NAVIGATED_TWICE = `
 The page navigated under this call twice, and the harness reloaded it each time: paused at frame 0. Something reloads the page: your own code (location.reload, location.href, a redirect), a dev server's live reload after an edit (edit first, then call, not both in one turn), or Vite optimizing a dependency the page imported late. Find it before running the call again.`, RERAN = `The page navigated during the first try of this call, so the harness reloaded it and ran the call again.
-`, body2 = (r) => r.content[0]?.type === "text" ? r.content[0].text : "", withText = (r, t) => ({ ...r, content: [{ type: "text", text: t }, ...r.content.slice(r.content[0]?.type === "text" ? 1 : 0)] }), ALIASES, kind = (v2) => Array.isArray(v2) ? "array" : v2 === null ? "null" : typeof v2, an = (t) => `${/^[aeiou]/.test(t) ? "an" : "a"} ${t}`, about = (p) => p.description ? `: ${p.description}` : "", heard;
+`, body2 = (r) => r.content[0]?.type === "text" ? r.content[0].text : "", withText = (r, t) => ({ ...r, content: [{ type: "text", text: t }, ...r.content.slice(r.content[0]?.type === "text" ? 1 : 0)] }), ALIASES, kind = (v2) => Array.isArray(v2) ? "array" : v2 === null ? "null" : typeof v2, an = (t) => `${/^[aeiou]/.test(t) ? "an" : "a"} ${t}`, about = (p) => p.description ? `: ${p.description}` : "", NOTES_RAN, heard;
 var init_server = __esm(() => {
   init_browser2();
   init_record();
@@ -64658,6 +64699,7 @@ ${passesText(p.passes)}` : ""}${costs(p)}`);
   };
   told3 = /* @__PURE__ */ new WeakMap, OWN_ERRORS = /* @__PURE__ */ new Set(["open", "observe", "interact", "eval", "check", "invariants", "test", "contract", "asset_search", "model_audit", "model_run", "model_look", "sheet", "publish"]);
   ALIASES = { expression: "code", js: "code", script: "code", width: "size", height: "size", path: "file", q: "query", prompt: "query" };
+  NOTES_RAN = /* @__PURE__ */ new Set(["look", "interact", "eval"]);
   heard = /* @__PURE__ */ new WeakMap;
 });
 

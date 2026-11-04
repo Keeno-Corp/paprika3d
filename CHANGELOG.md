@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.2 (2026-11-03)
+
+`open` finds the browser on Windows, where it used to fail with "No Chrome at /Applications/...". It looks at the usual
+Chrome and Chromium installs, `.exe` names on PATH and the caches, then Edge last, and its error names a Windows path. A
+`windows-latest` job ran `open`, `observe`, `eval`, `interact`, `look`, `model_run` and `model_look` in Chrome with
+`PAPRIKA3D_CHROME` unset. Edge, Firefox and the test suite have not been run on Windows, a dev-server `command` needs
+`sh`, and the hooks cannot yet read a Windows run folder (#216).
+
+`look` and `interact`'s `look` work on a page whose Content-Security-Policy refuses the harness's server, such as a
+game published to `*.paprika3d.app`: three comes from jsDelivr instead, and a page that refuses both gets a reply naming
+why.
+
+`look` no longer advises `setSize` for a small buffer under CSS `image-rendering: pixelated`, since following it removed
+the look the page chose.
+
+The reminder that an edited page has not been opened comes once per session across its subagents, and after a shell
+command only for a page the command names. The stop hook counts a change only in a file the page ran, so a fetched copy
+or a node script no longer blocks a stop, and the lead hears a page is unplayed only if the lead opened it.
+
+The install ping settles on a rate-limited answer (429) instead of trying again at every start.
+
+`paprika-make`'s sheets name the looks agents default to, on the `(builder's call)` lines, and its critic lists what was
+left as the browser draws it. These come from a scan of 150 builds; their effect on a build has not been measured.
+
 ## 0.4.1 (2026-11-01)
 
 A game moved in whole 1/60 s steps stood still on 40% of its frames on a 100 Hz screen, and no tool could see it,

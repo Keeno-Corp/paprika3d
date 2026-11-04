@@ -10,7 +10,7 @@
 // Sources the last check already saw (one fingerprint, the same that counts iterations) exit at once. A project with
 // nothing to rerun (no saved checks, and no server running this session's page) gets one factual line per session, after
 // the first write of a page or script that loads three.js, by an edit or by a shell command (a page under the session's
-// folder changed since the session began), when this session has not opened it: with the tools installed and no line at
+// folder changed since the session began, which the command names), when this session has not opened it: with the tools installed and no line at
 // all, Sonnet opened its page in 0 of 6 runs (docs/results-assets-2026-10-13.md). It states what the
 // tools show and asks for nothing: the old cadence of look reminders (every 10k-100k characters, "stop writing new
 // parts") made agents grow a small first draft instead of building the whole page (JC's playtest and the Door Dash
@@ -18,7 +18,7 @@
 // keeps a single owner; only without one, and only for saved checks, does it run `paprika3d check` in a Chrome of its own.
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, extname, join, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { json } from "node:stream/consumers";
 import { fingerprint } from "../src/fingerprint.ts";
@@ -83,16 +83,21 @@ const opened = () => runs !== undefined ? runs : (runs = sessionRuns(input.trans
 /** What a project with nothing to rerun gets: one line per session after the first write of a page or script that loads
     three.js, by an edit or by a shell command, when this session has not opened it, and otherwise nothing. */
 function remind(): never {
-  const mark = join(tmpdir(), `paprika3d-reminded-${session.replace(/[^\w.-]/g, "_")}`);
+  // the session's, never a subagent's: each subagent's own mark repeated the line at every subagent's first batch (#214)
+  const mark = join(tmpdir(), `paprika3d-reminded-${String(input.session_id ?? "").replace(/[^\w.-]/g, "_")}`);
   if (existsSync(mark)) process.exit(0);
   const cwd = resolve(input.cwd ?? "."), page = (f: string) => /\.(html|jsx?|tsx?)$/.test(f) && THREE.test(readOr(f));
   const pages = edits.map(e => resolve(cwd, e.file)).filter(page);
-  // a shell command names no file it wrote (a heredoc, a generator script): a page under cwd written since the session
-  // began; not from inside a package a shell cd'd into (before-stop's gpu-4x4-4 bowling stopped in node_modules)
+  // a shell command reports no file it wrote: a page under cwd written since the session began, whose name the command
+  // holds (a heredoc's, a sed's), since another session's edit under the same folder is not this session's page (#214); a
+  // generator script that names none waits for a later command that does. Not from inside a package a shell cd'd into
+  // (before-stop's gpu-4x4-4 bowling stopped in node_modules)
+  const commands = shell.map(c => String(c.tool_input?.command ?? "")).join("\n");
   const since = !pages.length && shell.length && !cwd.split(sep).includes("node_modules") ? sessionBegan(input.transcript_path) : 0;
-  if (since) pages.push(...sourcesSince(cwd, since, page, 1));
+  if (since) pages.push(...sourcesSince(cwd, since, f => commands.includes(basename(f)) && page(f), 1));
   if (!pages.length) process.exit(0);
-  writeFileSync(mark, "");
+  // wx: two subagents' batches can both pass the check above, since the walk between takes time; only one may speak
+  try { writeFileSync(mark, "", { flag: "wx" }); } catch { process.exit(0); }
   // a project this session already opened (one of its own runs' projects, at the session's cwd or above the page) needs
   // no line; with no transcript to read, the line comes
   const roots = [cwd, ...pages.map(p => dirname(p))], mine = opened();

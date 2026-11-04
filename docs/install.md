@@ -9,7 +9,7 @@ Two commands in Claude Code, one line in any other MCP client. In Claude Code, s
 
 ## Requirements
 
-- Google Chrome. The harness runs the page in a headless instance of it, found at its usual install path on macOS and Linux, on PATH, or in Playwright's or Puppeteer's cache. Anywhere else, set `PAPRIKA3D_CHROME` to its path.
+- Google Chrome. The harness runs the page in a headless instance of it, found at its usual install path on macOS, Linux or Windows, on PATH, or in Playwright's or Puppeteer's cache; on Windows, Edge is tried last. Anywhere else, set `PAPRIKA3D_CHROME` to its path. On Windows a test run has shown Chrome with `open`, `observe`, `eval`, `interact`, `look`, `model_run` and `model_look`. Edge and Firefox have not been run there, a dev-server `command` needs `sh`, and the hooks cannot yet read a Windows run folder ([#216](https://github.com/paprika3d/paprika3d/issues/216)).
 - Node 20.11 or later.
 - For the Claude Code plugin, Claude Code 2.1.118 or later.
 - Optional: Firefox, for `open`'s `browser: "firefox"`; the one installed on the machine is used (or `PAPRIKA3D_FIREFOX`). With no Chrome, a plain open falls back to it.

@@ -16,7 +16,13 @@ export const mtime = (f: string) => { try { return statSync(f).mtimeMs; } catch 
 export function sessionRuns(transcript: unknown, sessionId: string, batch: { tool_name: string; tool_response?: unknown }[] = []): string[] | null {
   if (typeof transcript !== "string" || !existsSync(transcript)) return null;
   const sub = join(dirname(transcript), sessionId, "subagents");
-  const files = [transcript, ...existsSync(sub) ? readdirSync(sub).filter(f => f.endsWith(".jsonl")).map(f => join(sub, f)) : []];
+  return runsIn([transcript, ...existsSync(sub) ? readdirSync(sub).filter(f => f.endsWith(".jsonl")).map(f => join(sub, f)) : []], batch);
+}
+
+/** The run folders the lead's own paprika3d calls named, without its subagents': [] with no transcript to read. */
+export const leadRuns = (transcript: unknown): string[] => typeof transcript === "string" && existsSync(transcript) ? runsIn([transcript]) : [];
+
+function runsIn(files: string[], batch: { tool_name: string; tool_response?: unknown }[] = []): string[] {
   const ids = new Set<string>(), runs = new Set<string>();
   // the folder by its shape, whatever follows a picture's name; JSON text, so a path holding `"` or `\` comes out cut
   const named = (json: string) => { for (const m of json.matchAll(/(?:Run folder|Picture): (\/[^"\\]*?\/paprika3d\/runs\/[^"\\/]+)/g)) runs.add(m[1]!); };
