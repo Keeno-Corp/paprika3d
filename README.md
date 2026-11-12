@@ -156,6 +156,10 @@ The tool names and their inputs, the skill names, the `paprika3d serve` command 
 
 Requirements and limits (Chrome's location, Firefox, running with no GPU, headless Chrome): [the install page](https://paprika3d.com/docs/install).
 
+## Guides
+
+Task-by-task guides, each run in the harness before it was published: [Three.js MCP server](https://paprika3d.com/docs/guides/threejs-mcp-server), [React Three Fiber MCP server](https://paprika3d.com/docs/guides/react-three-fiber-mcp-server), [Screenshot a three.js scene from an agent](https://paprika3d.com/docs/guides/screenshot-threejs-scene-headless), [Test a three.js game in Claude Code](https://paprika3d.com/docs/guides/test-threejs-game-claude-code), [A Playwright alternative for three.js and WebGL](https://paprika3d.com/docs/guides/playwright-alternative-threejs-webgl), [Visual regression test a three.js scene](https://paprika3d.com/docs/guides/visual-regression-test-threejs), [Measure three.js draw calls and FPS](https://paprika3d.com/docs/guides/threejs-fps-draw-calls), [MCP server for 3D modeling with three.js](https://paprika3d.com/docs/guides/mcp-server-3d-modeling-threejs). All of them: [the guides](https://paprika3d.com/docs/guides).
+
 ## Source, contributions and license
 
 Each release ships the readable TypeScript it was built from, in `source/`. Contributions are welcome as a patch in an issue or a pull request, each commit signed off for the Developer Certificate of Origin (`git commit -s`); see `CONTRIBUTING.md`. Issues: https://github.com/paprika3d/paprika3d/issues.
