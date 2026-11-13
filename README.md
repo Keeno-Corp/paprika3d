@@ -79,6 +79,8 @@ From the first draft on, every stage runs on these tools. Your agent opens its p
 
 `open` also puts two helper files in the project, `geo.js` (procedural geometry) and `fx.js` (sound, textures, particles, a lighting setup), and the skill can add game-state, which keeps game state in typed arrays and runs Rapier physics in a worker. `send_feedback` sends the team a report when a reply was wrong. Every tool, with when to reach for it, the skills, the hooks and the files: [what the plugin adds](https://paprika3d.com/docs/plugin).
 
+> The docs at paprika3d.com describe main, where `unity_export`, fx.js's `water`, `foliage`, `post` and `handoff`, and WebGPU on Linux with no GPU are available from paprika3d 0.4.3 (on main now); the published 0.4.2 does not include them. `npx -y paprika3d@latest serve` gives them once 0.4.3 is on npm.
+
 ### What your agent sees
 
 Every reply is short text with the numbers that fix the problem. Part of one `look` reply, on a test page with a start line laid flat on a road:
