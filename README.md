@@ -166,4 +166,4 @@ Task-by-task guides, each run in the harness before it was published: [Three.js 
 
 Each release ships the readable TypeScript it was built from, in `source/`. Contributions are welcome as a patch in an issue or a pull request, each commit signed off for the Developer Certificate of Origin (`git commit -s`); see `CONTRIBUTING.md`. Issues: https://github.com/paprika3d/paprika3d/issues.
 
-Apache License 2.0 (`LICENSE`). The packages each build bundles keep their own licences, listed in `THIRD_PARTY_NOTICES.md`.
+paprika3d is made by [Keeno Corp.](https://keeno.dev) Apache License 2.0 (`LICENSE`). The packages each build bundles keep their own licences, listed in `THIRD_PARTY_NOTICES.md`.
