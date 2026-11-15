@@ -12,7 +12,9 @@
     "src",
     "runtime",
     "geo",
-    "hooks"
+    "hooks",
+    "docs/guides",
+    "docs/errors"
   ],
   "rules": [
     "For a new three.js game or 3D page in Claude Code, start with the paprika-make skill (/paprika3d:paprika-make <request>): its references, LOOK.md, CHARACTERS.md, DESIGN.md and BRIEF.md come before any page file.",
