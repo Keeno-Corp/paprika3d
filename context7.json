@@ -1,6 +1,6 @@
 {
   "$schema": "https://context7.com/schema/context7.json",
-  "url": "https://context7.com/paprika3d/paprika3d",
+  "url": "https://context7.com/keeno-corp/paprika3d",
   "public_key": "pk_o46SDzSH2Fa3kL2sbWFA3",
   "projectTitle": "paprika3d (three.js MCP server and Claude Code plugin)",
   "description": "Three.js MCP server and Claude Code plugin: build three.js games and 3D pages end to end, from references and a design doc to playtesting, models and a published link. It tells the agent what is on screen, what never appears, what each input changed and what a frame costs, finds models in a library of 57,732 or builds them in code, and in Claude Code runs the whole flow with /paprika3d:paprika-make and /paprika3d:paprika-loop.",
