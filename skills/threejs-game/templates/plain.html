@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- Plain three.js template: one page, no build. Arrow keys move a box over the ground; touching the coin scores and moves the coin.
      Needs `bun add three` (the import map points into node_modules); the `open` tool puts geo.js (shapes) and fx.js (stage, sound,
-     particles) in the project, so open it with `open { url: "index.html" }`. Replace the rules, keep the shape:
+     particles) in the project, so open it with `open { cwd: <this folder's absolute path>, url: "index.html" }`. Replace the rules, keep the shape:
      state in plain variables, step(dt) once per frame, one input path for keys and act(), window.__game at the end. -->
 <html><head><meta charset="utf-8"><title>Game</title>
 <style>html,body{margin:0;background:#1a2030;overflow:hidden}</style></head>
@@ -50,10 +50,23 @@ const { boolean } = await geo();       // Manifold booleans, hull, extrude, revo
 const disc = (r, h) => new THREE.CylinderGeometry(r, r, h, 32).rotateX(Math.PI / 2);
 const gem = new THREE.Mesh(boolean('difference', disc(0.35, 0.08), disc(0.12, 0.2)), mat(0xffe14d));
 gem.name = 'coin'; gem.castShadow = true; scene.add(gem);
-const sparks = burst({ max: 100, seed: 1, size: 0.08 }); sparks.name = 'sparks'; scene.add(sparks);
+const sparks = burst({ max: 100, seed: 1, size: 0.08 }); sparks.name = 'sparks';   // staged: added after the first frame
+// Load time: the first frame draws only what play needs, on materials that compile fast. Every effect that compiles its own
+// shader (scan or PBR materials, a noise sky, shadows, foliage(), water(), GPU particles or simulation, post()) joins after
+// it, one effect to a compileAsync batch (one batch of everything held a game's water back 545 s on a software renderer).
+// Play never waits on it: no await before the loop or window.__game, and no __clock.hold (compileAsync needs frames to finish).
+const later = [sparks];                // one entry per batch, in the order a player should see them: e.g. sky, sea, grass, post
+async function stageIn() {
+  // WebGL without KHR_parallel_shader_compile (software renderers) compiles either way; compile() skips three's warning
+  const parallel = renderer.extensions?.has('KHR_parallel_shader_compile') ?? true;
+  for (const effect of later) {
+    if (parallel) await renderer.compileAsync(effect, camera, scene); else renderer.compile(effect, camera, scene);
+    scene.add(effect);
+  }
+}
 fit(new THREE.Box3(new THREE.Vector3(-EDGE.x, 0, -EDGE.z), new THREE.Vector3(EDGE.x, 1, EDGE.z)));   // the key light's shadow over the play area
 
-let last = null;
+let last = null, staged = null;
 function loop(now) {
   requestAnimationFrame(loop);
   // elapsed game time, never more than 0.1 s a frame; the first frame counts as one (time before it was the page loading)
@@ -67,6 +80,7 @@ function loop(now) {
   const d = 4.5 / Math.min(1, camera.aspect);
   camera.position.set(player.x, d, player.z + d); camera.lookAt(box.position);
   renderer.render(scene, camera);
+  staged ??= stageIn();                // once, after the first frame has drawn
 }
 requestAnimationFrame(loop);
 

@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # What game should I make first? Small three.js games an AI agent can finish and play
 
@@ -165,7 +166,7 @@ The rule lives in `move()`: one step forward, a check for walls and body, then e
 A game with an exact rule is easy to check, and a check you keep can be rerun after every later change. paprika3d is a plugin for Claude Code (and a tool server for other agents) that gives the agent a browser of its own to run, see and play the game. It installs with two commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

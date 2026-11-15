@@ -75,7 +75,7 @@ export function sourceHint(cwd: string, code: string, searched?: string): string
   if (s.hinted || searchedBefore(cwd, s)) return "";
   const names = [...new Set([...code.matchAll(/\.name\s*=\s*["'`]([^"'`\n]{1,40})["'`]/g)].map(m => m[1]!))].slice(0, 4);
   logSourcing(cwd, x => { x.hinted = new Date().toISOString(); }, s);
-  return `No asset search on record for ${names.length ? `"${names.join(", ")}"` : "this model"}: asset_search (57,732 free models, searched by a reference crop) usually looks better than a model built in code.\n`;
+  return `No asset search on record for ${names.length ? `"${names.join(", ")}"` : "this model"}: asset_search (84,249 free models, searched by a reference crop) usually looks better than a model built in code.\n`;
 }
 
 /** Runs `code` as an async function body against the modelling scene and returns its value as text, its logged lines and
@@ -89,7 +89,7 @@ export async function modelRun(chrome: Promise<Browser>, cwd: string, code: stri
   let timer: ReturnType<typeof setTimeout> | undefined, late = false;
   try {
     const run = p.evaluate(`(async () => {
-  const before = __studio.signature(), { THREE, scene, geo, scatter, find, stats, save, load, clear } = await __studio.scope(), saved = [];
+  const before = __studio.signature(), { THREE, BufferGeometryUtils, scene, geo, scatter, find, stats, save, load, clear } = await __studio.scope(), saved = [];
   const keep = save; // what the code saved, for the reply
   const [, self, mark] = /^\\s*at (?:async )?(.*):(\\d+):\\d+$/.exec(String(new Error().stack).split("\\n")[1]) ?? [];
   let value, error;
@@ -115,6 +115,8 @@ ${code}
     const r = await Promise.race([run, stop]);
     const lines = [...r.saved.map(s => `Saved ${s.saved} (${Math.ceil(s.bytes / 1024).toLocaleString("en-US")} KB, ${s.triangles.toLocaleString("en-US")} triangles). The game loads it with:\n${loading(s.saved)}`),
       ...logs(), ...uniq(errors, 5).map(e => `errors: ${e}`)];
+    // the page is about:blank with three bundled in, so a bare import fails: say what is in scope instead (dev #375)
+    if (r.error && /Failed to resolve module specifier 'three/.test(r.error)) r.error += "\nThe modelling page has no import map: use THREE and BufferGeometryUtils from scope, load(path) for a model file.";
     if (r.error) return { text: [note + `model_run threw: ${r.error}`, ...lines, r.changed ? `The scene was saved with what the code did before it threw.` : ""].filter(Boolean).join("\n"), failed: true };
     return { text: [note + capped(cwd, r.value ?? "undefined"), ...lines].join("\n") };
   } catch (e) {

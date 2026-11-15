@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make an enemy follow the player in three.js: chasing around walls
 
@@ -328,7 +329,7 @@ These replies were captured on 2026-10-30 on a machine with no graphics card, wh
 paprika3d does not write the enemy or choose its speed, and it cannot tell you whether a chase is fair or exciting; you find that out by playing. The route check is a few lines the agent writes for this game, not a built-in test. To add paprika3d to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal, the window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

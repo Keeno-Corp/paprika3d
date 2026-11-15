@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a racing game in three.js: a kart, a track and laps
 
@@ -256,7 +257,7 @@ A chase camera follows behind the kart. Put the speeds and the grip as numbers a
 Handling is hard to describe in words ("it feels slidey") and hard to check by reading code. paprika3d is a plugin for Claude Code (and an MCP server for other coding agents) that lets the agent open the page in a headless Chrome (a browser with no window), hold keys for an exact number of frames, each 1/60 s of game time, and read the numbers back. Install it in Claude Code with:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

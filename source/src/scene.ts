@@ -41,7 +41,7 @@ const OBSERVE = `(() => {
   return { ...state, harness: {
     frame: ${FRAME},
     renderer: i ? { calls: h.frameInfo?.calls ?? i.render.drawCalls ?? i.render.calls, triangles: h.frameInfo?.triangles ?? i.render.triangles, textures: i.memory.textures,
-      geometries: i.memory.geometries, programs: i.programs?.length ?? 0 } : null,
+      geometries: i.memory.geometries, programs: h.programs(r) } : null,
     scene,
   } };
 })()`;
@@ -57,7 +57,8 @@ export function observe(game: Game): Promise<Record<string, any>> {
     delete now.harness.frame; // moves on every step; the diff is for what the game did
     const prev = previous.get(game);
     previous.set(game, { state: now, errors: game.errors.length });
-    o.harness.errors = uniq(game.errors.slice(prev?.errors ?? 0), 10, true);
+    // first lines, as interact gives them: a WGSL error's multi-line dump got the whole list cut (dev #332)
+    o.harness.errors = uniq(game.errors.slice(prev?.errors ?? 0).map(e => e.split("\n")[0]!.slice(0, 300)), 5, true);
     o.harness.changed = prev ? diffPairs(prev.state, now) : null;
     cap(o);
     return o;

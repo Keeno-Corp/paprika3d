@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-28
 review: weekly
+reviewed: 2026-11-09
 ---
 # Build a three.js game with an AI agent, and check what it made before you trust it
 
@@ -33,7 +34,7 @@ The agent has to use the tools for any of this to happen. With the tools install
 paprika3d needs Google Chrome and Node 20.11 or later, and the Claude Code plugin needs Claude Code 2.1.118 or later.
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 
@@ -224,6 +225,7 @@ A scale pop and a colour flash on the player, on frame 19, the frame of the pick
 
 ## What runs without being asked
 
+- **Before a model is built in code**, the skill and the tool descriptions have the agent search the hosted library with `asset_search` for each character, vehicle, building, prop, texture and sky, `pick` a close hit (its credit line goes in `CREDITS.md`) and build in code what no search finds; `model_run` says once per project when it builds with no search on record.
 - **After each batch of edits**, a hook reruns the checks saved with `interact`'s `save` and rechecks the page's lighting and surface lines, and speaks when one starts or stops failing. Once per session it says that a three.js page the agent wrote has not been opened.
 - **On the first stop** of a session that opened a game, a hook states once, as facts, the edits that were never played or looked at and the faults still open. It asks for nothing; the agent decides.
 

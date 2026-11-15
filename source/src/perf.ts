@@ -19,6 +19,12 @@ export interface PerfResult {
   /** MB of asset files the page fetched (pageAssets()), its largest three, and how many of them gave no size. */
   assetMB: number; assets: Assets["assets"]; unsized: number;
   textureMax: number; pixelRatio: number;
+  /** MB of the canvas's buffers (its MSAA samples) and the render targets the frame drew to, shadow maps included, and
+      the pixels the frame's passes covered: counts that move with resolution and MSAA where a desktop GPU's times do not. */
+  targetMB: number; msaa: boolean; fillMpx: number; fillPasses: number; shadowPasses: number;
+  /** The sampled frame's extra passes: a shadow map (the renderer's on and a visible light casts), and a top-level render
+      call into a target or of another scene than the main one (post-processing, a RenderPipeline's output quad). */
+  shadows?: boolean; post?: boolean;
   /** With `work` (WORK): paused frames timed from their step to the end of their GPU work. `ms` is the median of the
       frames that drew (all of them when none called three's render), `cpuMs` its frame code alone, `meanMs` the mean of
       every frame stepped (the cost per 60 Hz frame whatever the render cadence), `maxMs` the slowest; `drew` of `frames`
@@ -71,9 +77,10 @@ export function passesText(passes: Pass[]): string {
 export interface Cost { name: string; triangles: number; shadow: number; calls: number; bytes: number }
 // The main scene's visible content by named group, read in one evaluate that draws nothing, the table agents built by hand
 // in five scene loops (bloom/opus-1 it. 11, call 100). An object goes by its nearest named ancestor, as `look` names it;
-// triangles as stats() counts them (h.tris) within the geometry's draw range, times an instanced mesh's count; a draw call
-// per material drawn (one per geometry group for a material array; an instanced mesh is one); casting shadows only when the
-// renderer's shadow map is on and a visible light casts; textures as STOP sizes them, each counted once in the table.
+// triangles as stats() counts them (h.tris) within the geometry's draw range, times an instanced mesh's count (on WebGPU
+// any object's, a sprite's too, dev #281); a draw call per material drawn (one per geometry group for a material array;
+// an instanced mesh is one); casting shadows only when the renderer's shadow map is on and a visible light casts; textures
+// as STOP sizes them, each counted once in the table.
 export const COSTS = `(() => { const h = __harness, scene = h.mainScene();
   if (!scene) return null;
   const r = h.views.get(scene)?.renderer ?? h.renderers[0], groups = new Map(), seen = new Set();
@@ -90,13 +97,13 @@ export const COSTS = `(() => { const h = __harness, scene = h.mainScene();
     };
     scene.traverseVisible(o => {
       if (!(o.isMesh || o.isLine || o.isPoints || o.isSprite)) return;
-      const m = o.material, geo = o.geometry, n = o.isInstancedMesh ? o.count : 1;
+      const m = o.material, geo = o.geometry, n = o.isInstancedMesh || r?.isWebGPURenderer ? o.count ?? 1 : 1;
       const calls = !n ? 0 : Array.isArray(m) ? (geo?.groups ?? []).filter(x => m[x.materialIndex]?.visible).length : m?.visible ? 1 : 0;
       if (!calls) return; // three draws nothing for it
       let name = o.type;
       for (let a = o; a && a !== scene; a = a.parent) if (a.name) { name = a.name; break; }
       const g = groups.get(name) ?? groups.set(name, { name, triangles: 0, shadow: 0, calls: 0, bytes: 0 }).get(name);
-      const tri = o.isSprite ? 2 : o.isMesh && geo?.attributes ? Math.max(0, Math.floor(Math.min(h.tris(geo) * 3 - geo.drawRange.start, geo.drawRange.count) / 3)) * n : 0;
+      const tri = o.isSprite ? 2 * n : o.isMesh && geo?.attributes ? Math.max(0, Math.floor(Math.min(h.tris(geo) * 3 - geo.drawRange.start, geo.drawRange.count) / 3)) * n : 0;
       g.triangles += tri; g.calls += calls;
       if (shadows && o.castShadow) g.shadow += tri;
       for (const x of [m].flat()) if (x) { for (const v of Object.values(x)) add(v, g); for (const u of Object.values(x.uniforms ?? {})) add(u?.value, g); }
@@ -108,12 +115,17 @@ export const COSTS = `(() => { const h = __harness, scene = h.mainScene();
 /** `perf { costs }`'s table: the twelve groups with the most triangles, then the rest in one line. `frame` is the reply's
     first line (the frame as drawn) and the GPU's texture total: when the table's totals differ, the header says which
     number is which, since both read as the scene's (opinion-13 and opinion-14, #179). */
-export function costsText(rows: Cost[] | null, frame?: { calls: number; triangles: number; textureMB: number }): string {
+/** The buffers and fill `perf` counts (dev #178), for the mobile pass a desktop GPU times as noise. */
+export function fillText(p: PerfResult): string {
+  return `Render targets and canvas: ${p.targetMB} MB on the GPU (${p.msaa ? "MSAA canvas" : "canvas without MSAA"}). Fill: ${p.fillMpx} Mpx a frame over ${p.fillPasses} passes${p.shadowPasses ? ` (${p.shadowPasses} of them shadow maps)` : ""}; a count to compare variants by, not a phone's timing: pixel ratio, MSAA and render-target size cost a phone's GPU in proportion where a desktop GPU's times read as noise.`;
+}
+
+export function costsText(rows: Cost[] | null, frame?: { calls: number; triangles: number; textureMB: number; shadows?: boolean; post?: boolean }): string {
   if (!rows?.length) return "Costs: the main scene draws no visible object.";
   const sum = (name: string, l: Cost[]) => l.reduce((s, c) => ({ name, triangles: s.triangles + c.triangles, shadow: s.shadow + c.shadow, calls: s.calls + c.calls, bytes: s.bytes + c.bytes }), { name, triangles: 0, shadow: 0, calls: 0, bytes: 0 });
   const what = (c: Cost) => `${c.triangles} triangles, ${c.shadow} casting shadows, ${c.calls} draw calls, ${round(c.bytes / 2 ** 20)} MB of textures`;
   const by = [...rows].sort((a, b) => b.triangles - a.triangles || b.calls - a.calls), rest = by.slice(12), all = sum("", rows);
-  const differs = [frame && (frame.triangles !== all.triangles || frame.calls !== all.calls) && `the first line's ${frame.triangles} triangles and ${frame.calls} draw calls are the frame as drawn, the camera's view plus the shadow pass`,
+  const differs = [frame && (frame.triangles !== all.triangles || frame.calls !== all.calls) && `the first line's ${frame.triangles} triangles and ${frame.calls} draw calls are the frame as drawn, the camera's view${[frame.shadows && "the shadow pass", frame.post && "post-processing and render-target passes"].filter(Boolean).map((x, i) => (i ? " and " : " plus ") + x).join("")}`,
     frame && round(frame.textureMB) !== round(all.bytes / 2 ** 20) && `the ${round(frame.textureMB)} MB on the GPU adds the background and environment`].filter(Boolean);
   return [`Costs by named group: the main scene's visible objects, each under its nearest named ancestor as \`look\` names it, counted, not timed, and with no frustum culling (the frame draws only what its camera sees, plus a shadow pass per casting light); \`variants\` with \`hide\` times a group. In all ${what(all)}${differs.length ? ` (${differs.join("; ")})` : ""}:`,
     ...by.slice(0, 12).map(c => `  ${c.name}: ${what(c)}`), ...rest.length ? [`  … ${rest.length} more: ${what(sum("", rest))}`] : []].join("\n");
@@ -240,7 +252,7 @@ export const START = `(() => {
     return behind;
   };
   // each frame's stamp and its work (draw calls and triangles, shader programs), which SETTLED compares
-  const tick = t => { if (p.on) { if (own && late()) h.sync(); p.t.push(t); p.c.push((h.frameInfo?.calls ?? 0) * 1e9 + (h.frameInfo?.triangles ?? 0)); p.g.push(h.renderers[0]?.info.programs?.length ?? 0); requestAnimationFrame(tick); } };
+  const tick = t => { if (p.on) { if (own && late()) h.sync(); p.t.push(t); p.c.push((h.frameInfo?.calls ?? 0) * 1e9 + (h.frameInfo?.triangles ?? 0)); p.g.push(h.programs(h.renderers[0])); requestAnimationFrame(tick); } };
   requestAnimationFrame(tick);
   __clock.timescale(1);
   __clock.resume();
@@ -263,17 +275,42 @@ export const STOP = `(() => {
       dim = Math.max(dim, Math.round(Math.sqrt(w * h))); // a square's side of the same area: a 4096 × 1 lookup table is 64
     }
   };
+  // dev #302: a node material reads its textures through TSL nodes (texture(), a uniform's value), not material.map
+  const nodes = new Set(), node = n => {
+    if (!n?.isNode || nodes.has(n)) return;
+    nodes.add(n); add(n.value);
+    try { for (const c of n.getChildren()) node(c); } catch {}
+  };
   for (const s of __harness.scenes) {
-    add(s.background); add(s.environment);
+    add(s.background); add(s.environment); node(s.backgroundNode); node(s.environmentNode);
     s.traverse(o => {
       for (const m of [o.material].flat()) if (m) {
-        for (const v of Object.values(m)) add(v);
+        for (const v of Object.values(m)) { add(v); node(v); }
         for (const u of Object.values(m.uniforms ?? {})) add(u?.value); // ShaderMaterial / RawShaderMaterial
       }
     });
   }
+  // dev #178: every pass's target pixels and every buffer's bytes, colour and depth per sample plus an MSAA resolve
+  const gl = r?.getContext?.(), attr = gl?.getContextAttributes?.() ?? null, cw = attr ? gl.drawingBufferWidth : 0, ch = attr ? gl.drawingBufferHeight : 0;
+  const cs = attr?.antialias ? gl.getParameter(gl.SAMPLES) || 4 : 1, bpp = t => ({ 1015: 16, 1016: 8 })[t?.type] ?? 4;
+  let target = cw * ch * ((4 + (attr?.depth === false ? 0 : 4)) * cs + (cs > 1 ? 4 : 0)), fill = 0, passes = 0, shadowPasses = 0;
+  const targets = new Set();
+  for (const e of __harness.frame ?? []) if (e.scene) { passes++; fill += e.target ? e.target.width * e.target.height : cw * ch; if (e.target) targets.add(e.target); }
+  if (r?.shadowMap?.enabled) for (const s of __harness.scenes) s.traverse(o => {
+    if (!o.isLight || !o.castShadow || !o.visible || !o.shadow) return;
+    const faces = o.isPointLight ? 6 : 1;
+    shadowPasses += faces; fill += o.shadow.mapSize.x * o.shadow.mapSize.y * faces;
+    if (o.shadow.map) targets.add(o.shadow.map);
+  });
+  for (const t of targets) {
+    const px = t.width * t.height * (t.depth ?? 1) * (t.isWebGLCubeRenderTarget ? 6 : 1), colour = [t.textures ?? t.texture].flat().reduce((n, x) => n + bpp(x), 0), depth = t.depthBuffer ? 4 : 0;
+    target += t.samples ? px * (t.samples * (colour + depth) + colour) : px * (colour + depth);
+  }
   return {
-    calls: __harness.frameInfo?.calls ?? r?.info.render.drawCalls ?? r?.info.render.calls ?? 0, triangles: __harness.frameInfo?.triangles ?? r?.info.render.triangles ?? 0, programs: r?.info.programs?.length ?? 0,
+    targetMB: target / 2 ** 20, msaa: cs > 1, fillMpx: fill / 1e6, fillPasses: passes + shadowPasses, shadowPasses,
+    calls: __harness.frameInfo?.calls ?? r?.info.render.drawCalls ?? r?.info.render.calls ?? 0, triangles: __harness.frameInfo?.triangles ?? r?.info.render.triangles ?? 0, programs: __harness.programs(r),
+    shadows: !!r?.shadowMap?.enabled && !!__harness.mainScene()?.getObjectsByProperty?.("castShadow", true).some(o => o.isLight && o.visible),
+    post: (__harness.frame ?? []).some(e => e.target || e.scene !== __harness.mainScene()),
     pixelRatio: r?.getPixelRatio?.() ?? devicePixelRatio, textureMB: bytes / 2 ** 20, textureDim: dim,
     heapMB: performance.memory ? performance.memory.usedJSHeapSize / 2 ** 20 : null,
   };
@@ -468,8 +505,19 @@ export const NETWORKS = {
   "3g": { download: 500_000 / 8 * 0.8, upload: 500_000 / 8 * 0.8, latency: 400 * 5 },
   "slow-4g": { download: 1_600_000 / 8 * 0.9, upload: 750_000 / 8 * 0.9, latency: 150 * 3.75 },
   "fast-4g": { download: 9_000_000 / 8 * 0.9, upload: 1_500_000 / 8 * 0.9, latency: 60 * 2.75 },
+  // the cold load dogfood games are judged on: 20 Mbps both ways, 40 ms (dev #383)
+  broadband: { download: 20_000_000 / 8, upload: 20_000_000 / 8, latency: 40 },
 };
-export type Network = keyof typeof NETWORKS;
+/** A preset, or the agent's own throughput (kbps; upload defaults to download) and latency. */
+export type Network = keyof typeof NETWORKS | { downKbps: number; upKbps?: number; latencyMs: number };
+const conditions = (n: Network) => typeof n === "string" ? NETWORKS[n]
+  : { download: n.downKbps * 1000 / 8, upload: (n.upKbps ?? n.downKbps) * 1000 / 8, latency: n.latencyMs };
+/** A network as the first-visit line names it: its numbers, after the preset's name. */
+export function networkText(n: Network): string {
+  const c = conditions(n), rate = (bytes: number) => { const k = Math.round(bytes * 8 / 1000); return k >= 1000 ? `${round(k / 1000)} Mbps` : `${k} kbps`; };
+  const nums = `${rate(c.download)} down, ${rate(c.upload)} up, ${round(c.latency)} ms latency`;
+  return typeof n === "string" ? `${n} (${nums})` : nums;
+}
 
 /** What a first visit on a network waits on: the first scene frame (real ms after navigation, null when none came), the
     script MB downloaded, and the reply line. */
@@ -479,7 +527,7 @@ const FIRST_POLL = `(() => { const h = window.__harness; return h ? { now: Perfo
   covers: h.covers().filter(c => c.over).map(c => c.what) } : null; })()`;
 
 /** How long the sample waits for an overlay to go: real ms from the clock's start, the warm-up included (JC, 2026-10-25). */
-const OVERLAY_MS = 5_000;
+const OVERLAY_MS = 15_000;
 /** Waits, the clock running, until no element covers the canvas (FIRST_POLL's covers, polled every 100 ms) or `limitMs` from
     `from` has passed: a judge's `perf` timed a loading poster as the scene, "1 draw calls, 2 triangles" (bloom/opus-2
     it. 23, judge call 18; #164). What covered it, and when it went or the wait ended; undefined when nothing covered it. */
@@ -505,7 +553,7 @@ const CDP_KIND: Record<string, string> = { Script: "scripts", Image: "textures",
     and the paused clock would put the first frame at the first step, so both are lifted for this load only. */
 export function firstFrame(game: Game, network: Network): Promise<FirstFrame> {
   return game.queue(async () => {
-    const cdp = await game.page.createCDPSession(), n = NETWORKS[network];
+    const cdp = await game.page.createCDPSession(), n = conditions(network);
     const reqs = new Map<string, { url: string; type: string }>(), got: { url: string; type: string; bytes: number; at: number }[] = [];
     let t0: number | undefined, first: number | null = null, now = 0, start = Date.now();
     const loadMs = game.loadMs; // the open's own load time, which the reload below would replace
@@ -551,29 +599,35 @@ export function firstFrame(game: Game, network: Network): Promise<FirstFrame> {
     return {
       ms: first, scriptMB: round((kinds.get("scripts") ?? []).reduce((a, g) => a + g.bytes, 0) / 2 ** 20),
       scripts: [...kinds.get("scripts") ?? []].sort((a, b) => b.bytes - a.bytes).slice(0, 3).map(g => ({ name: decodeURIComponent(g.url.split(/[?#]/)[0]!.split("/").pop()!), MB: round(g.bytes / 2 ** 20) })),
-      line: `${head} on ${network}, a first visit with no cache${bytes.length ? ` (${bytes.join(", ")})` : ""}${covers.length ? `; ${covers.join("; ")}` : ""}.`,
+      line: `${head} on ${networkText(network)}, a first visit with no cache ${game.software ? "on a software renderer (no GPU: its shader compiles and first frame take far longer than a GPU's)" : "on a GPU"}${bytes.length ? ` (${bytes.join(", ")})` : ""}${covers.length ? `; ${covers.join("; ")}` : ""}.`,
     };
   });
 }
 
-/** Runs in the page: the main scene's lights that draw (visible), by kind, and how many cast shadows, with their largest map side. */
+/** Runs in the page: the main scene's lights that draw (visible), by kind, and how many cast shadows, with their largest map
+    side. Under a clustered `renderer.lighting` (three's ClusteredLighting), a point light that casts no shadow is counted
+    in `clustered` instead: it is shaded per screen cluster, only where it reaches, not by every lit material (dev #305). */
 export const LIGHTS = `(() => {
-  const n = { point: 0, spot: 0, directional: 0, shadows: 0, map: 0 };
+  const n = { point: 0, spot: 0, directional: 0, shadows: 0, map: 0, clustered: 0 };
+  const g = (window.__harness.main()?.[1].renderer ?? window.__harness.renderers[0])?.lighting;
+  const clustered = !!g && ["tileSize", "zSlices", "maxLightsPerCluster"].every(k => typeof g[k] === "number");
   window.__harness.mainScene()?.traverseVisible(o => {
     if (!o.isLight || !(o.isPointLight || o.isSpotLight || o.isDirectionalLight || o.isRectAreaLight)) return; // ambient, hemisphere and probes cost next to nothing
+    if (clustered && o.isPointLight && !o.castShadow) { n.clustered++; return; }
     n[o.isPointLight ? "point" : o.isSpotLight || o.isRectAreaLight ? "spot" : "directional"]++;
     if (o.castShadow) { n.shadows++; n.map = Math.max(n.map, o.shadow?.mapSize?.x ?? 0); }
   });
   return n;
 })()`;
-export interface Lights { point: number; spot: number; directional: number; shadows: number; map: number }
+export interface Lights { point: number; spot: number; directional: number; shadows: number; map: number; clustered?: number }
 /** Many lights: over 8 point and spot lights, or over 2 shadow casters (first guesses; AA-3D warehouse had 18 point lights). */
 export const manyLights = (l: Lights | null): l is Lights => !!l && (l.point + l.spot > 8 || l.shadows > 2);
 /** The Lights line for a scene with many, or "": with `cost`, what turning them off saved (`perf`); without, a pointer to it (`open`). */
 export function lightsText(l: Lights | null, cost?: { ms: number; frame: number; noise: number; what: string }): string {
   if (!manyLights(l)) return "";
   const kinds = [l.point && `${l.point} point`, l.spot && `${l.spot} spot`, l.directional && `${l.directional} directional`].filter(Boolean).join(", ");
-  const head = `Lights: ${kinds} lights${l.shadows ? `, ${l.shadows} casting shadows (${l.map} maps)` : ""}`;
+  const clustered = l.clustered ? `; ${l.clustered} more point lights are clustered by renderer.lighting (each pixel pays only for those near it), not counted here` : "";
+  const head = `Lights: ${kinds} lights${l.shadows ? `, ${l.shadows} casting shadows (${l.map} maps)` : ""}${clustered}`;
   if (!cost) return `${head}: every lit material pays for each one; \`perf\` measures what they cost.`;
   if (cost.ms <= cost.noise) return `${head}; turning off the ${cost.what} saved no more than the noise (${cost.noise} ms).`;
   // advice only when they are a real share of the frame: AA-3D warehouse's 15 point lights cost 0.5 ms of 10.4 on an M3
@@ -611,7 +665,7 @@ export function variantSetup(v: Variant): string {
     reload (to keep a game from ending mid-measure); `clock` names the observe() key holding game seconds, which adds
     mainMsPerFrame and gameSpeed at a 60 Hz pace: a fair cost for a game whose logic waits on a worker. `throttle` slows the
     page's JavaScript that many times (CDP CPU throttling, a weak laptop), as AA-3D agents did in scripts of their own;
-    GPU work is not slowed. `network` first times a first visit on that network (firstFrame(), under the same throttle);
+    GPU work is not slowed. `network` first times a first visit on that network (a preset or custom kbps and latency: firstFrame(), under the same throttle);
     the budget's firstSceneFrameMs is judged only on fast-4g, the network it is set for. After the warm-up, the sample
     waits for an element over the canvas to go (overlayOf()), at most `overlayMs` from the clock's start (0: no wait);
     `costs` reads the scene's content by named group after the sample (COSTS). */
@@ -638,7 +692,7 @@ export function perf(game: Game, budget: Budget, { seconds = 2, warmMs = 1000, s
     const all = sortNum([...a, ...b]);
     const why = all.length ? "" : await game.page.evaluate(NO_FRAMES) as string; // before STOP pauses the clock
     const paced = clock ? await pacedCost(game.page, clock, seconds * 2) : null;
-    const info = await game.page.evaluate(STOP) as { calls: number; triangles: number; programs: number; pixelRatio: number; textureMB: number; textureDim: number; heapMB: number | null };
+    const info = await game.page.evaluate(STOP) as { calls: number; triangles: number; programs: number; shadows: boolean; post: boolean; pixelRatio: number; textureMB: number; textureDim: number; heapMB: number | null; targetMB: number; msaa: boolean; fillMpx: number; fillPasses: number; shadowPasses: number };
     const table = costs ? await game.page.evaluate(COSTS) as Cost[] | null : undefined; // the scene as sampled, before PASSES and WORK step it
     const timed = passes ? medianFrame(await game.page.evaluate(PASSES) as (Pass & { frame: number })[]) : undefined;
     if (!all.length) throw new Error(`perf: no frames ran; is the page rendering with requestAnimationFrame? (${why})`);
@@ -658,6 +712,8 @@ export function perf(game: Game, budget: Budget, { seconds = 2, warmMs = 1000, s
       triangles: info.triangles,
       textureMB: round(info.textureMB),
       programs: info.programs,
+      shadows: info.shadows,
+      post: info.post,
       longTasks: long,
       gcPauses: all.filter(x => x > Math.max(3 * median, budget.frameMs)).length, // frames over 3× the median that also miss the budget, most often a GC pause
       heapMB: info.heapMB === null ? null : round(info.heapMB),
@@ -668,6 +724,7 @@ export function perf(game: Game, budget: Budget, { seconds = 2, warmMs = 1000, s
       textureMax,
       ...w && { work: { ...w, paced: tick } },
       pixelRatio: info.pixelRatio,
+      targetMB: round(info.targetMB), msaa: info.msaa, fillMpx: round(info.fillMpx), fillPasses: info.fillPasses, shadowPasses: info.shadowPasses,
       ...paced,
       ...timed ? { passes: timed } : {},
       ...first && { firstFrame: first },

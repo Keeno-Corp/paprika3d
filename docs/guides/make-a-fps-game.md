@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a fps game in three.js: first-person look, shooting and targets
 
@@ -238,7 +239,7 @@ Show hits and shots at the top. Use camera rotation order YXZ.
 A shooter is hard to check without playing it: did the click lock the mouse, where is the crosshair pointing, did the hit count. paprika3d is a plugin for Claude Code (and an MCP server for other coding agents) that lets the agent open the page in a headless Chrome (a browser with no window), click, move a locked mouse and read the game's numbers back. Install it in Claude Code with:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

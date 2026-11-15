@@ -4,6 +4,12 @@
 
 Measures the open game uncapped in headless Chrome: median and p95 frame time, the work per frame (paused frames timed to the end of their GPU work: a frame that draws nothing new waits for the display's 60 Hz tick there, so a page that skips renders is judged on its work), draw calls, triangles and the size of the asset files the page and its running workers fetched, against a budget. `desktop` (the default) is 16.7 ms a frame, 5 MB of assets, 200,000 triangles, 2048 px textures and a pixel ratio of at most 2. A `budget` argument overrides it.
 
+## Load time: a plain first frame, then the effects
+
+Every shader compiles before the frame that first draws it, and a heavy one costs seconds on a fast machine and minutes on a software renderer (a judge's browser, a headless Linux box). So the first frame draws only what play needs, on materials that compile fast: the ground, the player, what the player must reach or avoid, the key light, a plain gradient or colour sky. Set `window.__game` and start the loop before anything below.
+
+Then, after that frame, each effect joins in its own small batch: `await renderer.compileAsync(effect, camera, scene)` and only then `scene.add(effect)` (or swap its material in), one batch after another. Effects that belong there: scan or PBR library materials, a noise sky (a TSL `mx_fractal_noise_*` storm sky took 16 s alone), shadows, `foliage()`, `water()` and a reflector, GPU particles or simulation, a PMREM environment, and `post()` (draw with `renderer.render` until it is in, then switch to `fx.render()`). Keep each batch small and give slow decor its own: one batch of water(), a reflector and the street decor held the water back to 545 s on SwiftShader WebGPU, while one batch per effect brought it to 16.6 s. Staging cut a water() and post() game's first frame from 52 s to 4.9 s, and a scan-material climbing game's from 32 s to 4.1 s. Play never waits on a batch: nothing is awaited before the loop or `__game`, and a compile is not passed to `__clock.hold` (a GPU's compileAsync needs frames to finish). `templates/plain.html` stages its particles this way. One shared material per kind of decor compiles one pipeline instead of one per item.
+
 ## `perf` with `optimize: true`
 
 Tries each switch of `@paprika3d/three-runtime` on the open game, one at a time, on top of the ones already kept:

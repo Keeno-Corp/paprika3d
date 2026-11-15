@@ -74,6 +74,15 @@ function deliver(text: string): never {
   process.exit(2);
 }
 
+// a command that only reads or stages a file (`git add`, a `cat`) names it but wrote nothing, so the line stayed for a
+// script holding a page as text (#217); a redirect into it, or any other command that names it, may have written it
+const READS = /^\s*(?:sudo\s+)?(?:git|cat|head|tail|less|more|grep|egrep|rg|wc|ls|diff|stat|file|bat|open|code|du|md5sum|shasum)\b/;
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function writes(commands: string, name: string): boolean {
+  const named = new RegExp(`(?:^|[\\s'"=/(<>])${esc(name)}(?:$|[\\s'")<>;|&,])`);
+  return commands.split(/&&|\|\||[;|\n]/).some(c => named.test(c) && (!READS.test(c) || new RegExp(`>\\s*['"]?(?:[^\\s'"]*/)?${esc(name)}`).test(c)));
+}
+
 const real = (p: string) => { try { return realpathSync(p); } catch { return p; } }; // /tmp and /private/tmp name one folder
 const projectOf = (run: string) => real(resolve(run, "..", "..", "..")); // a run is <project>/paprika3d/runs/<run>
 /** The projects this session's own paprika3d calls opened (session.ts), this batch's included, or null with no
@@ -94,7 +103,7 @@ function remind(): never {
   // (before-stop's gpu-4x4-4 bowling stopped in node_modules)
   const commands = shell.map(c => String(c.tool_input?.command ?? "")).join("\n");
   const since = !pages.length && shell.length && !cwd.split(sep).includes("node_modules") ? sessionBegan(input.transcript_path) : 0;
-  if (since) pages.push(...sourcesSince(cwd, since, f => commands.includes(basename(f)) && page(f), 1));
+  if (since) pages.push(...sourcesSince(cwd, since, f => writes(commands, basename(f)) && page(f), 1));
   if (!pages.length) process.exit(0);
   // wx: two subagents' batches can both pass the check above, since the walk between takes time; only one may speak
   try { writeFileSync(mark, "", { flag: "wx" }); } catch { process.exit(0); }

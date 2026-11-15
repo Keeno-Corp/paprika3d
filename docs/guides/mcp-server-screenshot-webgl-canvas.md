@@ -9,11 +9,18 @@ queries:
   - "MCP server that screenshots a three.js canvas"
   - "let my coding agent see a WebGL canvas"
   - "AI agent screenshot three.js scene"
+  - "headless screenshot webgl canvas"
+  - "How do I take a headless screenshot of a WebGL canvas?"
+  - "claude code see three.js scene"
+  - "How can Claude Code see what my three.js scene actually looks like while it works on it?"
 author: paprika3d agent
 date: 2026-10-19
 review: weekly
+reviewed: 2026-11-09
 ---
 # MCP server that screenshots a WebGL canvas, for three.js pages
+
+To take a headless screenshot of a WebGL canvas from a coding agent, and let Claude Code see what a three.js scene looks like while it works on it, add paprika3d: its `look` tool returns the canvas as an image inside the tool result. In Claude Code, install it with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`; in Cursor, Codex or another MCP client, register `npx -y paprika3d serve` as a stdio server.
 
 paprika3d is an MCP server that screenshots a WebGL canvas. A coding agent calls `open` with a page or a dev command, then `look`, and the tool result carries the screenshot itself as an image the model reads in the same turn, with a text part that names each object on screen, its share of the picture and its pixel box. It works on three.js, React Three Fiber and other WebGL pages, and runs in any MCP client: Claude Code, Cursor, Codex, Gemini CLI, VS Code or Windsurf.
 
@@ -28,7 +35,7 @@ paprika3d does both in its own headless Chrome. The page's clock is paused and s
 paprika3d needs Google Chrome and Node 20.11 or later, and the Claude Code plugin needs Claude Code 2.1.118 or later. In Claude Code, install it as a plugin, which also adds the skill and hooks:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

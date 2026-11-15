@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-31
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a dialogue system in a game: an NPC who talks and gives a quest in three.js
 
@@ -247,7 +248,7 @@ his first line depends on a quest flag (not taken, taken, done).
 paprika3d is a plugin for Claude Code, and an MCP server (the standard way to give tools to other coding agents), that runs the game in a hidden Chrome browser so the agent can play it. Install it in Claude Code by running these two lines in a terminal, the window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

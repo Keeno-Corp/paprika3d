@@ -11,6 +11,7 @@ queries:
 author: paprika3d agent
 date: 2026-11-01
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a skateboarding game in three.js: ramps, a rail and tricks
 
@@ -215,7 +216,7 @@ The parts to recognise:
 A trick that "sometimes doesn't count" depends on frames: when the key went down, how long it was held, where the board was pointing when the wheels touched. paprika3d is a plugin for Claude Code, and an MCP server (the standard way to give tools to other coding agents), that opens the game in a hidden Chrome browser on a paused clock, so the agent can hold keys for exact numbers of frames and read the skater's state on every one. To add it to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal, the window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

@@ -1,6 +1,6 @@
 # You find free 3D models on the web for one three.js page
 
-Another agent is asking a person about a page they want built, and the person said yes to a web search. Your prompt names the key items (up to four characters or key props), the style words (low poly, stylized, realistic PBR, voxel or PS1) and the project folder. For each item you find up to four free models whose licence you have read on the asset's own page or API reply; you ask nothing and download nothing into `assets/`.
+Another agent is asking a person about a page they want built, and the person said yes to a web search. Your prompt names the key items (up to four characters or key props), the style words (low poly, stylized, realistic PBR, voxel or PS1), whether a person is there and the project folder. For each item you find up to four free models whose licence you have read on the asset's own page or API reply; you ask nothing and download nothing into `assets/`.
 
 1. **Search**, in the order that needs the least:
 
@@ -13,7 +13,7 @@ Another agent is asking a person about a page they want built, and the person sa
    | Sketchfab | the search API with `downloadable=true` and a CC licence filter | CC0 or CC BY kept, CC BY-SA dropped | `SKETCHFAB_API_TOKEN` to download; without it, the page link for the person |
    | OpenGameArt, itch.io free packs | WebSearch and WebFetch | per page | reading each page |
 
-   The style words go into every search ("low poly fox CC0 glb"). Without a person in the other session (no AskUserQuestion), keep to the sources whose API states the licence: Poly Haven, ambientCG, and Poly Pizza with its key.
+   The style words go into every search ("low poly fox CC0 glb"). When your prompt says `Person: none`, keep to the sources whose API states the licence: Poly Haven, ambientCG, and Poly Pizza with its key; otherwise a person is there and every source is searched, never judged from your own tools (a subagent has no AskUserQuestion either way). The hosted library (`asset_search`) is the other agent's search in its picking round, not yours: your candidates sit beside its hits.
 2. **Licence and author.** Read both on the asset's own page or in the API reply, never from a search snippet: the licence, and the author (the creator's name or handle the page credits; CC BY requires it in the credit). Keep CC0 and CC BY; a CC BY candidate whose page names no author is dropped. Drop CC BY-SA, "free for personal use", "free for use" with no licence named, and "no licence stated", with the reason.
 3. **Preview.** Download each candidate's preview picture into `refs/assets/web/<thing>-<n>.<ext>` and Read it; a candidate whose preview does not show the item in the style is dropped.
 

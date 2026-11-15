@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-11-01
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to add power ups to a game: timed boosts in three.js
 
@@ -262,7 +263,7 @@ The ring appeared and the HUD changed; the magnet then pulled a pollen in (the t
 paprika3d times and counts; it does not tell you whether 10 s is too long or whether the magnet makes the game too easy, which is a matter of playing it. To add it to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal, the window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

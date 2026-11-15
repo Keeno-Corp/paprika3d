@@ -9,6 +9,7 @@
 // never a wait past the timeout; no key reaches a reply, a log or the .json written beside each picture.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { briefText } from "./brief.ts";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import type { Browser } from "puppeteer-core";
 import { reference, utilPage } from "./reference.ts";
@@ -27,8 +28,12 @@ export interface Endpoint extends Step {
   /** {path} in url and fetch is read from the poll reply, else the first reply */
   poll?: { url: string; status: string; done: string[]; failed?: string[]; fetch?: string };
   price: number; about?: boolean; time: string; note?: string;
+  /** more files in the final reply, each saved beside the result as <name>-<key>.glb (a rig's walk and run clips) */
+  clips?: Record<string, string>;
 }
-export interface Provider { name: string; title: string; env: string[]; auth: Auth; board?: Endpoint; turnaround?: Endpoint; model?: Endpoint; why?: string; why3d?: string }
+export interface Provider { name: string; title: string; env: string[]; auth: Auth; board?: Endpoint; turnaround?: Endpoint; model?: Endpoint;
+  /** a skeleton bound to a generated humanoid model, from the model's URL (or its bytes as a data: URL) */
+  rig?: Endpoint; why?: string; why3d?: string }
 
 const bearer: Auth = { header: "Authorization", prefix: "Bearer " };
 /** Auth, endpoints and prices as each vendor's docs give them on 2026-10-30 (the plan's tables); none was called. */
@@ -49,7 +54,12 @@ export const PROVIDERS: Provider[] = [
   // 3D only
   { name: "meshy", title: "Meshy", env: ["MESHY_API_KEY"], auth: bearer, why3d: "good topology and textures for a hero",
     model: { url: "https://api.meshy.ai/openapi/v1/image-to-3d", body: "json", model: "meshy-image-to-3d", refs: "dataurl", template: { image_url: "$ref" },
-      poll: { url: "https://api.meshy.ai/openapi/v1/image-to-3d/{result}", status: "status", done: ["SUCCEEDED"], failed: ["FAILED", "CANCELED"] }, result: { path: "model_urls.glb", as: "url" }, price: 0.4, about: true, time: "2 to 5 min" } },
+      poll: { url: "https://api.meshy.ai/openapi/v1/image-to-3d/{result}", status: "status", done: ["SUCCEEDED"], failed: ["FAILED", "CANCELED"] }, result: { path: "model_urls.glb", as: "url" }, price: 0.4, about: true, time: "2 to 5 min" },
+    // docs.meshy.ai/en/api/rigging-and-animation (2026-11-12): textured humanoids under 380,000 triangles facing +Z; the
+    // reply has the rigged GLB and walking and running clips on the same skeleton; the docs' example task used 5 credits
+    rig: { url: "https://api.meshy.ai/openapi/v1/rigging", body: "json", model: "meshy-rigging", template: { model_url: "$url", height_meters: "$height" },
+      poll: { url: "https://api.meshy.ai/openapi/v1/rigging/{result}", status: "status", done: ["SUCCEEDED"], failed: ["FAILED", "CANCELED"] }, result: { path: "result.rigged_character_glb_url", as: "url" },
+      clips: { walk: "result.basic_animations.walking_glb_url", run: "result.basic_animations.running_glb_url" }, price: 0.1, about: true, time: "1 to 2 min", note: "about 5 Meshy credits" } },
   { name: "tripo", title: "Tripo", env: ["TRIPO_API_KEY"], auth: bearer, why3d: "good topology for a hero",
     model: { url: "https://api.tripo3d.ai/v2/openapi/task", body: "json", model: "tripo-image-to-model", template: { type: "image_to_model", file: { type: "$ext", file_token: "$pre" } },
       pre: { url: "https://api.tripo3d.ai/v2/openapi/upload", body: "multipart", refs: "file", template: { file: "$ref" }, id: "data.image_token" },
@@ -61,7 +71,9 @@ export const PROVIDERS: Provider[] = [
 export const IMAGE_ORDER = ["fal", "gemini", "openai"];
 export const MODEL_ORDER = ["fal", "tripo", "meshy"];
 const byName = (n: string) => PROVIDERS.find(p => p.name === n);
-const endpoint = (p: Provider, k: Kind) => k === "model" ? p.model : k === "turnaround" ? p.turnaround ?? p.board : p.board;
+/** What a provider is called for: a sheet's kind, or "rig" (a model job's `rig: true`). */
+export type GenKind = Kind | "rig";
+const endpoint = (p: Provider, k: GenKind) => k === "rig" ? p.rig : k === "model" ? p.model : k === "turnaround" ? p.turnaround ?? p.board : p.board;
 
 // ---- keys ---------------------------------------------------------------------------------------------------------
 
@@ -91,7 +103,9 @@ export function recommend(all: Found[], kind: Kind, env: Env = process.env): Fou
 const usd = (n: number) => { const t = +n.toFixed(3); return `$${t.toFixed(Math.round(t * 1000) % 10 ? 3 : 2)}`; };
 const price = (e: Endpoint) => e.note ?? `${e.about ? "about " : ""}${usd(e.price)}`;
 
-export type Job = { name: string; kind: "turnaround" | "model"; provider: string; started: number; state: "running" | "done" | "failed"; file?: string; error?: string };
+export type Job = { name: string; kind: "turnaround" | "model"; provider: string; started: number; state: "running" | "done" | "failed"; file?: string; error?: string;
+  /** a model job with `rig`: "rigging" once the model has landed, then the rigged GLB and its clips */
+  step?: "rigging"; rigged?: string[] };
 /** `check`'s reply: providers by name and where each key was found, the recommendation with its price, the sources line. */
 /** The plugin option's key set with no provider it can be used with, as one line (the provider field degrades to free text
     before Claude Code 2.1.271, so a typo is easy), or "". Never the key, and the provider value only as empty or not. */
@@ -136,8 +150,8 @@ export function checkText(env: Env = process.env, jobs: Job[] = []): string {
   lines.push(`3D keys found: ${list("model")}`);
   if (m3) lines.push(`3D models: recommended ${m3.provider.name} (${m3.provider.model!.model}, ${price(m3.provider.model!)} and ${m3.provider.model!.time} a model${m3.provider.why3d ? `, ${m3.provider.why3d}` : ""}); a job runs in the background while the build goes on.`);
   else lines.push("(connect a 3D key to generate models: /plugin configure paprika3d, or MESHY_API_KEY, TRIPO_API_KEY, FAL_KEY ...)");
-  lines.push(`Sources on this machine: the library (57,732 free models, textures and skies, searched by your pictures), web search for free assets (with the session's web tools)${m3 ? `, generation with your ${m3.provider.title} key (${price(m3.provider.model!)} and ${m3.provider.model!.time} a model)` : ""}, and building in code (model_run with Manifold, checked with model_look).`);
-  for (const j of jobs) lines.push(`${j.kind === "model" ? "Model" : "Turnaround"} job ${j.name} (${j.provider}): ${j.state === "running" ? `running for ${Math.round((Date.now() - j.started) / 1000)} s` : j.state === "done" ? `done, ${j.file}` : `failed: ${j.error}`}.`);
+  lines.push(`Sources on this machine: the library (84,249 free models, textures and skies, searched by your pictures), web search for free assets (with the session's web tools)${m3 ? `, generation with your ${m3.provider.title} key (${price(m3.provider.model!)} and ${m3.provider.model!.time} a model)` : ""}, and building in code (model_run with Manifold, checked with model_look).`);
+  for (const j of jobs) lines.push(`${j.kind === "model" ? "Model" : "Turnaround"} job ${j.name} (${j.provider}): ${j.state === "running" ? `running${j.step ? ` (${j.step} ${j.file})` : ""} for ${Math.round((Date.now() - j.started) / 1000)} s` : j.state === "done" ? `done, ${[j.file, ...j.rigged ?? []].join(", ")}` : `failed: ${j.error}${j.file ? ` (the unrigged model landed: ${j.file})` : ""}`}.`);
   return lines.join("\n");
 }
 
@@ -155,10 +169,12 @@ export function dig(o: unknown, path: string): unknown {
 }
 const tpl = (s: string, ...from: unknown[]) => s.replace(/\{([\w.]+)\}/g, (_, p: string) => { for (const o of from) { const v = dig(o, p); if (v !== undefined && v !== null) return String(v); } throw new Error(`the reply has no ${p}`); });
 const encode = (r: Ref, as: Enc) => as === "inline" ? { inlineData: { mimeType: r.mime, data: r.data.toString("base64") } } : `data:${r.mime};base64,${r.data.toString("base64")}`;
-/** The template with "$prompt", "$model", "$pre", "$ext" (the first picture's file type), "$ref" (the first picture) and
-    "$refs" (all, or spread by "...$refs") filled. */
-function fill(t: unknown, v: { prompt: string; model: string; pre?: string; ext?: string; refs: unknown[] }): unknown {
+/** The template with "$prompt", "$model", "$pre", "$ext" (the first picture's file type), "$ref" (the first picture),
+    "$refs" (all, or spread by "...$refs"), "$url" (the model a rig binds) and "$height" (its height in metres) filled. */
+function fill(t: unknown, v: { prompt: string; model: string; pre?: string; ext?: string; url?: string; height?: number; refs: unknown[] }): unknown {
   if (t === "$prompt") return v.prompt;
+  if (t === "$url") return v.url;
+  if (t === "$height") return v.height ?? 1.7;
   if (t === "$ext") return v.ext;
   if (t === "$model") return v.model;
   if (t === "$pre") return v.pre;
@@ -168,7 +184,7 @@ function fill(t: unknown, v: { prompt: string; model: string; pre?: string; ext?
   if (t && typeof t === "object") return Object.fromEntries(Object.entries(t).map(([k, x]) => [k, fill(x, v)]));
   return t;
 }
-function body(step: Step, v: { prompt: string; model: string; pre?: string; ext?: string }, refs: Ref[]): BodyInit {
+function body(step: Step, v: { prompt: string; model: string; pre?: string; ext?: string; url?: string; height?: number }, refs: Ref[]): BodyInit {
   if (step.body === "json") return JSON.stringify(fill(step.template, { ...v, refs: refs.map(r => encode(r, step.refs ?? "dataurl")) }));
   const form = new FormData();
   for (const [k, x] of Object.entries(step.template)) {
@@ -180,8 +196,9 @@ function body(step: Step, v: { prompt: string; model: string; pre?: string; ext?
 }
 const authHeaders = (p: Provider, f: Found): Record<string, string> => ({ [p.auth.header]: `${p.auth.prefix ?? ""}${f.key}` });
 
-export type Made = { bytes: Buffer; ext: string; model: string; price: number; about: boolean; url?: string };
-export type GenOpts = { model?: string; timeoutMs?: number; pollMs?: number };
+export type Made = { bytes: Buffer; ext: string; model: string; price: number; about: boolean; url?: string; clips?: { name: string; bytes: Buffer }[] };
+/** `url` and `height`: a rig's model and its height in metres. */
+export type GenOpts = { model?: string; timeoutMs?: number; pollMs?: number; url?: string; height?: number };
 /** `s` with every copy of `f`'s key replaced by [hidden]. Applied to the whole text before any cut, so a key across the
     cut is never shown in part. */
 export function hideKey(f: Pick<Found, "key">, s: string): string {
@@ -190,12 +207,12 @@ export function hideKey(f: Pick<Found, "key">, s: string): string {
 
 /** One picture or model from `f`'s provider: the table entry's calls, its poll and its result, within the timeout. Errors
     never carry the key (any copy of the key in the reply's text is hidden, then the text is cut). */
-export async function generate(f: Found, kind: Kind, prompt: string, refs: Ref[], o: GenOpts = {}): Promise<Made> {
+export async function generate(f: Found, kind: GenKind, prompt: string, refs: Ref[], o: GenOpts = {}): Promise<Made> {
   const p = f.provider, e = endpoint(p, kind);
-  if (!e) throw new Error(`${p.name} has no ${kind === "model" ? "3D" : "picture"} endpoint in the table`);
+  if (!e) throw new Error(`${p.name} has no ${kind === "rig" ? "rigging" : kind === "model" ? "3D" : "picture"} endpoint in the table`);
   const takesRefs = (e.refs || e.pre?.refs) && (JSON.stringify(e.template).includes("$ref") || e.pre);
   if (takesRefs && !refs.length) throw new Error(`${p.name}'s ${kind} takes a reference picture: give pictures`);
-  const limit = o.timeoutMs ?? (kind === "model" ? 600_000 : 90_000), deadline = Date.now() + limit, model = o.model ?? e.model, auth = authHeaders(p, f);
+  const limit = o.timeoutMs ?? (kind === "model" || kind === "rig" ? 600_000 : 90_000), deadline = Date.now() + limit, model = o.model ?? e.model, auth = authHeaders(p, f);
   if (!/^[\w./:-]+$/.test(model) || model.includes("..")) throw new Error(`${p.name}: model "${model}" is not a model name`);
   const hide = (s: string) => hideKey(f, s), ext = (MIME_EXT[refs[0]?.mime ?? ""] ?? "jpg");
   const call = async (url: string, init: RequestInit = {}, signed = true): Promise<Response> => {
@@ -213,7 +230,7 @@ export async function generate(f: Found, kind: Kind, prompt: string, refs: Ref[]
     try { return await r.json() as any; }
     catch (err) { throw new Error(hide(`${p.name} answered with something other than JSON: ${(err as Error).message}`)); }
   };
-  const send = (s: Step, pre?: string): RequestInit => ({ method: "POST", body: body(s, { prompt, model, pre, ext }, refs),
+  const send = (s: Step, pre?: string): RequestInit => ({ method: "POST", body: body(s, { prompt, model, pre, ext, url: o.url, height: o.height }, refs),
     headers: s.body === "json" ? { "content-type": "application/json" } : {} });
   const pre = e.pre ? String(dig(await json(e.pre.url, send(e.pre)), e.pre.id)) : undefined;
   const url = tpl(e.url, { model });
@@ -235,7 +252,12 @@ export async function generate(f: Found, kind: Kind, prompt: string, refs: Ref[]
   if (Array.isArray(out)) out = out[0];
   if (typeof out !== "string" || !out) throw new Error(`${p.name}'s reply has no ${e.result.path}`);
   if (e.result.as === "base64") return made(Buffer.from(out, "base64"), e, model);
-  return { ...made(Buffer.from(await (await call(out, {}, false)).arrayBuffer()), e, model), url: out.startsWith("data:") ? undefined : out };
+  const clips: { name: string; bytes: Buffer }[] = [];
+  for (const [name, path] of Object.entries(e.clips ?? {})) {
+    const at = dig(reply, path);
+    if (typeof at === "string" && at) clips.push({ name, bytes: made(Buffer.from(await (await call(at, {}, false)).arrayBuffer()), e, model).bytes });
+  }
+  return { ...made(Buffer.from(await (await call(out, {}, false)).arrayBuffer()), e, model), url: out.startsWith("data:") ? undefined : out, ...clips.length && { clips } };
 }
 function made(bytes: Buffer, e: Endpoint, model: string): Made {
   const h = bytes.subarray(0, 12).toString("latin1");
@@ -247,7 +269,7 @@ function made(bytes: Buffer, e: Endpoint, model: string): Made {
 // ---- the tool ---------------------------------------------------------------------------------------------------------
 
 export type Picture = { file: string; crop?: number[]; label?: string };
-export type SheetArgs = { cwd: string; check?: boolean; provider?: string; kind?: Kind | "look"; model?: string; prompt?: string; name?: string;
+export type SheetArgs = { cwd: string; check?: boolean; provider?: string; kind?: Kind | "look"; model?: string; prompt?: string; name?: string; rig?: boolean; height?: number;
   pictures?: Picture[]; palette?: (string | { hex: string; label?: string })[]; notes?: string; title?: string; out?: string; remember?: "yes" | "ask" };
 const jobs = new Map<string, Job>();
 const MIME: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
@@ -267,14 +289,17 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(
 export async function sheet(chrome: () => Promise<Browser>, a: SheetArgs, env: Env = process.env, o: GenOpts = {}): Promise<{ text: string; jpeg?: string }> {
   const cwd = resolve(a.cwd);
   if (a.remember) return { text: remember(env, a.remember) };
-  if (a.check) return { text: checkText(env, [...jobs.values()]) };
+  if (a.check) return { text: checkText(env, [...jobs.values()]) + briefText(cwd) };
   const kind = a.kind ?? (a.provider ? "board" : "look"), pics = a.pictures ?? [];
   if (kind === "look" || !a.provider) return compose(chrome, cwd, a);
-  const all = found(env), f = a.provider === "auto" ? recommend(all, kind, env) : all.find(x => x.provider.name === a.provider);
+  if (a.rig && kind !== "model") throw new Error("sheet: rig is for a model job (kind: \"model\"): it binds a skeleton to the generated character");
+  if (a.height !== undefined && !(a.rig && a.height > 0 && a.height < 100)) throw new Error("sheet: height is the rigged character's height in metres (1.7 by default), with rig: true");
+  const all = found(env), f = a.provider === "auto" ? (a.rig ? all.find(x => x.provider.rig && x.provider.model) : recommend(all, kind, env)) : all.find(x => x.provider.name === a.provider);
   if (!f) {
     const p = byName(a.provider ?? "");
     throw new Error(p ? `sheet: no key for ${p.name} (${p.env.join(", ")}, or the plugin option): \`sheet\` { check: true } names the keys found` : `sheet: no provider "${a.provider}"; one of ${PROVIDERS.map(x => x.name).join(", ")} or "auto"`);
   }
+  if (a.rig && !f.provider.rig) throw new Error(`sheet: ${f.provider.name} cannot rig; rig: true needs a provider with rigging (${PROVIDERS.filter(p => p.rig).map(p => p.name).join(", ")})`);
   if (!a.prompt) throw new Error("sheet: prompt is needed with a provider: what the picture shows, in LOOK.md's or CHARACTERS.md's words");
   // a generated sheet is made from the person's tagged refs/, never from a study frame (sheets.md, the IP rule)
   const study = pics.find(p => isStudy(cwd, p.file));
@@ -288,15 +313,21 @@ export async function sheet(chrome: () => Promise<Browser>, a: SheetArgs, env: E
   }
   const name = slug(a.name ?? (kind === "board" ? "LOOK-board" : kind === "model" ? "model" : "turnaround")).replace(/^look-board$/, "LOOK-board");
   const inputs = pics.map(p => ({ file: p.file, crop: p.crop }));
-  const save = (dir: string, m: Made) => {
-    const file = join(cwd, dir, name + m.ext);
+  const save = (dir: string, m: Made, as = name, what: GenKind = kind) => {
+    const file = join(cwd, dir, as + m.ext);
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, m.bytes);
     // no key here: what was made, from what, by whom and for about how much
     // the result URL without its query: a signed URL works as a bearer token until it expires
-    writeFileSync(join(cwd, dir, `${name}.json`), JSON.stringify({ provider: f.provider.name, model: m.model, kind, prompt: a.prompt, inputs, price: m.price, priceAbout: m.about, source: m.url?.split("?")[0], at: new Date().toISOString() }, null, 2) + "\n");
+    writeFileSync(join(cwd, dir, `${as}.json`), JSON.stringify({ provider: f.provider.name, model: m.model, kind: what, prompt: a.prompt, inputs, price: m.price, priceAbout: m.about, source: m.url?.split("?")[0], at: new Date().toISOString() }, null, 2) + "\n");
     return relative(cwd, file);
   };
+  // the rig's files beside the model: <name>-rigged.glb and a clip each, <name>-walk.glb, <name>-run.glb
+  const rigged = (m: Made) => [save("assets/generated", m, `${name}-rigged`, "rig"), ...(m.clips ?? []).map(c => {
+    const file = join(cwd, "assets/generated", `${name}-${c.name}.glb`);
+    writeFileSync(file, c.bytes);
+    return relative(cwd, file);
+  })];
   if (kind === "model" || kind === "turnaround") {
     const id = `${kind}:${name}`, e = endpoint(f.provider, kind)!, dir = kind === "model" ? "assets/generated" : "refs/sheets", ext = kind === "model" ? ".glb" : ".png";
     if (jobs.get(id)?.state === "running") throw new Error(`sheet: a ${kind} job named ${name} is running; \`sheet\` { check: true } says when it is done`);
@@ -305,10 +336,16 @@ export async function sheet(chrome: () => Promise<Browser>, a: SheetArgs, env: E
     // never waited on: the brief and the build go on, and check reports the file when it lands. Nothing in here may
     // reject unhandled: on Node (the public plugin) that ends the server and every open page with it (S2)
     const failed = (err: unknown) => { job.error = hideKey(f, String((err as Error)?.message ?? err)); job.state = "failed"; };
-    generate(f, kind, a.prompt, refs, o).then(m => {
-      try { job.file = save(dir, m); job.state = "done"; } catch (err) { failed(err); }
-    }, failed).catch(failed);
-    const until = kind === "model" ? "Until then the page loads a stand-in; then model_audit and model_look the file before the page uses it."
+    generate(f, kind, a.prompt, refs, o).then(async m => {
+      job.file = save(dir, m);
+      if (!a.rig) { job.state = "done"; return; }
+      job.step = "rigging";
+      const r = await generate(f, "rig", a.prompt!, [], { ...o, url: m.url ?? `data:model/gltf-binary;base64,${m.bytes.toString("base64")}`, height: a.height });
+      job.rigged = rigged(r); job.step = undefined; job.state = "done";
+    }).catch(failed);
+    const r = a.rig ? f.provider.rig! : undefined;
+    const rig = r ? ` Then ${f.provider.name} rigs it (${r.model}, ${price(r)}, ${r.time}; a textured humanoid facing +Z, ${a.height ?? 1.7} m tall): ${dir}/${name}-rigged.glb, with walk and run clips on the same skeleton in ${name}-walk.glb and ${name}-run.glb (each a SkinnedMesh with its animation, played with THREE.AnimationMixer).` : "";
+    const until = kind === "model" ? `${rig} Until then the page loads a stand-in; then model_audit and model_look ${r ? "each file" : "the file"} before the page uses it${r ? ", and look at a clip playing with interact" : ""}.`
       : "If it fails, the build fills the Turnaround line from model_look or the pick's contact sheet.";
     return { text: `Started a ${f.provider.name} ${kind} job for ${name} (${e.model}, ${price(e)}, ${e.time}). It lands in ${dir}/${name}${ext} (or another picture type) with ${name}.json beside it; \`sheet\` { check: true } says when it is done (after a server restart, look for ${dir}/${name}.json). ${until}` };
   }
@@ -319,6 +356,8 @@ export async function sheet(chrome: () => Promise<Browser>, a: SheetArgs, env: E
   } catch (err) {
     const why = `${f.provider.name} made no ${kind}: ${(err as Error).message}`;
     if (!pics.length) return { text: `${why}.` };
+    // the free board made earlier, with its palette and notes, is never written over by the fallback (dev #375)
+    if (existsSync(inside(cwd, "refs/sheets/LOOK.png"))) return { text: `${why}. The free board refs/sheets/LOOK.png stands as it was.` };
     const free = await compose(chrome, cwd, { ...a, out: undefined });
     return { text: `${why}. The free board stands:\n${free.text}`, jpeg: free.jpeg };
   }
@@ -337,9 +376,12 @@ async function preview(chrome: () => Promise<Browser>, bytes: Buffer): Promise<s
 }
 
 const CELL = { w: 400, h: 300, label: 30, pad: 12 };
+/** A cell's badge: the number its label starts with ("4 · fir stand", as the picks and captions are numbered), else its
+    place on the sheet; a pick dropped before the sheet must not renumber the ones after it (dev #370). */
+export const badge = (label: string | undefined, i: number) => /^\s*(\d+)\s*(?:[·.:)\]-]|$)/.exec(label ?? "")?.[1] ?? String(i + 1);
 /** Runs in the page: the pictures (cropped) in a grid of numbered, labelled cells, a title, a palette row and a notes line;
     the file's bytes (PNG or JPEG by `type`) and a JPEG preview at most 1,024 px wide, both base64. */
-async function drawBoard(a: { pics: { b64: string; crop: number[] | null; label: string }[]; palette: { hex: string; label: string }[]; title: string; notes: string; type: string }, cell: typeof CELL) {
+async function drawBoard(a: { pics: { b64: string; crop: number[] | null; label: string; n: string }[]; palette: { hex: string; label: string }[]; title: string; notes: string; type: string }, cell: typeof CELL) {
   const { w: CELL_W, h: CELL_H, label: LABEL, pad: PAD } = cell;
   const cols = Math.min(3, Math.max(1, a.pics.length)), rows = Math.ceil(a.pics.length / cols);
   const top = a.title ? 48 : PAD, swatch = a.palette.length ? 96 : 0, notes = a.notes ? 40 : 0;
@@ -357,16 +399,20 @@ async function drawBoard(a: { pics: { b64: string; crop: number[] | null; label:
       const k = Math.min(CELL_W / sw, CELL_H / sh), w = sw * k, h = sh * k;
       g.drawImage(img, l!, t!, sw, sh, x + (CELL_W - w) / 2, y + (CELL_H - h) / 2, w, h);
     } else { g.fillStyle = "#999"; g.font = "14px sans-serif"; g.fillText("not a picture", x + 150, y + CELL_H / 2); }
-    g.fillStyle = "rgba(0, 0, 0, 0.75)"; g.fillRect(x + 4, y + 4, 26, 24);
-    g.fillStyle = "#fff"; g.font = "bold 16px sans-serif"; g.fillText(String(i + 1), x + 11, y + 22);
+    g.font = "bold 16px sans-serif";
+    g.fillStyle = "rgba(0, 0, 0, 0.75)"; g.fillRect(x + 4, y + 4, Math.max(26, g.measureText(p.n).width + 14), 24);
+    g.fillStyle = "#fff"; g.fillText(p.n, x + 11, y + 22);
     g.fillStyle = "#f2efe6"; g.font = "14px sans-serif"; g.fillText(p.label.slice(0, 52), x, y + CELL_H + 20);
   }
   let y = top + rows * (CELL_H + LABEL + PAD);
   const sw = a.palette.length ? Math.min(140, (c.width - PAD) / a.palette.length - PAD) : 0;
+  const fit = (t: string, w: number) => { let s = t; while (s && g.measureText(s).width > w) s = s.length > 1 ? s.slice(0, -2) + "…" : ""; return s; }; // cut to the swatch, never into the next
   a.palette.forEach((s, i) => {
     const x = PAD + i * (sw + PAD);
     g.fillStyle = s.hex; g.fillRect(x, y, sw, 56);
-    g.fillStyle = "#f2efe6"; g.font = "13px sans-serif"; g.fillText(`${s.label ? s.label + " " : ""}${s.hex}`.slice(0, 24), x, y + 76);
+    g.fillStyle = "#f2efe6"; g.font = "12px sans-serif";
+    if (s.label) g.fillText(fit(s.label, sw - 2), x, y + 70);
+    g.fillText(fit(s.hex, sw - 2), x, y + (s.label ? 86 : 72));
   });
   y += swatch;
   if (a.notes) { g.fillStyle = "#f2efe6"; g.font = "15px sans-serif"; g.fillText(a.notes.slice(0, 160), PAD, y + 24); }
@@ -387,10 +433,10 @@ async function compose(chrome: () => Promise<Browser>, cwd: string, a: SheetArgs
   const palette = (a.palette ?? []).map(s => typeof s === "string" ? { hex: s, label: "" } : { hex: s.hex, label: s.label ?? "" });
   const bad = palette.find(s => !/^#[0-9a-f]{6}$/i.test(s.hex));
   if (bad) throw new Error(`sheet: palette colours are #rrggbb, got ${bad.hex}`);
-  const loaded = pics.map(p => { const file = inside(cwd, p.file); if (!existsSync(file)) throw new Error(`sheet: no file ${p.file} under ${cwd}`); return { b64: readFileSync(file).toString("base64"), crop: p.crop ?? null, label: p.label ?? p.file }; });
+  const loaded = pics.map((p, i) => { const file = inside(cwd, p.file); if (!existsSync(file)) throw new Error(`sheet: no file ${p.file} under ${cwd}`); return { b64: readFileSync(file).toString("base64"), crop: p.crop ?? null, label: p.label ?? p.file, n: badge(p.label, i) }; });
   const page = await utilPage(chrome());
   const r = await page.evaluate(drawBoard, { pics: loaded, palette, title: a.title ?? "", notes: a.notes ?? "", type }, CELL);
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, Buffer.from(r.file, "base64"));
-  return { text: `Saved ${relative(cwd, out)} (${r.size[0]} × ${r.size[1]}): ${pics.length} picture${pics.length === 1 ? "" : "s"}, numbered as given, and ${palette.length} swatch${palette.length === 1 ? "" : "es"}. Made here, free; nothing was sent anywhere.`, jpeg: r.preview };
+  return { text: `Saved ${relative(cwd, out)} (${r.size[0]} × ${r.size[1]}): ${pics.length} picture${pics.length === 1 ? "" : "s"}, numbered as their labels are, and ${palette.length} swatch${palette.length === 1 ? "" : "es"}. Made here, free; nothing was sent anywhere.`, jpeg: r.preview };
 }

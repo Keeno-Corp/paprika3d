@@ -14,6 +14,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-28
 review: weekly
+reviewed: 2026-11-09
 ---
 # three.js responsive canvas that resizes without stretching and keeps the scene in frame on a phone
 
@@ -53,7 +54,7 @@ paprika3d is a Claude Code plugin and MCP server that opens a three.js page in i
 paprika3d needs Google Chrome and Node 20.11 or later, and the Claude Code plugin needs Claude Code 2.1.118 or later.
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 npm install three
 ```
@@ -319,3 +320,8 @@ It does not write the resize handler or choose a layout for a phone; it reports 
 ## Without paprika3d
 
 Resize the browser window by hand and drag it narrow and tall; the browser's device toolbar has phone sizes and a pixel ratio setting. Log `renderer.domElement.width`, `renderer.domElement.clientWidth`, `renderer.getPixelRatio()` and `camera.aspect` in the handler: the buffer width should be the CSS width times the ratio, and the aspect the CSS width over the CSS height. A sphere in the scene shows stretching at a glance, since it stops being round. For a canvas that does not show, check `renderer.domElement.getBoundingClientRect().height` and walk up its parents to the first one with a height of 0.
+
+## Related
+
+- [three.js canvas blurry on phone](/guides/threejs-canvas-blurry-on-phone): a canvas that is the right size and still soft, from an EffectComposer or a small canvas texture.
+- [Check a three.js portfolio site before you deploy](/guides/check-threejs-portfolio-site-before-deploy): these checks as part of a pre-launch pass over a whole page.

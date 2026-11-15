@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   publish:
-    if: github.repository == 'paprika3d/paprika3d'
+    if: github.repository == 'Keeno-Corp/paprika3d'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-11-01
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a fighting game in three.js: punches, blocks and hit boxes
 
@@ -270,7 +271,7 @@ cpu.health: 100 → 40 at frame 162; first changed at frame 7
 Frame timing is where describing a bug to an AI breaks down: "the punch sometimes doesn't hit" cannot be fixed from words. paprika3d is a plugin for Claude Code, and an MCP server (the standard way to give tools to other coding agents), that opens the game in a hidden Chrome browser on a paused clock. The agent presses a key on an exact frame and reads the game's state on every frame after it. To add it to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal, the window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

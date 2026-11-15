@@ -10,7 +10,13 @@
 //
 //   const { renderer, scene, camera, fit } = stage(); scene.add(product); fit(product);
 //   renderer.setAnimationLoop(() => renderer.render(scene, camera));
-import { ACESFilmicToneMapping, BackSide, Box3, BoxGeometry, Color, DirectionalLight, Mesh, MeshBasicMaterial, MeshStandardMaterial, PerspectiveCamera, PlaneGeometry, PMREMGenerator, Scene, ShadowMaterial, Vector3, WebGLRenderer, type ColorRepresentation, type Object3D } from "three";
+// On a page whose `three` is three.webgpu.js (no WebGLRenderer) the renderer is a WebGPURenderer, and the studio
+// environment is baked once it has initialised (`setAnimationLoop` or `init()` start that).
+import * as THREE from "three";
+import { ACESFilmicToneMapping, BackSide, Box3, BoxGeometry, Color, DirectionalLight, Mesh, MeshBasicMaterial, MeshStandardMaterial, PerspectiveCamera, PlaneGeometry, PMREMGenerator, Scene, ShadowMaterial, Vector3, type WebGLRenderer, type ColorRepresentation, type Object3D } from "three";
+
+// read off the namespace, never a named import: a named import of an export three.webgpu.js lacks fails the whole module
+const Renderer: typeof WebGLRenderer = (THREE as any).WebGLRenderer ?? (THREE as any).WebGPURenderer;
 
 export type StageOptions = {
   env?: ColorRepresentation | false; // default: the studio box
@@ -23,7 +29,7 @@ export type StageOptions = {
 };
 
 export function stage(container: HTMLElement = document.body, o: StageOptions = {}) {
-  const renderer = new WebGLRenderer({ antialias: true, alpha: true });
+  const renderer = new Renderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.toneMapping = ACESFilmicToneMapping;
   renderer.toneMappingExposure = o.exposure ?? 1;
@@ -43,8 +49,8 @@ export function stage(container: HTMLElement = document.body, o: StageOptions = 
         m.position.set(x, y, z); env.add(m);
       }
     }
-    const pm = new PMREMGenerator(renderer);
-    scene.environment = pm.fromScene(env, 0.04).texture; pm.dispose();
+    const bake = () => { const pm = new PMREMGenerator(renderer); scene.environment = pm.fromScene(env, 0.04).texture; pm.dispose(); };
+    if ((renderer as any).isWebGPURenderer) (renderer as any).init().then(bake); else bake();
   }
 
   const camera = new PerspectiveCamera(40, 1, 0.1, 1000);

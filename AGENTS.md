@@ -2,7 +2,7 @@
 
 This is the paprika3d plugin. In Claude Code, `/paprika3d:paprika-make <request>` takes a new three.js game or 3D page
 from references and a design doc to the build, and `/paprika3d:paprika-loop <request> for <time>` keeps improving it;
-other agents get the skills with `npx skills add paprika3d/paprika3d`. Underneath is an MCP server, `paprika`, whose tools let a coding agent open, look at, play, measure and fix
+other agents get the skills with `npx skills add Keeno-Corp/paprika3d`. Underneath is an MCP server, `paprika`, whose tools let a coding agent open, look at, play, measure and fix
 three.js, React Three Fiber and WebGL pages in headless Chrome (or Firefox: `open`'s `browser`) on a paused, seeded clock. Use it on any such page you
 write or change (a game, a product viewer, a simulation, a shader demo). The page needs no changes to be opened, looked
 at and driven. Build the first version whole and as impressive as you can, risks welcome: these tools make debugging
@@ -17,7 +17,7 @@ When the user says "use paprika3d to playtest" (or "playtest it", "look at it", 
 2. **Look:** `look`. Read `Never visible:`: an object of 0.07 units in a scene 8 units wide is at the wrong scale;
    `behind the camera` or `outside the view` is a framing problem. Open the picture it saves.
 3. **Interact:** for each interaction the request names, `interact` (keys, mouse, touch or `__game.act` actions, frame by
-   frame) and read the state before and after; a `{ wait }` step steps time.
+   frame) and read the state before and after; a `{ wait: n }` step steps n frames (`{ wait: 60 }` is one second).
 4. **Eval:** `eval` runs JavaScript in the page with `scene`, `camera`, `renderer`, `find(name)` and
    `stats(target)` in scope, to check sizes, materials and positions or try a change before writing it into the source.
 5. Fix, then look again. `perf` when performance matters, with `optimize: true` only when a reply says the frame is over
@@ -43,17 +43,20 @@ match `event.code`.
 ## More
 
 - The full method, its reference files (plain three.js, React Three Fiber, Rapier) and rules: `skills/threejs-game/SKILL.md`,
-  with `references/geometry.md` and `references/optimize.md` beside it. One task each: `skills/threejs-screenshot/`,
-  `threejs-play/`, `threejs-test/`, `threejs-perf/` and `threejs-glb-audit/`.
+  with `references/geometry.md` and `references/optimize.md` beside it. One task each: `skills/threejs-screenshot/`, `threejs-visual-regression/`,
+  `threejs-play/`, `threejs-test/`, `threejs-perf/`, `threejs-glb-audit/`, `threejs-to-unity/` and `threejs-to-unreal/`.
 - The `open` tool puts `geo.js` (booleans, hull, extrude, revolve, seeded scatter) and `fx.js` (sound effects, canvas
-  textures, particle bursts, a first-load stage, texture coordinates, placement rules) in the project.
+  textures, particle bursts, a first-load stage, texture coordinates, placement rules, Gerstner water, wind-swayed grass, leaf and conifer cards, an engine handoff GLB
+  and its Unreal import script) in the project; `unity_export` writes the open page's scene as a Unity 6 project.
 - With no page open: `reference` reads a picture the page should match (`compare` puts the open page beside it),
   `model_audit` reports .glb, .gltf and USD files against a site or Shopify budget, `model_run` and `model_look` build
   and picture a model in code (three.js and Manifold) and save it as a .glb, and `asset_search` finds a ready-made
   model (CC BY or CC0), PBR texture or HDRI sky in the hosted library and puts it in the project with its loading code
   and credit line. `sheet` names the image and 3D keys set (never a value), composes a free look board from reference
   pictures, and with the person's key makes a look board, a character turnaround or a 3D model.
-- `send_feedback` sends the paprika3d team a bug or criticism of the harness itself, never the user's code or files.
+- `send_feedback` sends the paprika3d team a bug or criticism of the harness itself, never the user's code or files. Use it
+  for every snag with the tools, not the client's own feedback command (Claude Code's `/feedback` goes to Anthropic); a
+  reply that starts `Not sent` names the fallback, `gh issue create -R Keeno-Corp/paprika3d -t "agent-report: <summary>"`.
 - Runs are saved in `<project>/paprika3d/runs/`; add `paprika3d/` to the project's `.gitignore`.
 - Publishing (`publish`, a preview, invite-only) is only for when the user asks for a paprika3d.app link. Never read,
   print or paste `~/.config/paprika3d/credentials.json` or `PAPRIKA3D_PUBLISH_KEY`: `publish` reads the key itself, and

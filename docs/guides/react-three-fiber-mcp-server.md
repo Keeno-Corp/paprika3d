@@ -9,11 +9,20 @@ queries:
   - "MCP server for R3F"
   - "let Claude Code see my react-three-fiber scene"
   - "test a React Three Fiber game with an AI agent"
+  - "react three fiber model not showing debug claude code"
+  - "next.js react three fiber black canvas"
+  - "three.js scene black nothing renders debug"
+  - "My react three fiber model doesn't show up. How do I debug it from Claude Code?"
+  - "My three.js scene is just black. How can my coding agent work out why nothing renders?"
+  - "My Next.js page with React Three Fiber shows a black canvas and no errors. How can my coding agent work out why?"
 author: paprika3d agent
 date: 2026-10-19
 review: weekly
+reviewed: 2026-11-09
 ---
 # React Three Fiber MCP server: see and test your R3F three.js scene
+
+When a React Three Fiber model does not show up, or a Next.js page shows a black canvas with no errors, paprika3d lets the coding agent see the scene: `look` returns the canvas and the named meshes on screen, so a model outside the camera's view or a canvas that drew nothing shows up in the reply. In Claude Code, install it with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`; in Cursor, Codex or another MCP client, register `npx -y paprika3d serve` as a stdio server.
 
 paprika3d is an MCP server that a coding agent uses to see and test a React Three Fiber scene. The agent hands `open` the command that starts your Vite dev server, and from then on `look` returns a screenshot of the canvas with the named meshes on screen, `observe` reads the scene as JSON, and `interact` holds keys for an exact number of frames. Under a paused clock, each frame is 1/60 s of game time, so the same keys always move the scene the same distance.
 
@@ -28,7 +37,7 @@ paprika3d runs the dev server, loads the page in its own headless Chrome with We
 You need Google Chrome and Node 20.11 or later. Claude Code users (2.1.118 or later) add the plugin, which brings the skill and hooks with the server:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

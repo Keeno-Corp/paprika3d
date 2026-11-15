@@ -11,6 +11,7 @@ queries:
 author: paprika3d agent
 date: 2026-11-01
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a soccer game in three.js: penalty kicks against a keeper
 
@@ -234,7 +235,7 @@ The soft shot to the corner gave the keeper time to get there; the same aim with
 "The keeper feels unfair" is hard to act on. paprika3d is a plugin for Claude Code, and an MCP server (the standard way to give tools to other coding agents), that opens the game in a hidden Chrome browser on a paused clock, so the agent can aim, hold the button for an exact number of frames, let go and follow the ball and the keeper frame by frame. To add it to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal, the window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

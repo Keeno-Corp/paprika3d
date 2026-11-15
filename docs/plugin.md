@@ -1,13 +1,13 @@
 ---
 title: What the paprika3d plugin adds for three.js: tools, skills, hooks and project files
-description: Everything the paprika3d plugin and MCP server add to a three.js project: the 16 tools and when to reach for each, the skills, the Claude Code hooks, the files it writes, where runs go and the hosted asset library.
+description: Everything the paprika3d plugin and MCP server add to a three.js project: the 17 tools and when to reach for each, the skills, the Claude Code hooks, the files it writes, where runs go and the hosted asset library.
 meta: The paprika3d plugin's 16 three.js tools and when to use each, its skills, Claude Code hooks, project files, run folders and asset library.
 ---
 # What the paprika3d plugin adds
 
-The stable build lists 16 tools, nine skills, two Claude Code hooks, and a few files in your project. This page lists them all; the [tools page](/tools) has each tool's full description, as the server registers it, and [How it works](/how-it-works) shows how `paprika-make` and `paprika-loop` use them.
+The stable build lists 17 tools (from 0.4.3; `unity_export` is the new one), twelve skills, two Claude Code hooks, and a few files in your project. This page lists them all; the [tools page](/tools) has each tool's full description, as the server registers it, and [How it works](/how-it-works) shows how `paprika-make` and `paprika-loop` use them.
 
-## The 16 tools, by stage
+## The 17 tools, by stage
 
 In Claude Code a tool's full name is `mcp__plugin_paprika3d_paprika__<tool>`; from a project's `.mcp.json` it is `mcp__paprika__<tool>`. They are grouped here in the order of the flow [How it works](/how-it-works) describes; every MCP client gets all 16.
 
@@ -44,7 +44,7 @@ Models for the page: found, built in code, seen and checked.
 
 | Tool | Reach for it when | What it does |
 |---|---|---|
-| `interact` | You need to play an interaction the request names | Plays keys, mouse, touch, wheel, scroll, resize and clock steps on exact frames, and reports what changed in the state. `{ state }`, `until`, `trace` and `expect` steps; `save` keeps the play as a check; `record: true` makes a real-time GIF |
+| `interact` | You need to play an interaction the request names | Plays keys, mouse, touch, wheel, scroll, resize and clock steps on exact frames, and reports what changed in the state. `{ state }` and `until` steps; `trace` and `expect` options beside `steps`; `save` keeps the play as a check; `record: true` makes a real-time GIF |
 | `feel` | You need to know whether a hit, pickup or win lands on screen | Measures camera shake, scale pops, eased moves versus teleports, flashes, particles, spawns, HUD ticks and sounds after the steps |
 | `test` | After an edit that could break an earlier feature | Reruns every saved check from a fresh reload, one pass or fail line each |
 
@@ -52,14 +52,22 @@ Models for the page: found, built in code, seen and checked.
 
 | Tool | Reach for it when | What it does |
 |---|---|---|
-| `perf` | A reply says the frame is over budget, or the user asks about speed | Times the frame: frame time, draw calls, triangles and asset size against a budget; `variants` in one call, `costs` by named group, `throttle`, `network`. With `optimize: true` it speeds the page up instead: tries the runtime's switches (resolution, defaults, instancing, LOD, dispose) one at a time, keeps in `game-runtime.json` only the ones that help without changing the picture, and ends with the final `test` when the project has saved checks |
+| `perf` | A reply says the frame is over budget, or the user asks about speed | Times the frame: frame time, draw calls, triangles and asset size against a budget; `variants` in one call, `costs` by named group, `throttle`, `network`. With `optimize: true` it speeds the page up instead: tries the runtime's switches (resolution, defaults, instancing, LOD, dispose) one at a time, keeps in `game-runtime.json` only the ones that help (`resolution` and `lod` may change the picture, and a kept one that did comes with before and after pictures), and ends with the final `test` when the project has saved checks |
+
+### Hand off
+
+| Tool | Reach for it when | What it does |
+|---|---|---|
+| `unity_export` | The scene or game moves to Unity (from 0.4.3) | Writes the open page's scene at its current frame as a Unity 6 project: the GLB with glTFast, an editor script that builds the scene with the page's camera, fog and lights, `GameState.cs` from `__game.observe()`, and `PORTING.md` with what does not carry over |
+
+For Unreal Engine 5, `fx.js`'s `handoff` and `unrealScript`, run through `eval`, write the GLB and the editor script that imports it ([the guide](/guides/threejs-to-unreal)).
 
 ### Share
 
 | Tool | Reach for it when | What it does |
 |---|---|---|
-| `publish` | Only when the user asks for a public link | Puts the built page on `https://<name>.paprika3d.app` (preview, invite-only) |
-| `send_feedback` | A paprika3d reply was wrong, unclear or got in the way | Sends the paprika3d team a bug or criticism, with the last tool call's name, options and error |
+| `publish` | Only when the user asks for a public link | Puts the built page on `https://<name>.paprika3d.app` (preview, invite-only); from 0.4.3, `playtest: true` also gives a link pinned to that build for 7 days with a Feedback button players use with no account, and `feedback: true` reads their notes |
+| `send_feedback` | A paprika3d reply was wrong, unclear or got in the way | Sends the paprika3d team a bug or criticism, with the last tool call's name, options and error; 20 stored reports a session, and a refused one says why (a 429 is the day limit for one network) and names the fallback, an `agent-report:` issue on Keeno-Corp/paprika3d; never the client's own `/feedback`, which goes to Anthropic |
 
 ## The skills
 
@@ -69,7 +77,7 @@ Models for the page: found, built in code, seen and checked.
 | `/paprika3d:paprika-make <request>` | Asks a few questions, one at a time after a first batch (what it is, a web search for study references, picture sheets, the kind of models), gathers the pictures to work from (when you have none, a subagent finds some and you confirm them), writes a style sheet (`LOOK.md`), character sheets (`CHARACTERS.md`) and for a game a design doc (`DESIGN.md`, yours read and added to, never overwritten), asks where each key asset comes from (the library, a free model on the web, generated with your key, or code), writes a short brief to `BRIEF.md`, and builds the page in this session. Study references stay in `refs/study/` and are never published |
 | `/paprika3d:paprika-loop <request> for <time>` | Starts only when you type it. Builds from the same brief, unattended until the time is up: fresh `claude -p` sessions, a builder then a read-only judge each round, a commit per round and the best tagged `paprika-loop/best`. Edit `paprika-loop/PROMPT.md` while it runs to change the request. Each round is two Claude Code sessions, billed as such; needs `claude` and `git` on PATH |
 | `paprika-publish` | Tells the agent when to publish and what to tell you |
-| `threejs-screenshot`, `threejs-play`, `threejs-test`, `threejs-perf`, `threejs-glb-audit` | One task each, for an agent that searches for it: which tool sees the scene (`open`, `look`), plays it (`interact`), keeps and reruns checks (`interact` `save`, `test`), times the frame (`perf`) or checks model files (`model_audit`), with `threejs-game` for the method |
+| `threejs-screenshot`, `threejs-visual-regression`, `threejs-play`, `threejs-test`, `threejs-perf`, `threejs-glb-audit`, `threejs-to-unity`, `threejs-to-unreal` | One task each, for an agent that searches for it: which tool sees the scene (`open`, `look`), plays it (`interact`), keeps and reruns checks (`interact` `save`, `test`), times the frame (`perf`) or checks model files (`model_audit`), with `threejs-game` for the method |
 
 The slash commands, automatic skill loading and the hooks are Claude Code features; other agents get the same method from `AGENTS.md` and `skills/threejs-game/SKILL.md`.
 
@@ -85,7 +93,7 @@ The slash commands, automatic skill loading and the hooks are Claude Code featur
 | File | Written by | What it is |
 |---|---|---|
 | `geo.js` | `open` | Procedural geometry with Manifold built in: booleans, hull, extrude, revolve, seeded scatter |
-| `fx.js` | `open` | Sound effects made in code, canvas textures, particle bursts, a first-load stage (tone mapping, environment, shadowed light, resize), metre-scale texture coordinates, placement rules, a reference picture's camera |
+| `fx.js` | `open` | Sound effects made in code, canvas textures, particle bursts, a first-load stage (tone mapping, environment, shadowed light, resize), metre-scale texture coordinates, placement rules, a reference picture's camera, Gerstner water that things float on, wind-swayed grass, leaf and conifer-needle cards (WebGPU or WebGL), `post` (bloom, depth of field, ambient occlusion, motion blur, grading, vignette on WebGL or WebGPU), and `handoff` / `unrealScript` for Unreal Engine 5 |
 | `game-state.js`, `physics-worker.js` | the agent, as the skill says | Game state in typed arrays with a generated `window.__game`, rewind, and Rapier physics in a worker |
 | `three-runtime.js` | `perf` with `optimize: true` | The switches it keeps, read from `game-runtime.json` |
 
@@ -97,13 +105,14 @@ The slash commands, automatic skill loading and the hooks are Claude Code featur
 
 ## The asset library
 
-`asset_search` reaches a hosted library at `assets.keeno.dev`, with over 62,000 assets:
+`asset_search` reaches a hosted library at `assets.keeno.dev`, with over 89,000 assets:
 
 | Kind | Count | Licence | Source |
 |---|---|---|---|
-| Models | 57,732 | CC BY 4.0 or CC0 | Objaverse, web-ready; 549 AI-generated, from Scenario's 3D Collection |
-| PBR textures | 3,545 | CC0 | |
-| HDRI skies | 1,430 | CC0 | |
+| Models | 84,249 | CC BY 4.0 or CC0 | Objaverse (web-ready), Hugging Face packs, SimReady, Kenney, the Smithsonian, KayKit, Poly Haven, Gobkit; 574 AI-generated, from Scenario's 3D Collection |
+| PBR textures | 3,747 | CC0 | |
+| HDRI skies | 1,434 | CC0 | |
 
 - `pick` puts the file in `assets/` (`public/assets/` with Vite) and replies with the code that loads it, a model at its real-world size.
 - A CC BY model's credit line goes into `CREDITS.md`, as the licence requires.
+- The `threejs-game` skill and the tool descriptions have the agent search here before it builds a character, vehicle, building, prop, texture or sky in code, as `paprika-make`'s picking round does; code builds what no search finds.

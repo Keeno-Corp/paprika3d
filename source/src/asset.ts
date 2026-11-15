@@ -1,5 +1,5 @@
 // `asset_search`: a client of the hosted asset library (asset-cdn/api/search_api.py, reached through the Worker at
-// assets.keeno.dev): 57k models (CC BY or CC0, meshopt + WebP .glb; a row may also or instead carry a USD file, `usd_url`), CC0 PBR textures and HDRIs, all files on R2. A search
+// assets.keeno.dev): 84,249 models (CC BY or CC0, meshopt + WebP .glb; a row may also or instead carry a USD file, `usd_url`), CC0 PBR textures and HDRIs, all files on R2. A search
 // answers one numbered line per hit and a contact sheet of their thumbnails, ranked by text or, with an image (a crop of a reference picture), by how alike they look; `pick` downloads one into the project with its loading code, and for a model reports the
 // choice and credits it in CREDITS.md. The API logs model searches, picks and rejections with the agent's name (sent as
 // x-agent-model) so its ranking can learn; texture and HDRI searches are not logged.
@@ -7,7 +7,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { createHash } from "node:crypto";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { Browser } from "puppeteer-core";
-import { shrink } from "./glb.ts";
+import { heavyPick, readModel, shrink } from "./glb.ts";
 import { utilPage } from "./reference.ts";
 import { harnessDir } from "./state.ts";
 
@@ -19,7 +19,7 @@ export type Query = { query?: string; kind?: Kind; style?: string; type?: string
   /** a JPEG (base64) to rank models by how alike they look, with `query` too when given */ image?: string;
   /** a path under cwd the contact sheet is written to as well (refs/assets/fox.jpg), for a person to look at */ save?: string };
 type Model = { uid: string; name: string; style?: string; tris: number; mb: number; bbox?: number[]; real_height_m?: number | null; scale_to_real?: number | null;
-  animated?: boolean; license: string; attribution: string; thumb_url: string;
+  animated?: boolean; /** it has a skeleton, so its pose can change */ rigged?: boolean; license: string; author?: string; attribution: string; thumb_url: string;
   /** a row has one file or both: a meshopt + WebP .glb, a USD file (.usdz) */ glb_url?: string; usd_url?: string };
 type Texture = { tid: string; name: string; size_m?: number[]; maps: Record<string, Record<string, string>>; license: string; preview_url: string };
 type Hdri = { hid: string; name: string; tags: string[]; urls: Record<string, string>; license: string; preview_url: string };
@@ -78,8 +78,14 @@ async function download(url: string, file: string) {
 }
 const qs = (o: Record<string, unknown>) => new URLSearchParams(Object.entries(o).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)])).toString();
 
+/** A CC BY hit's licence with its author ("CC-BY-4.0 by Ana"), from the record's `author` or its attribution text, so
+    who made a model shows before a pick (public #328); CC0 needs no credit and stays bare. */
+const licence = (m: Model) => {
+  const by = /^CC0/i.test(m.license) ? "" : (m.author || /" by (.+?)(?: \(https?:| is licensed)/.exec(m.attribution ?? "")?.[1] || "").trim();
+  return by ? `${m.license} by ${by}` : m.license;
+};
 const line = (h: Hit) => h.kind === "model"
-  ? [h.m.uid, h.m.name, h.m.style, `${h.m.tris} tris`, `${h.m.mb} MB`, h.m.real_height_m ? `about ${h.m.real_height_m} m tall` : "", h.m.animated ? "animated" : "", h.m.usd_url ? h.m.glb_url ? "also USD" : "USD only" : "", h.m.license, h.m.thumb_url]
+  ? [h.m.uid, h.m.name, h.m.style, `${h.m.tris} tris`, `${h.m.mb} MB`, h.m.real_height_m ? `about ${h.m.real_height_m} m tall` : "", [h.m.rigged ? "rigged" : "", h.m.animated ? "animated" : ""].filter(Boolean).join(", "), h.m.usd_url ? h.m.glb_url ? "also USD" : "USD only" : "", licence(h.m), h.m.thumb_url]
   : h.kind === "texture"
   ? [h.m.tid, h.m.name, `maps: ${Object.keys(h.m.maps).join(", ")}`, h.m.size_m ? `tiles every ${h.m.size_m.join(" × ")} m` : "", h.m.license, h.m.preview_url]
   : [h.m.hid, h.m.name, h.m.tags.join(", "), h.m.license, h.m.preview_url];
@@ -172,7 +178,7 @@ const isVite = (cwd: string) => {
 };
 
 // names the snippets themselves use, and JS keywords a model could be called
-const TAKEN = new Set(["scene", "camera", "renderer", "controls", "clock", "light", "player", "world", "floor", "ground", "loader", "gltf", "box", "mixer", "pmrem", "sky", "loadMap", "class", "new", "delete", "switch", "case", "default", "function", "return", "var", "let", "const", "if", "else", "for", "while", "do", "in", "of", "import", "export"]);
+const TAKEN = new Set(["scene", "camera", "renderer", "controls", "clock", "light", "player", "world", "floor", "ground", "loader", "gltf", "box", "instanced", "v", "n", "mixer", "pmrem", "sky", "loadMap", "class", "new", "delete", "switch", "case", "default", "function", "return", "var", "let", "const", "if", "else", "for", "while", "do", "in", "of", "import", "export"]);
 
 /** A camelCase identifier for a model name: "character-a" -> characterA. */
 const varName = (name: string) => {
@@ -192,11 +198,16 @@ export async function pick(id: string, kind: Kind, cwd: string, agent: string, h
   const file = projectHits(cwd), all = [...new Set([...seen.keys(), ...Object.keys(file)])], ids = all.includes(id) ? [id] : all.filter(k => k.startsWith(id));
   if (ids.length > 1) throw new Error(`pick: "${id}" matches ${ids.slice(0, 5).join(", ")}${ids.length > 5 ? ` and ${ids.length - 5} more` : ""}: give the whole id`);
   const full = ids[0] ?? id, was: Shown = ids.length ? seen.get(full) ?? file[full]! : { kind };
-  const h: Hit = seen.get(full) ?? { ...was, m: await api(`/${was.kind === "model" ? "asset" : was.kind === "texture" ? "textures" : "hdris"}/${encodeURIComponent(full)}`, agent) } as Hit;
+  // a Sketchfab uid the library lacks got the API's bare 404 {"detail":"unknown uid"} (#122)
+  const h: Hit = seen.get(full) ?? { ...was, m: await api(`/${was.kind === "model" ? "asset" : was.kind === "texture" ? "textures" : "hdris"}/${encodeURIComponent(full)}`, agent).catch(e => {
+    throw String(e?.message).startsWith("asset library answered 404") ? new Error(`pick: ${full} is not in the library. ${was.kind === "model"
+      ? "Its models are a filtered subset of Objaverse's 2022 Sketchfab snapshot, so a model published later, or one the filter left out, has no id here"
+      : `No ${was.kind === "texture" ? "texture" : "HDRI sky"} has that id`}: search by what it is (\`query\`) and pick from the hits.`) : e;
+  }) } as Hit;
   const vite = isVite(cwd), dir = join(cwd, vite ? "public" : "", "assets"), base = vite ? "three/examples/jsm" : "three/addons";
   const url = (file: string) => relative(dir, file).split("\\").join("/"); // as the page loads it: assets/ at its root
   const saved: string[] = [], code: (string | null)[] = [];
-  let where = "";
+  let where = "", heavy: string | null = null;
   if (h.kind === "model") {
     const m = h.m, usd = format === "usd" || !m.glb_url, src = usd ? m.usd_url : m.glb_url;
     if (!src) throw new Error(`pick: ${m.uid} has no USD file; pick it without format for its GLB`);
@@ -205,6 +216,7 @@ export async function pick(id: string, kind: Kind, cwd: string, agent: string, h
     await download(src, file);
     if (textures === false) { await shrink(file, { textures: false, out: file }); where = `${relative(cwd, file)} without its textures`; }
     saved.push(file);
+    try { heavy = heavyPick(cwd, file, readModel(file)); } catch { /* a file model_audit cannot read: no size line */ }
     if (h.sid) await report(`/pick/${h.sid}`, agent, { uid: m.uid });
     const credits = join(dir, "CREDITS.md"), credit = `- ${m.name}: ${m.attribution}\n`;
     if (!(existsSync(credits) && readFileSync(credits, "utf8").includes(credit))) appendFileSync(credits, credit);
@@ -213,12 +225,38 @@ export async function pick(id: string, kind: Kind, cwd: string, agent: string, h
     const root = usd ? "usd" : "gltf.scene", loaded = JSON.stringify(`assets/${url(file)}`);
     code.push(
       ...usd ? [`import { USDLoader } from "${base}/loaders/USDLoader.js";`]
-        : [`import { GLTFLoader } from "${base}/loaders/GLTFLoader.js";`, `import { MeshoptDecoder } from "${base}/libs/meshopt_decoder.module.js";`],
+        : [`import { GLTFLoader } from "${base}/loaders/GLTFLoader.js";`, `import { MeshoptDecoder } from "${base}/libs/meshopt_decoder.module.js";`,
+          `import { mergeGeometries as mergeInstances } from "${base}/utils/BufferGeometryUtils.js"; // its own name, beside the page's mergeGeometries`],
       "",
       `const ${v} = new THREE.Group();`,
       "{ // a block, so a second pick's snippet pastes beside this one",
       ...usd ? [`  const usd = await new USDLoader().loadAsync(${loaded});`]
-        : ["  const loader = new GLTFLoader();", "  loader.setMeshoptDecoder(MeshoptDecoder);", `  const gltf = await loader.loadAsync(${loaded});`],
+        : ["  const loader = new GLTFLoader();", "  loader.setMeshoptDecoder(MeshoptDecoder);", `  const gltf = await loader.loadAsync(${loaded});`,
+          "  // quantized (and normalized) vertex data to floats, GPU instances baked into one mesh, and a skinned mesh's pose",
+          "  // in userData.posed, so geometry.applyMatrix4() and mergeGeometries() keep the shape and take every part",
+          "  const instanced = [], v = new THREE.Vector3(), n = new THREE.Vector3();",
+          "  gltf.scene.updateMatrixWorld(true);",
+          "  gltf.scene.traverse(o => {",
+          "    for (const [k, a] of Object.entries(o.geometry?.attributes ?? {})) if (a.isInstancedBufferAttribute) o.geometry.deleteAttribute(k);",
+          "      else if (k !== \"skinIndex\" && (a.isInterleavedBufferAttribute || !(a.array instanceof Float32Array)))",
+          "        o.geometry.setAttribute(k, new THREE.BufferAttribute(Float32Array.from({ length: a.count * a.itemSize }, (_, i) => a.getComponent(i / a.itemSize | 0, i % a.itemSize)), a.itemSize));",
+          "    if (o.isInstancedMesh) instanced.push(o);",
+          "    if (o.isSkinnedMesh) { // its skin places its vertices: merge or instance (o.userData.posed ?? o.geometry), never its bare geometry",
+          "      const g = o.userData.posed = o.geometry.clone(), p = g.attributes.position, nl = g.attributes.normal;",
+          "      for (let i = 0; i < p.count; i++) {",
+          "        const at = o.applyBoneTransform(i, v.fromBufferAttribute(p, i).clone());",
+          "        if (nl) nl.setXYZ(i, ...o.applyBoneTransform(i, v.add(n.fromBufferAttribute(nl, i))).sub(at).normalize().toArray());",
+          "        p.setXYZ(i, at.x, at.y, at.z);",
+          "      }",
+          "      g.deleteAttribute(\"skinIndex\"); g.deleteAttribute(\"skinWeight\");",
+          "    }",
+          "  });",
+          "  for (const o of instanced) { // EXT_mesh_gpu_instancing",
+          "    const m = new THREE.Matrix4(), g = mergeInstances(Array.from({ length: o.count }, (_, i) => o.geometry.clone().applyMatrix4((o.getMatrixAt(i, m), m))));",
+          "    const mesh = Object.assign(new THREE.Mesh(g, o.material), { name: o.name, castShadow: o.castShadow, receiveShadow: o.receiveShadow });",
+          "    o.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);",
+          "    o.parent.add(mesh); o.removeFromParent();",
+          "  }"],
       `  const box = new THREE.Box3().setFromObject(${root});`,
       `  ${root}.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2); // origin to floor centre`,
       `  ${v}.add(${root});`,
@@ -272,6 +310,7 @@ export async function pick(id: string, kind: Kind, cwd: string, agent: string, h
     ...full === id ? [] : [`Picked ${full}, the one shown id that starts with "${id}".`],
     `Saved ${where || relative(cwd, saved[0]!)} (${h.m.name}, ${h.m.license})${h.kind === "model" ? `; credited in ${relative(cwd, join(dir, "CREDITS.md"))}` : ""}`,
     ...(vite || h.kind === "texture" ? [] : ["If the import map has no `three/addons/`, map it to three's `examples/jsm/` folder."]),
+    ...heavy ? [heavy] : [],
     "```js", ...code.filter(l => l !== null), "```",
   ].join("\n");
 }

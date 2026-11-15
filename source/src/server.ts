@@ -10,40 +10,43 @@
 // web page cannot reach it. Tool results are text under 10k tokens; `open`'s ends with the run folder and a look's starts
 // with its picture's path in it, the lines the hooks find a session's runs by (hooks/session.ts). A tool's own error is
 // an isError result the model reads, never a JSON-RPC error. Stdout carries protocol JSON only; logs go to stderr.
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { basename, join, relative, resolve } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { cpus, loadavg } from "node:os";
 import { createHash, randomBytes } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { json } from "node:stream/consumers";
-import { gpuLine, launchChrome, NAV_LOST, openGame, printedLines, uniq, type Game } from "./browser.ts";
+import { drewOn, gpuLine, gpuSettled, launchChrome, NAV_LOST, openGame, printedLines, uniq, type Game } from "./browser.ts";
 import { clipText, REC_NAVIGATED, RECORD_MAX_S, VIDEO_MAX_S, videoText } from "./record.ts";
 import { BROWSERS, EngineUnsupported, SAID, notes, refuse, type BrowserWord } from "./engines.ts";
 import type { Browser } from "puppeteer-core";
-import { contractInstructions, loadContract, predicates, saveContract, saveTest, VIEWPORT } from "./contract.ts";
-import { check, type CheckResult } from "./check.ts";
+import { contractInstructions, drawnOn, elsewhereLine, leadState, loadContract, onPage, pageOf, predicates, saveContract, saveTest, VIEWPORT, VIEWPORTS } from "./contract.ts";
+import { check, realize, type CheckResult, type Paused } from "./check.ts";
 import { invariants } from "./invariants.ts";
 import { capAct, observe } from "./scene.ts";
 import { AFTER_STOP, evaluate } from "./eval.ts";
-import { act, hover, type Step } from "./input.ts";
-import { look, lookFrom, lookText, faultLines, faultDiff, faultsNow, coversText, views, cameras, namedCam, sheet, viewports, viewportsText, sheetText, shortText, scrollSweep, zoom, zoomOutside, probe, opening, saveBaseline, compareBaseline, colours, type Cover, type Look, type SheetItem } from "./look.ts";
+import { act, gameUp, hover, type Step } from "./input.ts";
+import { FRAME, look, lookFrom, lookText, faultLines, faultDiff, faultsNow, coversText, views, cameras, namedCam, sheet, viewports, viewportsText, sheetText, shortText, scrollSweep, zoom, zoomOutside, probe, opening, saveBaseline, compareBaseline, colours, type Cover, type Look, type SheetItem } from "./look.ts";
 import { feel } from "./feel.ts";
 import { COLOUR_SPACES } from "./lighting.ts";
-import { pageAssets, pageRan, perf, compare, RUN_S, RUN_WARM_MS, RUNS_FLOOR, RUNS_CAP, CALL_CAP_S, passesText, costsText, overlayText, variantSetup, variantUrl, firstFrame, NETWORKS, LIGHTS, manyLights, lightsText, type Lights, type Variant, type PerfResult, type Network } from "./perf.ts";
+import { pageAssets, pageRan, perf, compare, RUN_S, RUN_WARM_MS, RUNS_FLOOR, RUNS_CAP, CALL_CAP_S, passesText, costsText, fillText, overlayText, variantSetup, variantUrl, firstFrame, NETWORKS, LIGHTS, manyLights, lightsText, type Lights, type Variant, type PerfResult, type Network } from "./perf.ts";
 import { BUDGETS, SOFTWARE_NOTE, budgetText, type Budget } from "./budgets.ts";
 import { optimize } from "./optimize.ts";
 import { assetsText, CONVERT, shrink, shrinkFix, shrinkText } from "./glb.ts";
 import { USD } from "./usd.ts";
 import { pictureFile, reference, viewpoint } from "./reference.ts";
 import { modelLook, modelRun } from "./model.ts";
+import { unityExport } from "./unity.ts";
 import { assetsOver } from "./assets.ts";
 import { fingerprint, fingerprints } from "./fingerprint.ts";
 import { staleThree } from "./lint.ts";
 import { pacing } from "./pacing.ts";
-import { openText } from "./open.ts";
+import { response } from "./response.ts";
+import { bundleVersion, newerBundle, openText } from "./open.ts";
 import { harnessDir, issueContract, noteRun, recordRun, updateState, type Run } from "./state.ts";
-import { ON as TELEMETRY, FEEDBACK, REPORT_ASK, REPORT_TOOL, event, installed, noteOpen, reportTool, told as disclosure } from "./telemetry.ts";
+import { ON as TELEMETRY, FEEDBACK, PUBLISHED, REPORT_ASK, REPORT_TOOL, event, installed, noteOpen, reportTool, told as disclosure } from "./telemetry.ts";
 import type { CheckReply, Edit } from "./control.ts";
 
 type Content = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
@@ -57,15 +60,20 @@ const TAIL = 2_500;
 const WORK_IS = "paused frames, each timed from its step to the end of its GPU work, with no wait for the display";
 /** `perf`'s work numbers in words: the median of the frames that drew is judged, since a page that draws one frame in four
     had a median of the frames between (0.1 ms against 1.3); the mean is the cost per 60 Hz frame, and the slowest beside. */
-const workText = (w: NonNullable<PerfResult["work"]>) => `${w.ms} ms ${w.drew ? `a frame that drew (the median of ${w.drew})` : `a frame (the median of ${w.frames}; none called three's render)`}, ${w.cpuMs} ms of it the frame's code; ${w.meanMs} ms a frame on average over ${w.frames} stepped, the slowest ${w.maxMs} ms`;
+export const workText = (w: NonNullable<PerfResult["work"]>) => `${w.ms} ms ${w.drew === 1 ? `the one frame that drew (WORK's 1 s held no other, so this is one frame, not a median)` : w.drew ? `a frame that drew (the median of ${w.drew})` : `a frame (the median of ${w.frames}; none called three's render)`}, ${w.cpuMs} ms of it the frame's code; ${w.meanMs} ms a frame on average over ${w.frames} stepped, the slowest ${w.maxMs} ms`;
 const PACED = "headless Chrome runs frames back to back only while each one draws something new, and a frame that presents nothing new waits for the 60 Hz tick (a render skipped, or a canvas not drawn to every frame).";
 /** The GPU line `open` said last (gpuLine), so a reopen on the same GPU does not say it again. */
 let saidGpu = "";
 
+export function sharedProbeChrome(launch: () => Promise<Browser>): () => Promise<Browser> {
+  let pending: Promise<Browser> | undefined;
+  return () => pending ??= launch();
+}
+
 /** `open`'s and `perf`'s warning for a page slow to reach its first frame, or "". The judges' software-WebGL gate
     fails a page with no frame in 60 s and a player sees the first seconds, so 15 s was too late a line (full-1 findings N4). */
 export function slowStart(ms: number, software = false): string {
-  const secs = (ms / 1000).toFixed(1), fix = "Move heavy setup (geometry, canvas textures, shader compiles) off the first frame or make it cheaper.";
+  const secs = (ms / 1000).toFixed(1), fix = "Draw a plain first frame and add the effects after it (scan materials, a noise sky, shadows, foliage(), water(), GPU simulation, post()), each in its own small renderer.compileAsync(effect, camera, scene) batch; move heavy geometry and canvas textures off the first frame too (optimize.md, Load time).";
   if (ms > 10_000) return `Slow start: the page took ${secs} s to load and set up before its first frame; a judge on software WebGL may see nothing for a minute. ${fix}`;
   // 3-10 s is what software WebGL costs any page (AA-3D: agents chased it with `perf` for nothing)
   if (software) return ms > 3_000 ? `The page took ${secs} s to its first frame; expected on this software renderer, nothing to do.` : "";
@@ -115,17 +123,18 @@ const CWD = { type: "string", description: "The game project's folder." };
 const VIDEO = process.env.PAPRIKA3D_CHANNEL !== "stable";
 const RECORD = `true: plays the steps in real time (1/60 s a frame, ${RECORD_MAX_S} s at most) into a GIF in the run folder; the reply has four moments and the real frame intervals.`;
 // `open` and `perf` share the first-visit timing on an emulated network
-const NETWORK = { type: "string", enum: ["slow-4g", "fast-4g", "3g"], description: "Also time a first visit on this network (Chrome DevTools' presets), in real time with no cache: when the first scene frame came, which bytes came before it by kind (as sent: the harness's own server does not compress, a CDN does) and when an overlay over the canvas went." };
+const NETWORK = { type: ["string", "object"], description: "Also time a first visit on this network, in real time with no cache: slow-4g, fast-4g or 3g (Chrome DevTools' presets), broadband (20 Mbps both ways, 40 ms), or { downKbps, upKbps, latencyMs } (upKbps defaults to downKbps). The reply names its numbers and whether a software renderer drew it, and says when the first scene frame came, which bytes came before it by kind (as sent: the harness's own server does not compress, a CDN does) and when an overlay over the canvas went." };
 const TOOLS = [
   { name: "contract", description: "For a game with exact rules (scoring, collisions, matching, turn order, stated numbers) or when the user asks for a locked spec or tests, call it before writing game code: it turns the user's prompt into a game contract (keypoints the game must pass). It writes a brief for a fresh subagent that has seen no game code and tells you how to start it; that subagent drafts and issues the contract and replies with the keypoints. Never edit game-contract.json by hand.",
     inputSchema: { type: "object", properties: { prompt: { type: "string", description: "The user's prompt, verbatim." }, cwd: CWD }, required: ["prompt", "cwd"] } },
-  { name: "open", description: "Opens a three.js, React Three Fiber or WebGL page (a game, viewer, configurator, simulation or shader demo) in headless Chrome (or the `browser` given) on a paused, seeded clock, closing any page already open under the same `game` name, and lists the asset files (models, textures, sounds) it fetched and any fetch that failed, what a dev-server `command` printed as an error or warning, a canvas with no height, and the page's text outside the canvas. Open once: after an edit, the next `interact`, `look`, `observe`, `eval` or `feel` reloads the page by itself. Use it when such a page has been written or changed. Give a file or folder to serve (`url`, relative to cwd), an http URL, or a dev-server `command` run in cwd. Up to 4 games can be open at once, each under its own `game` name: a subagent opens its own (`game: \"tester\"`) and passes that name to every call.",
+  { name: "open", description: "Opens a three.js, React Three Fiber or WebGL page (a game, viewer, configurator, simulation or shader demo) in headless Chrome (or the `browser` given) on a paused, seeded clock, closing any page already open under the same `game` name, and lists the asset files (models, textures, sounds) it fetched and any fetch that failed, what a dev-server `command` printed as an error or warning, a canvas with no height, and the page's text outside the canvas. Open once: after an edit, the next `interact`, `look`, `observe`, `eval` or `feel` reloads the page by itself. Use it when such a page has been written or changed. Give a file or folder to serve (`url`, relative to cwd), an http URL, or a dev-server `command` run in cwd. It writes geo.js and fx.js into a served folder, never over a newer copy. Up to 4 games can be open at once, each under its own `game` name: a subagent opens its own (`game: \"tester\"`) and passes that name to every call.",
     inputSchema: { type: "object", properties: { url: { type: "string", description: "A file or folder to serve (relative to cwd), an http URL, or, with `command`, the path and query to open on the server it starts (its origin is the one the command prints)." },
       command: { type: "string", description: "A dev-server command run in cwd, as `npx vite --port 0`; the first localhost URL it prints is the page. Closing or reopening this game stops it; an `open` with a url on its origin restarts it on that url." }, cwd: CWD, window: { type: "boolean", description: "Show the browser's window." },
       browser: { type: "string", enum: Object.keys(BROWSERS), description: "The browser engine the page runs in, chrome by default. firefox is Firefox. Every tool works in each; network (here and in `perf`), `perf`'s throttle and its main-thread time are chrome only." },
       size: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2, description: "The page's width and height in CSS pixels until the next open, 1280 × 800 by default, as [1920, 1080]." },
       dpr: { type: "number", description: "Device pixel ratio, 1 by default. `look` boxes stay in CSS pixels." },
       reducedMotion: { type: "boolean", description: "The page gets prefers-reduced-motion: reduce; `look` then says how much of the picture changed since the last look." },
+      device: { type: "string", enum: ["phone"], description: "phone: a phone's user agent, touch points, coarse pointer and no hover, at 390 × 844, DPR 3 unless `size` and `dpr` say otherwise, for a game that picks its mobile path at load." },
       network: NETWORK }, required: ["cwd"] },
     // the one tool Claude Code (2.1.285+) loads at session start; the rest are names only until tool search loads them
     _meta: { "anthropic/alwaysLoad": true } },
@@ -135,15 +144,17 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { code: { type: "string", description: "The body of an async function; return the value to see." },
       save: { type: "string", description: "Write what the code returns (an ArrayBuffer, typed array, Blob, canvas or data URL) to this path under cwd, e.g. assets/baked.glb or data/mask.png, and reply with its size instead of the bytes: baked geometry, a painted canvas, measured tables." } }, required: ["code"] } },
   { name: "interact", description: "Plays `steps` on the open page frame by frame and returns what changed in the state (the whole state when nothing did), the console lines and errors the steps raised, a Motion line when the subject turned or stopped under a held key or would stutter on a 100 Hz screen, and a Sound line on a page that makes sound. Each mouse and touch step names the object under it and its distance. `expect` adds one ✓ or ✗ line per path; `save` keeps the play as a check `test` reruns, only when every entry holds. A malformed step fails the call before anything plays; a failing `expect` entry is reported, not raised. Use `feel` to measure how an event reacts on screen, `observe` to read the state without playing, and `eval` to set it with code. Options in full: the skill's references/tools.md.",
-    inputSchema: { type: "object", properties: { steps: { type: "array", items: { type: "object" }, description: "Steps, in order: { key, frames? } (held, then released); { key, down: true|false } (held across steps); { mouse: click|dblclick|down|up|move, x, y }; { mouse: move, relative: [dx, dy] } (pointer lock); { wheel: deltaY, x?, y? }; { resize: [w, h] }; { scroll: px | { progress: 0..1 } | { to: \"#id\" } }; { touch: start|move|end|tap, x, y }; { wait: frames, draw? }; { action, ...args } (window.__game.act); { state: {...} } (window.__game.setState, then one frame); { until: {...}, max? } (until the state holds, values as `expect`'s; `max` 600 frames by default); { clock: { timescale?, paused? } } (paused: false plays in real time; the clock reads 60 s at frame 0 on purpose). Each step advances `frames` (default 1) and draws only its last (draw: true draws each); `frames: 0` sends it on the same frame as the next." }, look: { type: "boolean", description: "Also return `look`'s picture after the steps." },
+    inputSchema: { type: "object", properties: { steps: { type: "array", items: { type: "object" }, description: "Steps, in order: { key, frames? } (held, then released); { key, down: true|false } (held across steps); { mouse: click|dblclick|down|up|move, x, y, button?: \"left\"|\"right\"|\"middle\" } (left by default); { mouse: move, relative: [dx, dy] } (pointer lock); { wheel: deltaY, x?, y? }; { resize: [w, h] }; { scroll: px | { progress: 0..1 } | { to: \"#id\" } }; { touch: start|move|end|tap, x, y }; { wait: frames, draw? }; { action, ...args } (window.__game.act); { state: {...} } (window.__game.setState, then one frame); { until: {...}, max? } (until the state holds, values as `expect`'s; `max` 600 frames by default); { clock: { timescale?, paused? } } (paused: false plays in real time; the clock reads 60 s at frame 0 on purpose). Each step advances `frames` (default 1) and draws only its last (draw: true draws each); `frames: 0` sends it on the same frame as the next." }, look: { type: "boolean", description: "Also return `look`'s picture after the steps." },
       record: VIDEO ? { anyOf: [{ type: "boolean" }, { type: "string", enum: ["video"] }], description: `${RECORD} "video": a 60 fps MP4 for a person, on the paused clock, ${VIDEO_MAX_S} s of game time at most, no sound.` } : { type: "boolean", description: RECORD },
+      ...VIDEO && { fps: { type: "number", enum: [30, 60], description: 'With record: "video": 60 (the default) films every frame, 30 every other one.' },
+        size: { type: "number", description: 'With record: "video": the longest side at most, in px (the page\'s full size by default), as 1280 for a promo clip.' } },
       trace: { type: "array", maxItems: 6, items: { type: "string" }, description: "Up to 6 dotted paths into observe(), read each frame (the first 600): first and last value, peak or low, and first change, with frames." },
-      expect: { type: "object", description: "Checked against the state after the steps, keyed by dotted paths into observe() (\"coins.0.x\"): a number, string or boolean (equal), [min, max] (a range; two numbers always are), a list of other values (one of them) or null (exists)." },
-      save: { type: "string", description: "Save the steps and `expect` as a check of this name in game-tests.json when every Expect entry holds; the call plays from a fresh reload, its leading state steps as setup." },
+      expect: { type: "object", description: "Checked against the state after the steps, keyed by dotted paths into observe() (\"coins.0.x\"): a number, string or boolean (equal), [min, max] (a range; two numbers always are), a list of other values (one of them; [null] is null), [] (an empty list) or null (exists, whatever its value)." },
+      save: { type: "string", description: "Save the steps and `expect` as a check of this name (letters, digits, - or _) in game-tests.json when every Expect entry holds; the call plays from a fresh reload, its leading state steps as setup." },
       hover: { type: "array", items: { type: "string" }, description: "After the steps, the mouse moves to each named object's centre; one diff per name after `frames`." },
       frames: { type: "number", description: "Frames to wait at each hovered object (default 1)." } } } },
   { name: "look", description: "Screenshot of the open page in the reply, an ID image beside it (one colour per object, the path with -ids before .png), and a list of what is on screen and the named objects no look has seen, with size and place. It sends no input; sheet, scroll, viewports and compare reload the page for their pictures. One mode a call: cameras, viewports, scroll, sheet, opening, zoom, at, target, save or compare. It ends with the lines the skill's references/lighting.md explains, the `Lighting:` and `Surfaces:` setup faults among them. A post-processed page is pictured as of its last drawn frame, so state set since shows after a step. Use `observe` for the state as numbers, `reference` to read or match a picture the page should look like, and `interact` with `look: true` for the picture after input. Modes in full: references/tools.md.",
-    inputSchema: { type: "object", properties: { camera: { anyOf: [{ type: "string" }, { type: "object", properties: { position: { type: "array", items: { type: "number" } }, lookAt: { type: "array", items: { type: "number" } } }, required: ["position"] }], description: "This look's camera, { position, lookAt }, or a name: a refs/cameras.json picture's file name or a `cameras` label." },
+    inputSchema: { type: "object", properties: { camera: { anyOf: [{ type: "string" }, { type: "object", properties: { position: { type: "array", items: { type: "number" } }, lookAt: { type: "array", items: { type: "number" } } }, required: ["position"] }], description: "This look's camera, { position, lookAt }, or a name: a refs/cameras.json picture's file name or a `cameras` label; for the plain look, zoom, at, save and compare." },
       cameras: { type: "array", maxItems: 9, description: "Up to 9 cameras ({ position, lookAt, label } or a name) in one grid, no reload; a label is kept as a `camera` name.", items: { anyOf: [{ type: "string" }, { type: "object", properties: { position: { type: "array", items: { type: "number" } }, lookAt: { type: "array", items: { type: "number" } }, label: { type: "string" } }, required: ["position"] }] } },
       target: { type: "string", description: "An object in the main scene, alone from front, right, top and three-quarter views." },
       opening: { type: "boolean", description: "Picture the first 5 s after load in real time, as a viewer meets them (`open` pauses at frame 0)." },
@@ -159,27 +170,30 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { steps: { type: "array", items: { type: "object" }, description: "Steps as for `interact`: a { state } setup, then the inputs that cause the event." }, frames: { type: "number", description: "Frames to watch after the steps (default 45)." } }, required: ["steps"] } },
   { name: "check", description: "Runs the game contract against the open game, each keypoint on a fresh page. When the project has a game contract, it shows which keypoints a change broke or fixed.",
     inputSchema: { type: "object", properties: {} } },
-  { name: "perf", description: "Measures the open page's frame time (fps), draw calls, triangles and asset size against a budget (desktop by default): it is for a frame a reply reports over budget, or a user who asks about performance (stutter, low fps). To find what costs the frame, give `variants`: each is measured on a fresh page against the baseline, in this one call, with named objects hidden, a pixel ratio, code run with `renderer` and `scene` (shadows or antialias off, a material swapped), or a `query` the page loads with (\"noshadow&pr=0.5\", for switches the game reads at load); no reopening or reload code needed. Sampling waits until no element covers the canvas (a loading screen), up to 5 s of the page running, and the load line says what it waited for or sampled under. With `optimize: true` it instead tries the @paprika3d/three-runtime switches one at a time: `resolution` (lowers the pixel ratio while frames run over budget), `defaults` (pixel ratio capped at 2, shaders compiled up front, shadow maps redrawn only when a caster moves), `instancing` (still meshes that share a geometry and material drawn as one), `lod` (simpler versions of meshes over 10,000 triangles at a distance) and `dispose` (frees the GPU memory of removed objects). `instancing` and `lod` stay only when frames get faster, the others unless they slow frames. A switch is reverted if a saved test that passed without it fails with it, and `defaults`, `instancing` and `dispose` also if they change the picture; a kept `resolution` or `lod` that changes it comes with before and after pictures. What it keeps goes in the project's game-runtime.json, which the runtime reads at every load, so it lasts until that file changes; it ends with the final `test` of game-tests.json when the project has one. On a game without the runtime it changes nothing and says how to import it.",
+  { name: "perf", description: "Measures the open page's frame time (fps), draw calls, triangles and asset size against a budget (desktop by default): it is for a frame a reply reports over budget, or a user who asks about performance (stutter, low fps). To find what costs the frame, give `variants`: each is measured on a fresh page against the baseline, in this one call, with named objects hidden, a pixel ratio, code run with `renderer` and `scene` (shadows or antialias off, a material swapped), or a `query` the page loads with (\"noshadow&pr=0.5\", for switches the game reads at load); no reopening or reload code needed. Sampling waits until no element covers the canvas (a loading screen), up to 15 s of the page running, and the load line says what it waited for or sampled under. With `optimize: true` it instead tries the @paprika3d/three-runtime switches one at a time: `resolution` (lowers the pixel ratio while frames run over budget), `defaults` (pixel ratio capped at 2, shaders compiled up front, shadow maps redrawn only when a caster moves), `instancing` (still meshes that share a geometry and material drawn as one), `lod` (simpler versions of meshes over 10,000 triangles at a distance) and `dispose` (frees the GPU memory of removed objects). `instancing` and `lod` stay only when frames get faster, the others unless they slow frames. A switch is reverted if a saved test that passed without it fails with it, and `defaults`, `instancing` and `dispose` also if they change the picture; a kept `resolution` or `lod` that changes it comes with before and after pictures. What it keeps goes in the project's game-runtime.json, which the runtime reads at every load, so it lasts until that file changes; it ends with the final `test` of game-tests.json when the project has one. On a game without the runtime it changes nothing and says how to import it.",
     inputSchema: { type: "object", properties: { budget: { type: ["string", "object"], description: "desktop, mobile, quest, site (a 3D website: first scene frame within 3 s on fast-4g unless `network` says otherwise, 1 MB of script, 4 MB of assets), or limits to override: { frameMs, assetMB, triangles, drawCalls, textureMax, pixelRatioMax, firstSceneFrameMs, scriptMB }." },
       variants: { type: "array", maxItems: 8, items: { type: "object", properties: { label: { type: "string" }, hide: { type: "array", items: { type: "string" }, description: "Object names to hide: any object's name, nested or not; a group's hides its children." }, pixelRatio: { type: "number" }, code: { type: "string" }, query: { type: "string" } } } },
       costs: { type: "boolean", description: "Also list the main scene's visible content by named group (an object goes by its nearest named ancestor, as `look` names it): triangles, those casting shadows, draw calls and texture MB, the 12 groups with the most triangles and the rest in one line. Counted, not timed, with no frustum culling; `variants` with `hide` times a group." },
       throttle: { type: "number", minimum: 1, maximum: 20, description: "Slow the page's JavaScript this many times, as on a weak laptop (4 is a typical one); GPU work is not slowed." },
       network: { ...NETWORK, description: NETWORK.description + " CPU `throttle` is separate." },
       optimize: { type: "boolean", description: "Try the runtime switches and keep those that help (above). Of the other fields it takes only `budget`." } } } },
-  { name: "model_audit", description: "Inspects 3D model files (.glb, .gltf, and USD: .usd, .usda, .usdc, .usdz): megabytes, triangles, materials, each texture's size and format, and whether it uses Draco, meshopt and KTX2, for one file or every one under a folder (`path`, relative to cwd; the whole project when left out), read from the file itself with no decoder, so Draco and meshopt files report too. Then a one-line verdict on what a website or a Shopify listing judges a model on, against `target`: `site` (the site budget: 4 MB of assets, 200,000 triangles, 2048 px textures by area) or `shopify` (a GLB of about 4 MB with textures at most 2048 px on a side). `shrink` rewrites one .glb or .gltf smaller, without its textures or with each capped at a size (WebP), and replies with before and after (a USD file is converted to GLB first); a failing file gets the shrink call that fixes it: save a look first (`look` `save`), shrink, point the page at the new file, then `look` `compare`.",
+  { name: "model_audit", description: "Inspects 3D model files (.glb, .gltf, and USD: .usd, .usda, .usdc, .usdz): megabytes, triangles, materials, each texture's size and format, and whether it uses Draco, meshopt and KTX2, for one file or every one under a folder (`path`, relative to cwd; the whole project when left out), read from the file itself with no decoder, so Draco and meshopt files report too. Then a one-line verdict on what a website or a Shopify listing judges a model on, against `target`: `site` (the site budget: 4 MB of assets, 200,000 triangles, 2048 px textures by area) or `shopify` (a GLB of about 4 MB with textures at most 2048 px on a side). `shrink` rewrites one .glb or .gltf smaller, without its textures or with each capped at a size (WebP), decimated to about a triangle count (welded or not), or without nodes named in `drop`, and replies with before and after (a USD file is converted to GLB first); a failing file gets the shrink call that fixes it: save a look first (`look` `save`), shrink, point the page at the new file, then `look` `compare`.",
     inputSchema: { type: "object", properties: { cwd: CWD, path: { type: "string", description: "A .glb, .gltf or USD file, or a folder to report every one under, relative to cwd." },
       target: { type: "string", enum: ["site", "shopify"], description: "What to judge the files against (site by default)." },
-      shrink: { type: "object", properties: { textures: { anyOf: [{ const: false }, { type: "number" }] }, out: { type: "string" } }, description: "Rewrite the file smaller: textures false drops them all (geometry only), a number caps each texture's longer side at that many pixels (WebP); out is the new file (<name>-opt.glb by default). Replies with before and after." } }, required: ["cwd"] } },
-  { name: "model_run", description: "Runs JavaScript against the modelling scene: a three.js scene this server keeps between calls, apart from any page, for building a model in code as in Blender, then saving it as a .glb the page loads. The code is an async function body with THREE, scene, geo (Manifold, started: geo.Manifold, geo.CrossSection, geo.toGeometry(manifold), geo.toManifold(geometry), geo.boolean(op, a, ...b)), scatter, find(name), stats(target) (vertices, triangles, bounds, closed, volume, genus per mesh), load(path) (a .glb, .obj or .fbx from the project, an asset_search pick included, added to the scene and returned), save(path, object = scene) (a GLB under cwd; replies with its size and the line that loads it) and clear() in scope, and returns what it returns, as JSON, with up to 5 lines it logged. What it adds to scene stays for the next call and is saved to paprika3d/model/scene.glb after each run that changed it, so a restart loads it back; variables (a Manifold) do not last between calls. Manifold works in metres with Z up and angles in degrees; three is Y up. Name every object you make: model_look lists them by name.",
+      shrink: { type: "object", properties: { textures: { anyOf: [{ const: false }, { type: "number" }] }, triangles: { type: "number" }, drop: { type: "array", items: { type: "string" } }, out: { type: "string" } }, description: "Rewrite the file smaller: textures false drops them all (geometry only), a number caps each texture's longer side at that many pixels (WebP); triangles decimates the whole file to about that many (meshoptimizer, sloppy where the mesh's triangles share no vertex; lossy, so compare a look after); drop removes the nodes with those names and their children (a fence, a plinth); out is the new file (<name>-opt.glb by default). Replies with before and after." } }, required: ["cwd"] } },
+  { name: "model_run", description: "Runs JavaScript against the modelling scene: a three.js scene this server keeps between calls, apart from any page, for building a model in code as in Blender, then saving it as a .glb the page loads. The code is an async function body with THREE, BufferGeometryUtils (mergeGeometries, mergeVertices), scene, geo (Manifold, started: geo.Manifold, geo.CrossSection, geo.toGeometry(manifold), geo.toManifold(geometry), geo.boolean(op, a, ...b)), scatter, find(name), stats(target) (vertices, triangles, bounds, closed, volume, genus per mesh), load(path) (a .glb, .obj or .fbx from the project, an asset_search pick included, added to the scene and returned), save(path, object = scene) (a GLB under cwd; replies with its size and the line that loads it) and clear() in scope, and returns what it returns, as JSON, with up to 5 lines it logged. What it adds to scene stays for the next call and is saved to paprika3d/model/scene.glb after each run that changed it, so a restart loads it back; variables (a Manifold) do not last between calls. Manifold works in metres with Z up and angles in degrees; three is Y up. Name every object you make: model_look lists them by name. Search `asset_search` first for a character, vehicle, building, plant or prop; build here what no search finds or the design makes by rule, saying why in `searched`.",
     inputSchema: { type: "object", properties: { cwd: CWD, code: { type: "string", description: "An async function body, e.g. `const { Manifold, toGeometry } = geo; const m = Manifold.cube([1, 1, 1], true).subtract(Manifold.sphere(0.65, 48)); const mesh = new THREE.Mesh(toGeometry(m), new THREE.MeshStandardMaterial({ color: 0xb08050 })); mesh.name = \"block\"; scene.add(mesh); return stats(mesh)`." },
       searched: { type: "string", description: "Optional: why this is built in code (\"by design: terrain\"), logged for the critic." } }, required: ["cwd", "code"] } },
   { name: "model_look", description: "Shows the modelling scene that `model_run` builds: one picture of it (or of `object`) from the front, right and top (orthographic, so sizes read true against the grid) and a three-quarter view, under a neutral studio light with a ground grid whose step it states, and one line per object: name, type, place, turn and scale, material (colour, roughness, metalness) and, for a mesh, triangles, size, whether it is closed, its volume and genus. With `object`, that object in full; with `cameras`, those views instead of the four.",
     inputSchema: { type: "object", properties: { cwd: CWD, object: { type: "string", description: "The name of an object in the modelling scene: frame the picture to it and list it in full." },
       cameras: { type: "array", maxItems: 9, description: "Up to 9 views in place of the four, each { label, position, lookAt } in the scene's metres (lookAt defaults to the middle of what is framed).", items: { type: "object", properties: { position: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 }, lookAt: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 }, label: { type: "string" } }, required: ["position", "label"] } },
       size: { type: "number", minimum: 256, maximum: 1568, description: "The picture's side in pixels (1024 by default, at most 1568)." } }, required: ["cwd"] } },
+  { name: "unity_export", description: "Writes the open page's three.js scene, at the frame it is on, as a Unity 6 project: the GLB (three's GLTFExporter: meshes, hierarchy, names, PBR materials and textures, lights, animations, skins, instancing, the camera), glTFast as its importer, an editor script that builds the Unity scene from it on the first open (hidden objects, background, fog, ambient light), GameState.cs from __game.observe(), and PORTING.md: what does not carry over (custom shaders, sprites, compressed and canvas textures, environment maps; named in the reply) and what to port by hand (game loop, input, physics, UI, sound). Gameplay code is not converted. The GLB is loaded back in the page and counted; Unity is not run.",
+    inputSchema: { type: "object", properties: { out: { type: "string", description: "The Unity project's folder, relative to the open project's folder (paprika3d/unity/<Name> by default); exporting again replaces the GLB and scripts and keeps the rest." },
+      name: { type: "string", description: "The Unity asset folder and scene name (describe().name, or the project folder's, by default)." } } } },
   { name: "invariants", description: "Runs built-in checks any game must pass, no contract needed: the window.__game convention, plain-JSON observe(), setState round-trip, inputs change the state, no console errors, and the same inputs give the same state twice. Call it once the game opens and after any change to the game's state handling.",
     inputSchema: { type: "object", properties: {} } },
-  { name: "test", description: "Reruns every check saved with `interact` `save` (game-tests.json), each from a fresh reload at frame 0, one line each: `✓ pickup` or `✗ jump: player.y 1.4, expected ≥ 2`. Use it after an edit that could break earlier features.",
+  { name: "test", description: "Reruns every check saved with `interact` `save` (game-tests.json) on the open page, each from a fresh reload at frame 0, one line each: `✓ pickup` or `✗ jump: player.y 1.4, expected ≥ 2`. Use it after an edit that could break earlier features.",
     inputSchema: { type: "object", properties: {} } },
   { name: "reference", description: "Reads a reference picture the page should match (a photo, artwork, mockup or screenshot in the project, e.g. refs/01.jpg) at full resolution, in one call and with no page open: `crop` [left, top, right, bottom] in the picture's pixels, enlarged up to 4× to fit 1280 px, with `grid` lines every N px labelled in the picture's own pixel coordinates (positions read off it go straight into the next call or the scene), and `sample` points, each answered as #rrggbb. With the page open, `compare: true` puts the picture, the page's look (from `camera` when given) and a difference picture side by side and says what share of pixels differ, overall and in a grid of regions (`cells` per side, 4 by default), with each `sample` point's colour on both, or that the canvas aspect is not the picture's. Use it to read a picture the page should match and to check the page against it.",
     inputSchema: { type: "object", properties: { cwd: CWD, file: { type: "string", description: "The picture's path, relative to cwd, or the name of a baseline saved with look { save } (compare the page with its earlier look)." },
@@ -190,12 +204,12 @@ const TOOLS = [
       compare: { type: "boolean", description: "Put the open page's look beside the picture with their differences; needs `open` first, and a canvas with the picture's aspect for the pixel comparison." },
       camera: { anyOf: [{ type: "string" }, { type: "object", properties: { position: { type: "array", items: { type: "number" } }, lookAt: { type: "array", items: { type: "number" } } }, required: ["position"] }], description: "For compare: the page's look from this position (looking at lookAt) or from a camera by name, as `look`'s camera; left out, the picture's entry in refs/cameras.json when there is one, else the page's own camera." } },
       required: ["cwd", "file"] } },
-  { name: "asset_search", description: "Searches the hosted paprika3d asset library over the network (assets.keeno.dev) for a ready-made model (57k, CC BY or CC0, as GLB and some as USD), PBR texture or HDRI sky, and puts the one you pick in the project with its loading code. A search answers one numbered line per hit (id, name, size, licence, preview image) and a contact sheet: the hits' thumbnails in one row, numbered as the lines are. `pick` an id from it (or its start, when no other hit shown in this project starts so) to download the file into assets/ (public/assets/ with vite) and get the code that loads it, a model at real size (or `height` units tall) and credited in CREDITS.md. `not` lists ids that missed, which the library learns from, and searches again without them; `more` searches the same query again for the next hits. `image` (a picture in the project, with `crop` to cut one thing out of it) ranks models by how alike they look, for the thing a reference picture shows that words miss. The library logs model searches, picks and rejections with the agent's name.",
+  { name: "asset_search", description: "Searches the hosted paprika3d asset library over the network (assets.keeno.dev) for a ready-made model (84,249, CC BY or CC0, as GLB and some as USD), PBR texture or HDRI sky, and puts the one you pick in the project with its loading code. A search answers one numbered line per hit (id, name, size, licence, preview image) and a contact sheet: the hits' thumbnails in one row, numbered as the lines are. `pick` an id from it (or its start, when no other hit shown in this project starts so) to download the file into assets/ (public/assets/ with vite) and get the code that loads it, a model at real size (or `height` units tall) and credited in CREDITS.md. `not` lists ids that missed, which the library learns from, and searches again without them; `more` searches the same query again for the next hits. `image` (a picture in the project, with `crop` to cut one thing out of it) ranks models by how alike they look, for the thing a reference picture shows that words miss. Search it before building any character, creature, vehicle, building, prop, surface texture or sky in code (paprika-make's picking round). Detailed models (scans, PBR packs) rank above blocky low-poly and voxel kits unless the query or `style` asks for low-poly, flat-shaded or voxel. The library logs model searches, picks and rejections with the agent's name.",
     inputSchema: { type: "object", properties: { cwd: CWD, query: { type: "string", description: "What you need, e.g. \"wooden barrel\", \"mossy cobblestone\", \"sunset sky\"." },
       kind: { type: "string", enum: ["model", "texture", "hdri"], description: "model by default." },
-      style: { type: "string", enum: ["stylized", "realistic", "low-poly", "sci-fi", "scanned", "toon", "voxel"], description: "Models only." },
+      style: { type: "string", enum: ["stylized", "realistic", "low-poly", "sci-fi", "scanned", "toon", "voxel"], description: "Models only. low-poly or voxel (or those words in the query) puts the blocky kits first; otherwise they rank last." },
       type: { type: "string", enum: ["character-humanoid", "creature-animal", "container", "decoration", "prop", "vehicle", "sci-fi-tech", "food", "weapon", "interior-furniture", "building", "architecture-part", "clothing-accessory", "foliage-plant", "tree", "rock-terrain", "environment-scene", "tool", "electronics", "sign-ui"], description: "Models only." },
-      maxTris: { type: "integer" }, animated: { type: "boolean" }, rigged: { type: "boolean" },
+      maxTris: { type: "integer" }, animated: { type: "boolean", description: "Models only: true for models with animation clips." }, rigged: { type: "boolean", description: "Models only: true for models with a skeleton, which a character that must sit, hold something or move its limbs needs. A hit's line says rigged or animated; one that says neither is a static mesh whose pose cannot change." },
       not: { type: "array", items: { type: "string" }, description: "Ids from the last search to reject." },
       more: { type: "boolean", description: "With the same query: the next hits, past every one it has shown, none of them rejected." },
       image: { type: "string", description: "Models only: a picture under cwd (refs/01.jpg) or a look baseline's name, to rank models by how alike they look to it (with query, by both); the reply shows the image searched with." },
@@ -207,8 +221,8 @@ const TOOLS = [
       format: { type: "string", enum: ["glb", "usd"], description: "Models only. In a search, only models with a file of this format; with pick, the file to download: a model with both is saved as its GLB unless this is usd, and one with only a USD file (.usdz) as that, loaded with three's USDLoader (r183 or later)." },
       model: { type: "string", description: "Optional: your own model name, e.g. \"claude-opus-5-5\", sent with model searches and picks only, so the library can learn which agents its picks suit; nothing else about the session." } }, required: ["cwd"] } },
   // paprika-make's picture sheets and the image and 3D key check (docs/plan-make-sheets-2026-10-30.md); paid only with a provider named
-  { name: "sheet", description: "Picture sheets for paprika-make's brief, and which image and 3D model keys this machine has. `check: true` names the keys found (never a value) and the running jobs; `pictures` with no provider composes a free sheet in Chrome (refs/sheets/LOOK.png, or `out`); `provider` and `prompt` make a look board, or start a turnaround or GLB model job, billed to the person's key. Details: skills/paprika-make/sheets.md.",
-    inputSchema: { type: "object", properties: { cwd: CWD, check: { type: "boolean", description: "Name the keys found, the recommendations and the jobs; nothing else is done." },
+  { name: "sheet", description: "Picture sheets for paprika-make's brief, and which image and 3D model keys this machine has. `check: true` names the keys found (never a value), the running jobs and, once the project has a BRIEF.md, what it and its sheets lack; `pictures` with no provider composes a free sheet in Chrome (refs/sheets/LOOK.png, or `out`); `provider` and `prompt` make a look board, or start a turnaround or GLB model job, billed to the person's key. Details: skills/paprika-make/sheets.md.",
+    inputSchema: { type: "object", properties: { cwd: CWD, check: { type: "boolean", description: "Name the keys found, the recommendations, the jobs and, for a project with a brief, what the brief and its sheets lack (read from the project's files); nothing is made or sent." },
       remember: { type: "string", enum: ["yes", "ask"], description: "\"yes\" keeps the person's yes to picture sheets across projects; \"ask\" forgets it." },
       pictures: { type: "array", maxItems: 12, items: { type: "object", properties: { file: { type: "string" }, crop: { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4 }, label: { type: "string" } }, required: ["file"] }, description: "Files under cwd, each with an optional crop [left, top, right, bottom] and label." },
       palette: { type: "array", maxItems: 12, items: { anyOf: [{ type: "string" }, { type: "object", properties: { hex: { type: "string" }, label: { type: "string" } }, required: ["hex"] }] }, description: "#rrggbb swatches, each with an optional name." },
@@ -218,46 +232,100 @@ const TOOLS = [
       kind: { type: "string", enum: ["look", "board", "turnaround", "model"], description: "look (free) without a provider; board, turnaround or model with one." },
       prompt: { type: "string", description: "With a provider: what to make." },
       name: { type: "string", description: "With a provider: the file's name." },
+      rig: { type: "boolean", description: "With kind model and a provider that rigs (meshy): once the model lands, bind a skeleton to it and add walk and run clips (<name>-rigged.glb, <name>-walk.glb, <name>-run.glb), for a humanoid character." },
+      height: { type: "number", description: "With rig: the character's height in metres, 1.7 by default." },
       model: { type: "string", description: "With a provider: a model other than the table's." } }, required: ["cwd"] } },
   // in both builds (docs/plan-publish-2026-10-25.md, Jessica 2026-10-25)
   { name: "publish", description: "Publishes the project at https://<slug>.paprika3d.app (public; preview, invite-only), only when the person asks; never for another host. Never read or print ~/.config/paprika3d/credentials.json: this tool reads the key.",
-    inputSchema: { type: "object", properties: { cwd: CWD, slug: { type: "string", description: "Subdomain (default: project name)." }, model: { type: "string", description: "Your model id." }, rotate: { type: "boolean", description: "Only replace this install's key." } }, required: ["cwd"] } },
+    inputSchema: { type: "object", properties: { cwd: CWD, slug: { type: "string", description: "Subdomain (default: project name)." }, model: { type: "string", description: "Your model id." }, rotate: { type: "boolean", description: "Only replace this install's key." },
+      playtest: { type: "boolean", description: "Also a 7-day link to this build for friends, with a Feedback button." }, feedback: { type: "boolean", description: "Only read that feedback." } }, required: ["cwd"] } },
 ];
-// every page tool takes the name of the game it works on (named games, at use() below)
+// every page tool takes the name of the game it works on (named games, at Slot below)
 const GAME = { type: "string", description: "The name the game was opened under with the `open` tool, to act on (\"main\" by default; a subagent uses its own)." };
 for (const t of TOOLS) if (!["contract", "asset_search", "model_audit", "model_run", "model_look", "sheet", "publish"].includes(t.name)) (t.inputSchema.properties as Record<string, unknown>).game = GAME;
+// MCP tool annotations: a client may run a read-only tool without asking, and ask before one that reaches outside this
+// machine. Read-only is only what never changes the project or the page's state for the next call: `test`, `check` and
+// `invariants` play the game (a saved test's steps can post to a server), `look` (`save`, named cameras) and
+// `model_audit` (`shrink`) can write into the project. Open world is every tool that loads, reloads or runs page or model
+// code, since that code may fetch: all but the two that only read files.
+const READ_ONLY = ["observe", "model_look"];
+const CLOSED_WORLD = ["contract", "model_audit"];
+for (const t of TOOLS) (t as { annotations?: object }).annotations = { readOnlyHint: READ_ONLY.includes(t.name), openWorldHint: !CLOSED_WORLD.includes(t.name) };
 // the contract loop adds the contract and its check, the lean loop the spec-free invariants
 const HIDDEN = [...CONTRACT ? [] : ["contract", "check"], ...LEAN ? [] : ["invariants"]];
 const LOOP_NOTES: Record<string, string> = CONTRACT ? { open: " When cwd holds a game contract, the result ends with its first check.", perf: " With optimize, it ends with the final `check` of the whole contract." } : {};
 const LISTED = TOOLS.filter(t => !HIDDEN.includes(t.name)).map(t => LOOP_NOTES[t.name] ? { ...t, description: t.description + LOOP_NOTES[t.name] } : t) as object[];
 // `send_feedback` (src/telemetry.ts), in both builds (docs/decisions-2026-10-25.md)
-if (FEEDBACK) LISTED.push(REPORT_TOOL);
+if (PUBLISHED) LISTED.push(REPORT_TOOL); // with telemetry off it refuses in words (dev #289)
+// The compact list (PAPRIKA3D_TOOLS=core): tools/list holds the tools every page needs and `more_tools`, which adds a
+// group of the others and tells the client the list changed. The full list is about 36,000 characters in every session
+// and the core one about 15,000; the full one stays the default until a benchmark run shows what the short one costs.
+// A tool that is not listed still answers by name, for a client that never reads the list again.
+const COMPACT = process.env.PAPRIKA3D_TOOLS === "core";
+const GROUPS: Record<string, { tools: string[]; for: string }> = {
+  tune: { tools: ["feel", "perf"], for: "how the controls feel in numbers, and frame time, draw calls and triangles against a budget" },
+  models: { tools: ["model_audit", "model_run", "model_look"], for: "a GLB's size and triangles, and building a model in code and looking at it" },
+  assets: { tools: ["reference", "asset_search", "sheet"], for: "reading reference pictures, the library of free models, textures and skies, picture sheets and generated models" },
+  export: { tools: ["unity_export"], for: "the scene as a Unity project" },
+};
+const shown = new Set<string>();
+const MORE_TOOL = { name: "more_tools", title: "More tools",
+  description: `This list holds the paprika3d tools every page needs; the others come in groups, and \`group\` adds one to the list: ${Object.entries(GROUPS).map(([k, g]) => `${k} (${g.tools.join(", ")}: ${g.for})`).join("; ")}.`,
+  inputSchema: { type: "object", properties: { group: { type: "string", enum: Object.keys(GROUPS), description: "The group to add to the tool list." } }, required: ["group"] },
+  annotations: { readOnlyHint: true, openWorldHint: false } };
+const listed = () => !COMPACT ? LISTED : [...(LISTED as { name: string }[]).filter(t => !Object.entries(GROUPS).some(([k, g]) => g.tools.includes(t.name) && !shown.has(k))), MORE_TOOL];
+/** Tells the client the tool list changed; set by `serve`. */
+let listChanged = () => {};
+function moreTools(a: Record<string, any>): Result {
+  const g = typeof a?.group === "string" && Object.hasOwn(GROUPS, a.group) ? GROUPS[a.group] : undefined; // ["models"] is not a group: it would index as one and never show
+  if (!g) return fail(`more_tools: no group "${a?.group}"; one of ${Object.keys(GROUPS).join(", ")}`);
+  if (!shown.has(a.group)) { shown.add(a.group); listChanged(); }
+  return text(`Added to the tool list: ${g.tools.join(", ")}. A client that does not show them still reaches each by name; PAPRIKA3D_TOOLS=full in the server's environment lists every tool from the start.`);
+}
 
 const described = new Map<string, string>(); // the last open's describe() per project and URL
 let client = "unknown"; // the MCP client's name/version from initialize, sent to the asset library
-let game: Game | null = null, cwd = "", control: Server | null = null, shots = 0, chrome: Promise<Browser> | undefined;
-/** `open`'s arguments for the open game, to open it again when its Chrome is gone. */
-let opened: Record<string, any> = {};
-let loadedPrint = ""; // the source fingerprint the open page was loaded from
+let control: Server | null = null, shots = 0, chrome: Promise<Browser> | undefined;
 /** Named games: every page tool takes `game`, a name ("main" when left out), and `open` under a new name opens a page of
     its own beside the others, so a subagent can play and look while the lead's page stays as it was (AA-3D: leads forbade
     their subagents the tools, a "single shared instance", and the subagents rebuilt them in Playwright, 151 Bash calls in
-    one cell). Calls run one at a time, so call() swaps the named game's state into game, cwd, opened and loadedPrint. */
-type Slot = { game: Game | null; cwd: string; opened: Record<string, any>; loadedPrint: string; used: number };
+    one cell). Each name has a slot with its own queue of calls: calls for one game run one at a time, and calls for
+    different games run at once, since their Chrome pages are independent (#206: 70 of 185 minutes in the longest calls
+    was waiting behind other agents' calls). S() is the slot of the call that is running. */
+type Slot = {
+  name: string; game: Game | null; cwd: string;
+  /** `open`'s arguments for the open game, to open it again when its Chrome is gone. */
+  opened: Record<string, any>;
+  /** the source fingerprint the open page was loaded from */
+  loadedPrint: string;
+  used: number;
+  /** the slot's calls, one after another, and the ones queued or running, in order */
+  calls: Promise<unknown>; queued: { name: string }[];
+  /** the running call's playing.json, removed when it answers (also when it is given up as hung) */
+  playing: string | null;
+  /** an `open` is running for it */
+  opening?: boolean;
+  /** another game's `open` is closing it to make room */
+  closing?: boolean;
+};
 const slots = new Map<string, Slot>();
-let current = "main";
 const MAX_GAMES = 4;
-function use(name: string) {
-  if (name === current) return;
-  slots.set(current, { game, cwd, opened, loadedPrint, used: Date.now() });
-  ({ game, cwd, opened, loadedPrint } = slots.get(name) ?? { game: null, cwd: "", opened: {}, loadedPrint: "" });
-  slots.delete(name);
-  current = name;
+/** The slot named `name`, made empty when there is none yet. */
+function slotOf(name: string): Slot {
+  let s = slots.get(name);
+  if (!s) slots.set(name, s = { name, game: null, cwd: "", opened: {}, loadedPrint: "", used: 0, calls: Promise.resolve(), queued: [], playing: null });
+  return s;
 }
-/** The slot a call for game `name` works on, read without swapping it in. */
-const slotOf = (name: string): Pick<Slot, "game" | "cwd" | "opened"> => current === name ? { game, cwd, opened } : slots.get(name) ?? { game: null, cwd: "", opened: {} };
+/** Launches the shared Chrome when it is not running. One check at a time: two games' calls that both found none each
+    launched one, and the first was never closed. */
+let chromeCheck: Promise<void> | undefined;
+const sharedChrome = () => chromeCheck ??= (async () => { if (!(await chrome?.catch(() => null))?.connected) chrome = launchChrome(); })().finally(() => { chromeCheck = undefined; });
+const running = new AsyncLocalStorage<Slot>();
+const S = () => running.getStore() ?? slotOf("main");
 /** The main game, which the hooks' checks run on. */
 const mainGame = () => slotOf("main");
+/** The slot whose game is `g`. */
+const slotFor = (g: Game) => [...slots.values()].find(s => s.game === g);
 const token = randomBytes(24).toString("hex");
 
 /** A screenshot of the page as it is, for a run that made no picture of its own (every recorded run needs one). */
@@ -279,12 +347,22 @@ function ensureRuntime(dir: string) {
 }
 
 const BUNDLES = ["geo/dist/geo.js", "fx/dist/fx.js"].map(f => resolve(import.meta.dirname, "..", f));
-/** Puts the built @paprika3d/game-geo and @paprika3d/game-fx in the project as geo.js and fx.js on every `open`, so games import them from the project. */
-function ensureBundles(dir: string) {
+/** game-state's built files, which the skill has the agent copy: `${CLAUDE_PLUGIN_ROOT}` exists only in Claude Code, so `open` names them (dev #281). */
+const STATE_DIST = resolve(import.meta.dirname, "..", "state/dist");
+/** Puts the built @paprika3d/game-geo and @paprika3d/game-fx in the project as geo.js and fx.js on every `open`, so games import them from the project,
+    never over a newer copy (one from a dev build, dev #337); returns the names it wrote and those it kept, with their versions. */
+function ensureBundles(dir: string): { wrote: string[]; kept: { name: string; have: string; ours?: string }[] } {
+  const wrote: string[] = [], kept: { name: string; have: string; ours?: string }[] = [];
   for (const from of BUNDLES) {
     const to = join(dir, basename(from));
-    if (existsSync(from) && (!existsSync(to) || !readFileSync(to).equals(readFileSync(from)))) { mkdirSync(dir, { recursive: true }); copyFileSync(from, to); }
+    if (!existsSync(from)) continue;
+    const ours = readFileSync(from), have = existsSync(to) ? readFileSync(to) : null;
+    if (have?.equals(ours)) continue;
+    const [h, o] = [have, ours].map(b => b ? bundleVersion(b.subarray(0, 200).toString()) : undefined);
+    if (have && newerBundle(h, o)) { kept.push({ name: basename(from), have: h!, ours: o }); continue; }
+    mkdirSync(dir, { recursive: true }); copyFileSync(from, to); wrote.push(basename(from));
   }
+  return { wrote, kept };
 }
 
 /** One line on what the project holds, so the agent need not ls it or read package.json before writing. */
@@ -307,18 +385,20 @@ const testsOrNull = (dir: string) => { try { return loadContract(dir, TESTS); } 
 const lastFull = new WeakMap<Game, { key: string; at: string; r: CheckResult & { changed: boolean } }>();
 // games the after-edit hook's check reloaded: the agent's next call says so, or a zoom after it saw frame 1 with no word why (feel-9)
 const hookReset = new WeakSet<Game>();
+// games whose hook check paused between its keypoints for an agent's call (dev #410): that call says the check goes on after it
+const hookPaused = new WeakSet<Game>();
 // the Lighting and Surfaces lines the hook's next fault recheck compares with: the agent's last look from the game's own
 // camera (noteTest), or the last recheck
 const hookFaults = new WeakMap<Game, { frame?: number; lines: string[] }>();
 // the sources each game's page ran at its last look (noteTest): a look on other sources follows an edit, which can close a fault line
 const lookPrint = new WeakMap<Game, string>();
-const edited = (g: Game) => lookPrint.has(g) && lookPrint.get(g) !== loadedPrint;
+const edited = (g: Game) => lookPrint.has(g) && lookPrint.get(g) !== slotFor(g)?.loadedPrint;
 // games a sheet or `test` left at its last moment instead of reloading: the next call reloads first, unless it reloads first
 // anyway (selfFresh), so a sheet or `test` after one saves a reload (one of a sheet's 4 to 7, of a 4-check test's 5)
 const owed = new WeakSet<Game>();
 const selfFresh = (name: string, a: Record<string, any>) => name === "test" || name === "look" && !!(a.sheet || a.viewports || a.scroll || a.opening);
 // the page of g now runs the sources of print
-function loadedFrom(g: Game, print: string) { if (game === g) loadedPrint = print; for (const s of slots.values()) if (s.game === g) s.loadedPrint = print; }
+function loadedFrom(g: Game, print: string) { const s = slotFor(g); if (s) s.loadedPrint = print; }
 type Faults = CheckReply["faults"];
 
 /** A check's last reload, so the agent's next call starts at frame 0. Notes that the page runs the sources of `print`
@@ -342,7 +422,9 @@ async function reloadAfter(g: Game, dir: string, print: string, opts: { hook?: b
   return { stale, faults: { closed: d?.closed ?? [], opened: d?.opened ?? [], open: now.lines } };
 }
 
-export function runCheck(g: Game, dir: string, opts: { edit?: Edit; ci?: boolean; result?: CheckResult | null; reload?: boolean; tests?: boolean; hook?: boolean; faults?: boolean } = {}): Promise<CheckResult & { changed: boolean; faults?: Faults }> {
+/** With `yieldTo` (the hook's check), it pauses before a keypoint or the fault recheck when an agent's call waits, and
+    returns `paused`, which `resume` goes on from. */
+export function runCheck(g: Game, dir: string, opts: { edit?: Edit; ci?: boolean; result?: CheckResult | null; reload?: boolean; tests?: boolean; hook?: boolean; faults?: boolean; yieldTo?: () => boolean; resume?: Paused; restart?: boolean } = {}): Promise<CheckResult & { changed: boolean; drew?: string; faults?: Faults; paused?: Paused }> {
   return g.queue(async () => {
     // the saved checks (game-tests.json) when asked for, or when the project has them and no contract (the CLI's check after an edit)
     const tests = opts.tests ?? (!existsSync(join(dir, "game-contract.json")) && existsSync(join(dir, TESTS.file)));
@@ -353,18 +435,26 @@ export function runCheck(g: Game, dir: string, opts: { edit?: Edit; ci?: boolean
       const start = Date.now(), print = fingerprint(dir);
       // a page that already runs these sources (the agent's own call reached the server first and reloaded) is not
       // reloaded: that would reset what the agent did since (it may have played to frame 300), and its own look compares
-      const ran = (game === g ? loadedPrint : [...slots.values()].find(s => s.game === g)?.loadedPrint) === print;
+      const ran = slotFor(g)?.loadedPrint === print;
+      if (!ran && opts.yieldTo?.()) return { passed: 0, failed: 0, outcomes: [], durationMs: 0, fingerprint: print, text: "", changed: false, paused: { print, outcomes: [], stepped: { ms: 0, frames: 0 }, wait: { on: true }, ms: 0 } };
       const after = ran ? null : await reloadAfter(g, dir, print, opts);
       noteRun(dir, print, { ts: new Date().toISOString(), kind: "check", passed: 0, failed: 0, durationMs: Date.now() - start, failing: after?.stale ? undefined : [] });
       return { passed: 0, failed: 0, outcomes: [], durationMs: Date.now() - start, fingerprint: print, text: "", changed: false, faults: after?.faults };
     }
-    const contract = loadContract(dir, tests ? TESTS : { ci: opts.ci }); // first: a hand-edited contract is refused even when nothing else changed
+    const loaded = loadContract(dir, tests ? TESTS : { ci: opts.ci }); // first: a hand-edited contract is refused even when nothing else changed
+    // a check saved on another page of the project is not run here, where it could only fail (dev #182)
+    const page = pageOf(g.url), { contract, elsewhere } = tests ? onPage(loaded, page) : { contract: loaded, elsewhere: {} };
     const print = fingerprints(dir, { assets: true });
     const key = [print.sources, print.assets, JSON.stringify(contract), JSON.stringify(g.config), !!opts.ci, tests].join("|");
     const memo = lastFull.get(g);
     if (memo?.key === key) { if (owed.delete(g)) await g.reload(); return { ...memo.r, changed: false, text: `${memo.r.text}\n(these sources were already checked at ${memo.at}, by the after-edit hook or an earlier call, so this is that result)` }; }
     // `result`: a check `perf` with optimize already ran on these sources with the switches it kept, recorded instead of run again
-    const r = opts.result ?? await check(g, contract, { cwd: dir, print: print.sources, tests });
+    const r: CheckResult & { paused?: Paused } = opts.result ?? await check(g, contract, { cwd: dir, print: print.sources, tests, yieldTo: opts.yieldTo, resume: opts.resume, restart: opts.restart });
+    // paused for an agent's call: the page is left where a keypoint left it, so that call reloads first and says why
+    if (r.paused) { if (r.outcomes.length) { owed.add(g); if (!r.paused.edited) hookPaused.add(g); } return { ...r, changed: false }; }
+    // saved checks that ran their keypoints played the game (dev #382): the Stop hook said the final version was never
+    // played when `test` or the hook's rerun was the last call after an edit
+    if (tests && !opts.result && r.outcomes.length) noteTest(g);
     // a passing check has no picture of its own: its run.json goes in the run folder, and no check-N.png piles up after every edit
     const picture = r.outcomes.find(o => o.picture)?.picture ?? g.runDir;
     // the last keypoint left the page in its arranged state (a dead snake); the agent's next observe, act or look starts
@@ -375,9 +465,11 @@ export function runCheck(g: Game, dir: string, opts: { edit?: Edit; ci?: boolean
     if (opts.reload === false && !opts.result) { owed.add(g); if (!stale) loadedFrom(g, r.fingerprint); } // its keypoints' reloads ran these sources
     const state = noteRun(dir, r.fingerprint, { ts: new Date().toISOString(), kind: "check", passed: r.passed, failed: r.failed, durationMs: r.durationMs,
       failing: stale ? undefined : r.outcomes.filter(o => o.outcome !== "passed").map(o => o.id) });
-    recordRun({ cwd: dir, kind: "check", picture, contractHash: state.contractHash, passed: r.passed, failed: r.failed, outcomes: r.outcomes,
+    const { line: drew, ...on } = drewOn(g);
+    recordRun({ cwd: dir, kind: "check", picture, contractHash: state.contractHash, passed: r.passed, failed: r.failed, outcomes: r.outcomes, drew: on,
       durationMs: r.durationMs, iteration: state.iterations, elapsedMs: state.issued ? Date.now() - Date.parse(state.issued) : 0, fingerprint: r.fingerprint, edit: opts.edit });
-    const out = { ...r, text: `${r.text}${stale ? "\nstale: the sources changed while this check ran; run it again" : ""}`, changed: !stale && state.lastCheck!.changed };
+    const away = elsewhereLine(elsewhere, page);
+    const out = { ...r, drew, text: `${r.text}${away && `\n${away}`}${stale ? "\nstale: the sources changed while this check ran; run it again" : ""}`, changed: !stale && state.lastCheck!.changed };
     if (!stale) lastFull.set(g, { key, at: `${new Date().toTimeString().slice(0, 8)} local time`, r: out });
     return after?.faults ? { ...out, faults: after.faults } : out; // kept out of lastFull: a repeat of these sources closes nothing
   });
@@ -385,9 +477,9 @@ export function runCheck(g: Game, dir: string, opts: { edit?: Edit; ci?: boolean
 
 /** Records a look or perf run, which has no keypoints. */
 function recordPlain(kind: string, picture: string, durationMs: number, extra: Partial<Run> = {}) {
-  const print = fingerprint(cwd);
-  const state = noteRun(cwd, print, { ts: new Date().toISOString(), kind, passed: 0, failed: 0, durationMs });
-  recordRun({ cwd, kind, picture, contractHash: state.contractHash, passed: 0, failed: 0, outcomes: [], durationMs, iteration: state.iterations,
+  const print = fingerprint(S().cwd);
+  const state = noteRun(S().cwd, print, { ts: new Date().toISOString(), kind, passed: 0, failed: 0, durationMs });
+  recordRun({ cwd: S().cwd, kind, picture, contractHash: state.contractHash, passed: 0, failed: 0, outcomes: [], durationMs, iteration: state.iterations,
     elapsedMs: state.issued ? Date.now() - Date.parse(state.issued) : 0, fingerprint: print, ...extra });
 }
 
@@ -404,7 +496,7 @@ async function startControl(): Promise<Server> {
     if (req.method !== "POST" || new URL(req.url ?? "/", "http://127.0.0.1").pathname !== "/check") return reply(404, "not found");
     const body = await json(req).catch(() => null) as { token?: string; edit?: Edit; ci?: boolean; tests?: boolean; faults?: boolean } | null;
     if (body?.token !== token) return reply(403, "forbidden");
-    const { game, cwd } = mainGame();
+    const main = mainGame(), { game, cwd } = main;
     if (!game) return reply(409, "no game open");
     log(`check from the control socket${body.edit ? ` after ${body.edit.file || "a shell command"}` : ""}`);
     // A check still waiting in the queue runs on the sources as they are when it starts, so a later request joins it
@@ -416,22 +508,34 @@ async function startControl(): Promise<Server> {
     if (!p) {
       const g = game;
       // in the call queue, as an agent's call is (#205): on the game's queue alone, a call behind a 7.8 min check spent
-      // its own 10 min limit waiting and its reply never said so; here the call says it waited and its limit starts after
-      const run = calls.then(() => {
-        if (waiting === mine) waiting = null;
-        running = HOOK;
-        return guarded(g.queue(() => {
-          // queued behind a call whose page hung: every keypoint would fail on the closed page and read as a change
-          if (g.page.isClosed() || !g.page.browser().connected) throw new Error("the game's page was closed after a call hung; the agent's next call opens it again");
-          return runCheck(g, cwd, { edit: mine.edit, ci: mine.ci, tests: mine.tests, faults: mine.faults, hook: true });
-        }), "check", () => g).finally(() => { running = null; });
-      });
-      calls = run.catch(() => {});
-      mine.result = run;
+      // its own 10 min limit waiting and its reply never said so; here the call says it waited and its limit starts after.
+      // It gives way to an agent's call between keypoints and goes on behind it (dev #410): run whole, a rerun of the saved
+      // checks held every call after an edit for 155-385 s on SwiftShader, and 18 min in one game
+      // It also starts over when an edit lands while it runs (dev #439), as the next file of a multi-file change does
+      const q = { name: savedChecks(main.cwd) ? HOOK : HOOK_BARE };
+      // never for an `open`, which closes the page the check runs on
+      const agent = () => main.queued.some(x => x !== q && x.name !== HOOK && x.name !== HOOK_BARE && x.name !== "open");
+      // sources that change under every run (a file the game's own server keeps writing) would start it over for ever
+      let restarts = 0;
+      const turn = (resume?: Paused): ReturnType<typeof runCheck> => {
+        main.queued.push(q);
+        const run = main.calls.then(() => {
+          if (waiting === mine) waiting = null;
+          return guarded(g.queue(() => {
+            // queued behind a call whose page hung: every keypoint would fail on the closed page and read as a change
+            if (g.page.isClosed() || !g.page.browser().connected) throw new Error("the game's page was closed after a call hung; the agent's next call opens it again");
+            return runCheck(g, cwd, { edit: mine.edit, ci: mine.ci, tests: mine.tests, faults: mine.faults, hook: true, yieldTo: agent, resume, restart: restarts < 3 });
+          }), "check", () => g).finally(() => unqueue(main, q));
+        });
+        main.calls = run.catch(() => {});
+        // the rest runs behind the calls that were waiting, on the sources as they are then; a request meanwhile joins it
+        return run.then(r => { if (!r.paused) return r; if (r.paused.edited) restarts++; waiting ??= mine; return turn(r.paused); });
+      };
+      mine.result = turn();
     }
     try {
       const r = await mine.result;
-      reply(200, { passed: r.passed, failed: r.failed, changed: r.changed && me === mine.latest, text: r.text, faults: me === mine.latest ? r.faults : undefined });
+      reply(200, { passed: r.passed, failed: r.failed, changed: r.changed && me === mine.latest, text: r.text, drew: r.drew, faults: me === mine.latest ? r.faults : undefined });
     } catch (e) { reply(500, { error: (e as Error).message }); }
   });
   await new Promise<void>(ok => server.listen(0, "127.0.0.1", ok));
@@ -440,29 +544,37 @@ async function startControl(): Promise<Server> {
 
 /** Closes the open game and takes the server out of its project's state.json. */
 async function closeGame() {
-  if (!game) return;
-  const g = game, dir = cwd;
-  game = null;
-  if (current === "main") updateState(dir, s => { s.server = null; });
+  const s = S();
+  if (!s.game) return;
+  const g = s.game, dir = s.cwd;
+  s.game = null;
+  if (s.name === "main") updateState(dir, s => { s.server = null; });
   // after any check the control socket already queued, never under it; with Chrome gone, a stuck queue may never drain
   await (g.page.browser().connected && !g.page.isClosed() ? g.queue(() => g.close()) : g.close());
 }
 
-/** `open`'s and `perf`'s `network`, checked. */
+/** `open`'s and `perf`'s `network`, checked: a preset's name, or kbps and latency with no other key. */
 const netArg = (n: unknown) => {
-  if (n !== undefined && !Object.hasOwn(NETWORKS, String(n))) throw new Error(`network: one of ${Object.keys(NETWORKS).join(", ")}`);
-  return n as Network | undefined;
+  if (n === undefined || typeof n === "string" && Object.hasOwn(NETWORKS, n)) return n as Network | undefined;
+  const o = n as Record<string, unknown>, num = (v: unknown, min: number) => typeof v === "number" && Number.isFinite(v) && v >= min;
+  if (o && typeof o === "object" && !Array.isArray(o) && Object.keys(o).every(k => ["downKbps", "upKbps", "latencyMs"].includes(k))
+    && num(o.downKbps, 1) && (o.upKbps === undefined || num(o.upKbps, 1)) && num(o.latencyMs, 0) && (o.latencyMs as number) <= 60_000) return n as Network;
+  throw new Error(`network: one of ${Object.keys(NETWORKS).join(", ")}, or { downKbps, upKbps, latencyMs } (kbps of at least 1, upKbps optional, latency 0 to 60000 ms)`);
 };
 const slowed = (t?: number) => t && t > 1 ? `\nMeasured with the page's JavaScript slowed ${t}× (a weak laptop); the GPU was not slowed.` : "";
 // other Chromes and builds on the host slow every number (AA-3D: load 23 on 4 cores, "too noisy" to compare two samples)
 const hostLoad = () => { const l = loadavg()[0]!, n = cpus().length; return `Host load ${l.toFixed(1)} on ${n} cores${l > n * 0.75 ? ": a busy host, so these numbers are noisy; measure again when it is quieter" : ""}.`; };
 const need = () => {
-  if (game) return game;
-  const open = [...slots].filter(([, v]) => v.game).map(([k]) => k); // the current slot's game is null here, so slots holds every open game
-  if (open.length) throw new Error(`no game "${current}" is open; open games: ${open.join(", ")}. Pass game: "${open[0]}" or call \`open\` with game "${current}".`);
-  throw new Error(current === "main" ? "no game is open; call `open` first" : `no game "${current}" is open; call \`open\` with game "${current}" first`);
+  const g = S().game;
+  if (g) return g;
+  const open = [...slots].filter(([, v]) => v.game).map(([k]) => k);
+  const by = closedFor.get(S().name);
+  if (by) throw new Error(`game "${S().name}" was closed when game "${by}" opened: at most ${MAX_GAMES} games are open at once, and the one used longest ago closes. Call \`open\` with game "${S().name}" to open it again.`);
+  if (open.length) throw new Error(`no game "${S().name}" is open; open games: ${open.join(", ")}. Pass game: "${open[0]}" or call \`open\` with game "${S().name}".`);
+  throw new Error(S().name === "main" ? "no game is open; call `open` first" : `no game "${S().name}" is open; call \`open\` with game "${S().name}" first`);
 };
-let evicted = "";
+/** Each named game closed for another to open, and the game that opened then: its next call says why (#248). */
+const closedFor = new Map<string, string>();
 /** A `save` name, checked before any input. */
 const saveName = (s: unknown) => { if (s !== undefined && (typeof s !== "string" || !/^[\w-]{1,64}$/.test(s))) throw new Error('save: a name of letters, digits, - or _, as "pickup"'); };
 /** "Saved" or "Replaced": whether game-tests.json in `dir` already holds a check of this name, which a save writes over. */
@@ -512,19 +624,22 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
   },
 
   async open(a) {
+    const s = S();
     // agents reopen to pick up an edit (15 times in one AA-3D cell, each with a 40-130 s check under emulation): the
     // contract runs on the first open of a project only; after that the hook checks edits and `check` runs it all
-    const again = !!game && resolve(a.cwd) === cwd;
+    const again = !!s.game && resolve(a.cwd) === s.cwd;
     // a url on the origin of this game's dev server (`open { url: "http://localhost:5199/?at=course" }` after a command open):
     // closing the game stops that server, so the same command opens the url on a restarted one instead (dev #127)
-    if (again && !a.command && opened.command && typeof a.url === "string" && /^https?:\/\//.test(a.url) && new URL(a.url).origin === new URL(game!.url).origin) a = { ...a, command: opened.command };
-    const repeat = again && JSON.stringify(a) === JSON.stringify(opened); // same arguments as this game's last open (opened is kept per slot)
+    if (again && !a.command && s.opened.command && typeof a.url === "string" && /^https?:\/\//.test(a.url) && new URL(a.url).origin === new URL(s.game!.url).origin) a = { ...a, command: s.opened.command };
+    const repeat = again && JSON.stringify(a) === JSON.stringify(s.opened); // same arguments as this game's last open (opened is kept per slot)
     // every AA-3D agent checked its scene at other window sizes (a phone, 1920 × 1080), the plugin's in a Playwright
     // script of their own since the page was always 1280 × 800
     const size = a.size as number[] | undefined;
     if (size && !(size.length === 2 && size.every(n => Number.isInteger(n) && n >= 200 && n <= 4096))) throw new Error("size: width and height from 200 to 4096, whole CSS pixels, as [width, height]");
     const dpr = a.dpr as number | undefined;
     if (dpr !== undefined && !(typeof dpr === "number" && dpr >= 1 && dpr <= 4)) throw new Error("dpr: a device pixel ratio from 1 to 4");
+    if (a.device !== undefined && a.device !== "phone") throw new Error('device: "phone" is the one device');
+    const phone = a.device === "phone";
     const network = netArg(a.network);
     if (a.browser !== undefined && !Object.hasOwn(BROWSERS, a.browser)) throw new Error(`browser: one of ${Object.keys(BROWSERS).join(", ")}`);
     if (a.browser !== undefined) refuse(a.browser, a); // what the engine lacks, before anything opens
@@ -533,85 +648,105 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
     if (!existsSync(resolve(a.cwd))) throw new Error(`cwd ${resolve(a.cwd)} does not exist; pass the game project's folder`);
     await closeGame();
     // more named games than MAX_GAMES: the one used longest ago, never main, is closed
-    const others = [...slots].filter(([k, v]) => v.game && k !== "main");
-    if (others.length + (current !== "main" && slots.get("main")?.game ? 1 : 0) + 1 > MAX_GAMES && others.length) {
-      const [k, v] = others.sort((x, y) => x[1].used - y[1].used)[0]!;
-      slots.delete(k);
+    const others = [...slots].filter(([k, v]) => v.game && !v.closing && k !== "main");
+    let evicted = "";
+    // games open or opening now (two agents can open at once), and this one
+    if ([...slots.values()].filter(v => v !== s && (v.game || v.opening) && !v.closing).length + 1 > MAX_GAMES) {
+      // the others are all still opening: none can be closed for this one yet
+      if (!others.length) throw new Error(`at most ${MAX_GAMES} games are open at once, and ${MAX_GAMES} others are opening now; call \`open\` again when one has opened.`);
+      // one no call is waiting on, when there is one: a game closed under its agent's running call costs that call
+      const idle = others.filter(([, v]) => !v.queued.length);
+      const [k, v] = (idle.length ? idle : others).sort((x, y) => x[1].used - y[1].used)[0]!;
       evicted = k;
-      await v.game!.queue(() => v.game!.close()).catch(() => {});
+      closedFor.set(k, s.name);
+      // after the calls it has running or queued, as one of its own
+      // a second `open` running beside this one takes another game, not this one again
+      v.closing = true;
+      await (v.calls = v.calls.then(async () => { const g = v.game; v.game = null; await g?.queue(() => g.close()).catch(() => {}); }).finally(() => { v.closing = false; }));
     }
-    cwd = resolve(a.cwd);
-    ensureBundles(cwd);
+    closedFor.delete(s.name);
+    s.cwd = resolve(a.cwd);
+    // a page served from elsewhere never imports from cwd, so bundles written there were two stray files (#247)
+    const served = !!a.command || typeof a.url !== "string" || !/^https?:\/\//.test(a.url);
+    const { wrote, kept } = served ? ensureBundles(s.cwd) : { wrote: [], kept: [] };
     // one headless Chrome for the server's life (launched as the first game's dev server starts); each game gets a
     // context of its own in it, so a reopen skips Chrome's ~0.3 s launch and ~0.1 s close
     const inChrome = a.browser === undefined || a.browser === "chrome";
-    if (inChrome && !a.window && !(await chrome?.catch(() => null))?.connected) chrome = launchChrome();
-    const viewport = size || dpr ? { width: size?.[0] ?? VIEWPORT.width, height: size?.[1] ?? VIEWPORT.height, deviceScaleFactor: dpr ?? 1 } : undefined;
-    try { game = await openGame({ url: a.url, command: a.command, cwd, window: a.window, browser: a.window || !inChrome ? undefined : chrome, engine, viewport, reducedMotion: !!a.reducedMotion }); loadedPrint = fingerprint(cwd); }
+    if (inChrome && !a.window) await sharedChrome();
+    const [pw, ph, pd] = VIEWPORTS.phone, base = phone ? { width: pw, height: ph, deviceScaleFactor: pd } : { ...VIEWPORT, deviceScaleFactor: 1 };
+    const viewport = size || dpr || phone ? { width: size?.[0] ?? base.width, height: size?.[1] ?? base.height, deviceScaleFactor: dpr ?? base.deviceScaleFactor } : undefined;
+    try { s.game = await openGame({ url: a.url, command: a.command, cwd: s.cwd, window: a.window, browser: a.window || !inChrome ? undefined : chrome, engine, viewport, reducedMotion: !!a.reducedMotion, device: phone ? "phone" : undefined }); s.loadedPrint = fingerprint(s.cwd); }
     catch (e) { // the game that was open is closed by now: say so, or the next tool call's "no game is open" is a surprise
       throw new Error(`${(e as Error).message}${again ? "\nThe game that was open is closed, so no game is open now: call `open` again." : ""}`);
     }
-    opened = { ...a };
+    s.opened = { ...a };
     // a visitor's first load on a slow network, timed on a reload of its own: the open itself stays paused and fast
-    const visit = network ? await firstFrame(game, network) : undefined;
+    const visit = network ? await firstFrame(s.game, network) : undefined;
     control ??= await startControl();
     const port = (control.address() as AddressInfo).port;
-    if (current === "main") updateState(cwd, s => Object.assign(s, { url: a.url ?? null, command: a.command ?? null, server: { port, token } }));
-    log(`opened ${game.url}; control socket on 127.0.0.1:${port}`);
-    const errors = game.errors.length ? `\nErrors so far:\n${uniq(game.errors, 10, true).join("\n")}` : "";
-    const loads = game.loads;
+    if (s.name === "main") updateState(s.cwd, s => Object.assign(s, { url: a.url ?? null, command: a.command ?? null, server: { port, token } }));
+    log(`opened ${s.game.url}; control socket on 127.0.0.1:${port}`);
+    const errors = s.game.errors.length ? `\nErrors so far:\n${uniq(s.game.errors, 10, true).join("\n")}` : "";
+    const loads = s.game.loads;
     const failed = loads.filter(l => l.status >= 400 || l.status === 0).slice(0, 20).map(l => `${l.name} (${l.error ?? l.status})`);
     const ok = loads.filter(l => l.status > 0 && l.status < 400).slice(0, 20).map(l => `${l.name}${l.bytes ? ` ${(l.bytes / 1e6).toFixed(1)} MB` : ""}`);
     const loaded = (ok.length ? `\nLoaded: ${ok.join(", ")}` : "") + (failed.length ? `\nFailed to load: ${failed.join(", ")}` : "");
     // the first check rides along: with a contract, opening the game is also checking it, so no separate `check` turn follows
-    const contract = !!contractOrNull(cwd);
-    const first = contract && !again ? await runCheck(game, cwd).then(c => `\n\nFirst check:\n${c.text}`, e => `\n\nFirst check failed: ${(e as Error).message}`) : "";
+    const contract = !!contractOrNull(s.cwd);
+    const first = contract && !again ? await runCheck(s.game, s.cwd).then(c => `\n\nFirst check:\n${c.text}`, e => `\n\nFirst check failed: ${(e as Error).message}`) : "";
     const reopened = contract && again ? "\nReopened without a contract check: the hook checks each edit; `check` runs the whole contract." : "";
     // the reply is the one text every run reads, so it names the step agents skip (docs/results-assets-2026-10-13.md)
     const next = first ? "" : "\nNext: `look` to see it, then `interact` for each interaction the request names.";
     // ensureBundles writes them on every open; agents found two files they never wrote (opinion-7: 4 of 5)
     // and that the page ships them: agents read "kept current" as code changing under the game (opinion-9, opinion-10); one
-    // deleted them with paprika3d/ as clutter, which silenced the Stop hook (#65), so the line says to leave them; the
-    // signatures are the ones the 2026-10-24 scene loops dug out of the minified fx.js
-    const geo = `\ngeo.js and fx.js are here, written on the first open and replaced only when the plugin's copy changes (each starts with the plugin version that wrote it): they are the plugin's, part of the project like node_modules: leave them in place.`
+    // deleted them with paprika3d/ as clutter, which silenced the Stop hook (#65), so the line says to leave them
+    const geo = `\ngeo.js and fx.js are here, written on the first open and replaced when the plugin's copy changes, never by an older version (each starts with the plugin version that wrote it): they are the plugin's, part of the project like node_modules: leave them in place.`
+      + (existsSync(join(STATE_DIST, "game-state.js")) ? `\ngame-state.js and physics-worker.js are in ${STATE_DIST}: copy them next to the entry file only for a game that uses game-state (the skill's Game state).` : "")
       + `\nProcedural geometry: import { geo, scatter } from "./geo.js" (see the skill's geometry reference).`
-      + `\nEffects: import { stage, tex, field, place, instances, sfx, burst, shake, uv, picture, bake, trace, heightfield } from "./fx.js" (lights and camera, canvas textures, terrain, placement, sound, particles, a reference picture's camera and pixel maps, a subtree as GLB bytes, a picture's outlines and heights; seeded, no files).`
-      + `\npicture({ position, lookAt?, fov?, size? }) returns { camera, at(px, py, depth), ground(px, py, y?), px(point), fit(width, height, cam?) }; bake(object, { animations? }) returns a Promise of GLB bytes (an ArrayBuffer, which eval { save } writes to a file); trace(src, { colour?, tolerance?, invert?, simplify?, minArea?, scale? }) returns a Promise of { shapes, mask, width, height }; heightfield(src, { size, height, base? }) returns a Promise of a Field like field()'s. Every option: references/fx.md in the threejs-game skill.`;
+      // names only: the signatures printed here grew to 1,500 characters that references/fx.md repeats and a grep of the
+      // unminified fx.js finds (opinion-15 and feel-11: 5 of 6 agents called the reply a manual)
+      + `\nEffects: import { stage, tex, field, place, instances, sfx, burst, shake, uv, picture, bake, handoff, unrealScript, trace, heightfield, water, foliage, sow, crown, post } from "./fx.js". Each one's signature and options: references/fx.md in the threejs-game skill, or \`function <name>(\` in fx.js.`;
+    // a reopen's reply had no bundle line, so copies deleted from a built dist/ came back unsaid and nearly shipped (dev #328)
+    const rewrote = (names: string[], dir: string) => `\nWrote ${names.join(", ")} in ${dir} again (open rewrites them when missing or different from the plugin's, unless newer): leave them in a source folder; a build folder whose page imports neither can drop them before a deploy.`;
+    // a dev build's fx.js lost water(), post() and foliage() to an older server's open (dev #337, #339)
+    const keptText = kept.length ? `\nKept ${kept.map(k => `${k.name} ${k.have}`).join(", ")} in ${s.cwd}: newer than this plugin's ${uniq(kept.map(k => k.ours ?? "copy"), 2).join(", ")}, so open left ${kept.length > 1 ? "them" : "it"} in place; what ${kept.length > 1 ? "they export" : "it exports"} can go past this plugin's references.` : "";
     // describe() is the same on most reopens (an edit rarely changes it), and it is ~1 KB on a full game
-    const { hasConvention: _, ...shown } = game.info, info = JSON.stringify(shown), same = described.get(`${cwd}\0${game.url}`) === info;
-    described.set(`${cwd}\0${game.url}`, info);
+    const { hasConvention: _, ...shown } = s.game.info, info = JSON.stringify(shown), same = described.get(`${s.cwd}\0${s.game.url}`) === info;
+    described.set(`${s.cwd}\0${s.game.url}`, info);
     // a page whose setup is slow shows nothing that long; agents never saw it (an atlantis page ready in 12 s here
     // drew no frame in the judging browser's 60 s), so the time is in every reply and a slow one is called out
-    const secs = (game.loadMs / 1000).toFixed(1);
+    const secs = (s.game.loadMs / 1000).toFixed(1);
     // a loading veil or title card over the first frame is what a player and the judges see first, and no look of the 3D
     // scene showed it (AA-3D full-1: such a first frame lost 4 of the 5 votes where only one side had one)
-    const over = (await game.page.evaluate("__harness.covers()").catch(() => []) as Cover[]);
+    const over = (await s.game.page.evaluate("__harness.covers()").catch(() => []) as Cover[]);
     const cover = over.length ? `\n${coversText(over).join("\n")}${over.some(c => c.over) ? " A visitor sees it first; `look` opening: true shows how long it stays." : ""}` : "";
-    const slow = visit ? `${visit.line} ${hostLoad()}` : slowStart(game.loadMs, game.software);
+    const slow = visit ? `${visit.line} ${hostLoad()}` : slowStart(s.game.loadMs, s.game.software);
     // agents write three.js from an older release than the page loads: the removed API they used, before they debug it
-    const stale = [...staleThree(cwd), ...uniq(game.warned, 5).map(w => `three.js warned: ${w}`)].map(l => `\n${l}`).join("");
+    const stale = [...staleThree(s.cwd), ...uniq(s.game.warned, 5).map(w => `three.js warned: ${w}`)].map(l => `\n${l}`).join("");
     // a black page's server-side error, a canvas with no height, and what a crawler reads
-    const around = (await openText(game, cwd)).map(l => `\n${l}`).join("");
-    const lights = lightsText(await game.page.evaluate(LIGHTS).catch(() => null) as Lights | null), lit = lights && `\n${lights}`;
+    const around = (await openText(s.game, s.cwd)).map(l => `\n${l}`).join("");
+    const lights = lightsText(await s.game.page.evaluate(LIGHTS).catch(() => null) as Lights | null), lit = lights && `\n${lights}`;
     // a mistagged texture draws washed out or wrong in every look after; say it before the first one (web3d layer 1, #30)
-    const spaces = (await game.page.evaluate(COLOUR_SPACES).catch(() => []) as string[]).map(l => `\n${l}`).join("");
-    const named = current === "main" ? "" : ` as game "${current}"${evicted ? ` (game "${evicted}" was closed: at most ${MAX_GAMES} games are open at once)` : ""}`;
-    evicted = "";
-    const at = viewport ? ` at ${viewport.width} × ${viewport.height}${dpr ? `, DPR ${dpr}` : ""}` : "";
+    const spaces = (await s.game.page.evaluate(COLOUR_SPACES).catch(() => []) as string[]).map(l => `\n${l}`).join("");
+    const named = s.name === "main" ? "" : ` as game "${s.name}"${evicted ? ` (game "${evicted}" was closed: at most ${MAX_GAMES} games are open at once)` : ""}`;
+    const at = viewport ? `${phone ? " as a phone (touch, coarse pointer, a phone's user agent)" : ""} at ${viewport.width} × ${viewport.height}${dpr || phone ? `, DPR ${viewport.deviceScaleFactor}` : ""}` : "";
     if (TELEMETRY) {
-      const page = await game.page.evaluate("({ three: window.__THREE__ ?? null, game: !!window.__game, webgpu: !!window.__harness?.renderers?.some(r => r.isWebGPURenderer) })").catch(() => ({})) as object;
-      const models = game.loads.filter(l => /\.(glb|gltf|usd[acz]?)(\?|$)/i.test(l.name));
-      const r3f = (() => { try { return readFileSync(join(cwd, "package.json"), "utf8").includes('"@react-three/fiber"'); } catch { return false; } })();
-      noteOpen({ open: { via: a.command ? "command" : "url", ...page, r3f, models: models.length, mb: Math.round(game.loads.reduce((n, l) => n + (l.bytes ?? 0), 0) / 1e5) / 10, loadS: Math.round(game.loadMs / 1000), software: game.software } });
+      const page = await s.game.page.evaluate("({ three: window.__THREE__ ?? null, game: !!window.__game, webgpu: !!window.__harness?.renderers?.some(r => r.isWebGPURenderer) })").catch(() => ({})) as object;
+      const models = s.game.loads.filter(l => /\.(glb|gltf|usd[acz]?)(\?|$)/i.test(l.name));
+      const r3f = (() => { try { return readFileSync(join(s.cwd, "package.json"), "utf8").includes('"@react-three/fiber"'); } catch { return false; } })();
+      noteOpen({ open: { via: a.command ? "command" : "url", ...page, r3f, models: models.length, mb: Math.round(s.game.loads.reduce((n, l) => n + (l.bytes ?? 0), 0) / 1e5) / 10, loadS: Math.round(s.game.loadMs / 1000), software: s.game.software } });
     }
+    // Chrome turns prerendering off while DevTools drives it (PrerenderingDisabledByDevTools), so a speculation-rules swap cannot be timed here (dev #175)
+    const spec = await s.game.page.evaluate(`[...document.querySelectorAll('script[type="speculationrules"]')].flatMap(s => { try { return (JSON.parse(s.textContent).prerender ?? []).flatMap(r => r.urls ?? (r.where ? ["(document rules)"] : [])); } catch { return []; } })`).catch(() => []) as string[];
+    const prerender = spec.length ? `\nSpeculation rules: the page asks to prerender ${[...new Set(spec)].slice(0, 3).join(", ")}, but nothing is prerendered here (Chrome turns prerendering off under DevTools), so a click there is a full load; time that swap in a browser of your own.` : "";
     const reduced = a.reducedMotion ? "\nReduced motion: the page gets prefers-reduced-motion: reduce. Look, step 60 frames (`interact` wait), look again: the Pixels line says whether animation stopped." : "";
     // another engine is named first: by the agent's ask, or because Chrome was missing (browser.ts openGame)
-    const e = game.engine, said = e.name === "chromium" ? "" : `${SAID[e.name]} ${e.version}`;
+    const e = s.game.engine, said = e.name === "chromium" ? "" : `${SAID[e.name]} ${e.version}`;
     const engineLine = e.instead ? `No Chrome at ${e.instead}: opened in ${said} instead. Set PAPRIKA3D_CHROME, or install Chrome, for the default engine.\n` : "";
     // the GPU once per server until it changes (another browser, a window), as perf names it with every measure (#133)
-    const gpu = gpuLine(game), gpuSaid = gpu === saidGpu ? "" : `\n${gpu}`;
+    const gpu = gpuLine(s.game), gpuSaid = gpu === saidGpu ? "" : `\n${gpu}`;
     saidGpu = gpu;
-    return text(`${engineLine}Opened ${said && !e.instead ? `in ${said}: ` : ""}${game.url}${named}${at} in ${secs} s, paused at frame 0.${repeat ? "\nAn open is needed only for a fresh frame 0: after an edit, the next tool call reloads by itself." : ""}${gpuSaid}${slow && `\n${slow}`}${reduced}${stale}${cover}${around}${lit}${spaces}\n${same ? "describe(): unchanged since the last open" : info}${again ? "" : geo}${errors}${loaded}${next}${reopened}${first}${disclosure()}\n\nRun folder: ${game.runDir}`);
+    return text(`${engineLine}Opened ${said && !e.instead ? `in ${said}: ` : ""}${s.game.url}${named}${at} in ${secs} s, paused at frame 0.${repeat ? "\nAn open is needed only for a fresh frame 0: after an edit, the next tool call reloads by itself." : ""}${gpuSaid}${slow && `\n${slow}`}${reduced}${prerender}${stale}${cover}${around}${lit}${spaces}\n${same ? "describe(): unchanged since the last open" : info}${again || !served ? "" : geo}${again && wrote.length ? rewrote(wrote, s.cwd) : ""}${keptText}${errors}${loaded}${next}${reopened}${first}${disclosure()}\n\nRun folder: ${s.game.runDir}`);
   },
 
   async observe() {
@@ -621,7 +756,7 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
 
   async eval(a) {
     const g = need();
-    const r = await evaluate(g, a.code, a.save, cwd);
+    const r = await evaluate(g, a.code, a.save, S().cwd);
     if (r.stepped) noteTest(g, undefined, r.stepped); // a bot that stepped frames played the game (build-review-1, #90)
     return r.failed ? fail(r.text) : text(r.text);
   },
@@ -630,31 +765,44 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
     const g = need();
     // refused before any input: a check saved without expect passes whatever happens
     saveName(a.save);
+    // a client writes a field with two types (boolean or "video") as a string: "true" recorded nothing and said nothing (#355)
+    if (a.record === "true" || a.record === "false") a.record = a.record === "true";
     if (a.save !== undefined && a.expect === undefined) throw new Error("a saved check needs `expect`, or it passes whatever happens: add expect: { path: value } for what this play must reach");
     if (a.record === "video" && !VIDEO) throw new Error('record: "video" is not in this build; record: true keeps a GIF; nothing was played');
+    if ((a.fps !== undefined || a.size !== undefined) && a.record !== "video") throw new Error('fps and size are for record: "video"; nothing was played');
+    if (a.fps !== undefined && a.fps !== 30 && a.fps !== 60) throw new Error(`fps is 30 or 60, not ${JSON.stringify(a.fps)}; nothing was played`);
+    if (a.size !== undefined && !(Number.isInteger(a.size) && a.size >= 64 && a.size <= 4096)) throw new Error(`size is a whole number of px from 64 to 4096, not ${JSON.stringify(a.size)}; nothing was played`);
     if (a.save !== undefined && a.record) throw new Error(`${a.record === "video" ? "a video films one play" : "record plays in real time"} and a saved check replays from a fresh reload: save the check in one call and record in another; nothing was played`);
     // errors the steps raised come back with the state, as observe and eval give theirs, without another observe
     // and so do the log lines they printed, the newest 5 distinct when every frame prints a different one
-    const { r, hovered, errors, logs } = await g.queue(async () => {
+    const { r, hovered, unreal, errors, logs, restarted } = await g.queue(async () => {
       // a save plays from a fresh reload, as `test` reruns it: a score left by the last call passed a check that
-      // `test` then failed (feel-4, opinion-5)
+      // `test` then failed (feel-4, opinion-5). On a page already played the reply says so: the chunk of a play that
+      // carried `save` started over with no word, and its Expect read as the game's fault (dev #407)
+      const was = a.save !== undefined ? await g.page.evaluate(FRAME).catch(() => 0) as number : 0;
       if (a.save !== undefined) await g.reload();
+      const restarted = was > 0 ? `Played from a fresh reload at frame 0, as \`test\` reruns a saved check: the page was at frame ${was}, and what earlier calls did on it is gone.\n` : "";
+      // the replay's own rule, before the play: a state key observe() does not report back fails every `test` (dev #280)
+      const lead = a.save !== undefined ? leadState(a.steps ?? []) : {};
+      const unreal = Object.keys(lead).length ? (await gameUp(g, ["setState", "observe"]), await realize(g, lead)) : "";
       const n = g.errors.length, stop = printedLines(g.page, true);
       try {
-        const r = await act(g, (a.steps ?? (a.hover && [])) as Step[], { trace: a.trace, expect: a.expect, record: a.record === "video" ? "video" : a.record === true }), hovered = a.hover && await hover(g, a.hover as string[], a.frames as number | undefined);
-        return { r, hovered, errors: g.errors.slice(n), logs: stop() };
+        const r = await act(g, (a.steps ?? (a.hover && [])) as Step[], { trace: a.trace, expect: a.expect, record: a.record === "video" ? "video" : a.record === true, video: { fps: a.fps, size: a.size } }), hovered = a.hover && await hover(g, a.hover as string[], a.frames as number | undefined);
+        return { r, hovered, unreal, restarted, errors: g.errors.slice(n), logs: stop() };
       } finally { stop(); }
     });
     noteTest(g, undefined, keyFramesOf(a.steps as Step[] | undefined, r.framesRun));
-    const paced = a.record ? undefined : await pacing(g, a.steps as Step[] | undefined, async () => { if (!(await chrome?.catch(() => null))?.connected) chrome = launchChrome(); return chrome!; }, cwd);
+    const probeChrome = sharedProbeChrome(async () => { await sharedChrome(); return chrome!; });
+    const [paced, responded] = a.record ? [] : await Promise.all([pacing(g, a.steps as Step[] | undefined, probeChrome, S().cwd), response(g, a.steps as Step[] | undefined, probeChrome, S().cwd)]);
     const reply = capAct(r.after, r.changed); // the state before is what the last observe or act already showed
     // a play that came out right becomes a check `test` reruns from a fresh reload; one that did not is not saved
-    const verb = a.save !== undefined ? savedVerb(cwd, a.save) : "Saved", n = a.save !== undefined && r.passed ? saveTest(cwd, a.save, a.steps ?? [], predicates(a.expect)) : 0;
-    const saved = a.save === undefined ? "" : !n ? "Not saved: an Expect entry failed, and a saved check must pass when it is saved."
-      : `${verb} check "${a.save}" in game-tests.json (${n === 1 ? "1 check" : `${n} checks`} now); \`test\` reruns them all, each from a fresh reload${n === 1 ? ", and the after-edit hook reruns them after each edit, speaking only when one starts or stops failing" : ""}.`;
+    const verb = a.save !== undefined ? savedVerb(S().cwd, a.save) : "Saved", n = a.save !== undefined && r.passed && !unreal ? saveTest(S().cwd, a.save, a.steps ?? [], predicates(a.expect), pageOf(g.url), drawnOn(g.info)) : 0;
+    const saved = a.save === undefined ? "" : unreal ? `Not saved: \`test\` sets the leading { state } steps and fails the check unless observe() reports each key back, and here ${unreal}. Have observe() report it, or set it with an { action } step.`
+      : !n ? "Not saved: an Expect entry failed, and a saved check must pass when it is saved."
+      : `${verb} check "${a.save}" in ${join(S().cwd, "game-tests.json")} (${n === 1 ? "1 check" : `${n} checks`} now); \`test\` reruns them all, each from a fresh reload${n === 1 ? ", and the after-edit hook reruns them after each edit, speaking only when one starts or stops failing" : ""}.`;
     // the trace shows only as its lines (r.traceText): its JSON said the same twice over (opinion-2, opinion-3)
-    const body = JSON.stringify({ ...reply, ...(hovered && { hover: hovered }), ...(logs.length > 0 && { logs }), ...(errors.length > 0 && { errors: uniq(errors.map(e => e.split("\n")[0]!.slice(0, 300)), 5) }) })
-      + [r.motion, paced, r.sound, r.hint, r.traceText, r.expect, saved, r.clip && clipText(r.clip, g), r.video && videoText(r.video)].map(l => l ? `\n${l}` : "").join("");
+    const body = restarted + JSON.stringify({ ...reply, ...(hovered && { hover: hovered }), ...(logs.length > 0 && { logs }), ...(errors.length > 0 && { errors: uniq(errors.map(e => e.split("\n")[0]!.slice(0, 300)), 5) }) })
+      + [r.motion, r.controls, r.contact, paced, responded, r.sound, r.hint, r.traceText, r.expect, saved, r.clip && clipText(r.clip, g), r.video && videoText(r.video)].map(l => l ? `\n${l}` : "").join("");
     // the clip's or video's four moments are the agent's view of it: it reads only a GIF's first frame, and no video
     const strip = r.clip?.strip ?? r.video?.strip;
     if (!a.look) return strip ? withPicture(g, text(body), strip) : text(body);
@@ -670,18 +818,21 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
   },
 
   async look(a) {
-    const cam = (c: unknown) => namedOr(cwd, c);
+    const cam = (c: unknown) => namedOr(S().cwd, c);
     const g = need(), start = Date.now();
     // the chain below runs the first mode it meets: `look { sheet, save }` returned the sheet and saved nothing (dev #118);
     // refused before noteTest, whose time the Stop hook reads as the last look (a call that pictured nothing is none)
     const modes = ["cameras", "viewports", "scroll", "sheet", "opening", "zoom", "at", "target", "save", "compare"].filter(k => a[k]);
-    if (modes.length > 1) throw new Error(`look: one of ${modes.join(", ")} per call${modes.includes("sheet") && (modes.includes("save") || modes.includes("compare")) ? "; a sheet is several pictures, so it cannot be saved as a baseline (compare diffs one plain look)" : ""}.`);
+    if (modes.length > 1) throw new Error(`look: one of ${modes.join(", ")} per call${modes.includes("save") || modes.includes("compare") ? "; a baseline is one picture at the page's own size" : ""}.`);
+    // an argument a mode cannot use is refused, never dropped: `look { sheet, camera }` gave the game's own camera (dev #264)
+    const own = modes.find(m => ["cameras", "viewports", "scroll", "sheet", "opening", "target"].includes(m));
+    if (a.camera && own) throw new Error(`look: camera is not used by ${own}, which ${own === "cameras" ? "gives each cell its own camera" : own === "target" ? "pictures the target from four cameras of its own" : "pictures from the game's own camera"}: give it in a look of its own${own === "cameras" ? "" : ", or use cameras for several views of one moment"}.`);
     // `sample` takes the page's pixels, as `zoom` does: a point outside the zoom box or the page is refused here, as above (#155)
     if (a.sample?.length && modes.length && !a.zoom) throw new Error(`look: sample reads the plain look or a zoom, not ${modes[0]}: give it in a look of its own`);
     const read = a.sample?.length ? colours(a.sample, g.page.viewport()!, a.zoom) : undefined;
     noteTest(g);
     if (a.cameras) {
-      const v = await cameras(g, cwd, (a.cameras as (string | { position: number[]; lookAt?: number[]; label?: string })[]).map(c => typeof c === "string" ? { ...namedCam(cwd, c), label: c } : c));
+      const v = await cameras(g, S().cwd, (a.cameras as (string | { position: number[]; lookAt?: number[]; label?: string })[]).map(c => typeof c === "string" ? { ...namedCam(S().cwd, c), label: c } : c));
       recordPlain("look", v.picture, Date.now() - start);
       return withPicture(g, text(`Picture: ${v.picture} (${v.cells.length} cameras, left to right, top to bottom, at frame ${v.cells[0]!.look.frame ?? 0}, no reload; the game's own camera is not moved)\n${short("look", sheetText(v.cells).join("\n"))}`
         + `\nEach cell at full size: ${v.cells.map(c => `${c.label} ${basename(c.look.picture)}`).join(", ")} (in the picture's folder).`
@@ -722,12 +873,12 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
       return withPicture(g, text(`Picture: ${v.picture} (front, right, top, three-quarter)\n${a.target}: size ${v.size.join(" × ")}, centre [${v.center.join(", ")}]`), v.picture);
     }
     if (a.save) {
-      const v = await saveBaseline(g, cwd, a.save);
+      const v = await saveBaseline(g, S().cwd, a.save, a.camera ? cam(a.camera) : undefined);
       recordPlain("look", v.look.picture, Date.now() - start);
       return withPicture(g, text(`Saved as baseline ${a.save}: ${v.file}\n${noteTest(g, v.look)}`), v.look.picture);
     }
     if (a.compare) {
-      const v = await compareBaseline(g, cwd, a.compare);
+      const v = await compareBaseline(g, S().cwd, a.compare, a.camera);
       recordPlain("look", v.look.picture, Date.now() - start);
       return withPicture(g, text(`${v.text}\n${noteTest(g, v.look)}`), v.look.picture);
     }
@@ -743,8 +894,8 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
 
   async check() {
     const g = need();
-    const r = await runCheck(g, cwd), fetched = await g.queue(() => pageAssets(g)).catch(() => null); // what the page fetched, as `perf` counts it (#131)
-    return text(r.text + (fetched ? assetsOver(fetched, { ...BUDGETS.desktop, ...contractOrNull(cwd)?.budget }) : ""));
+    const r = await runCheck(g, S().cwd), fetched = await g.queue(() => pageAssets(g)).catch(() => null); // what the page fetched, as `perf` counts it (#131)
+    return text(r.text + (fetched ? assetsOver(fetched, { ...BUDGETS.desktop, ...contractOrNull(S().cwd)?.budget }) : ""));
   },
 
   async perf(a) {
@@ -758,14 +909,14 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
       // the switches run inside the game's own runtime import; a game without it gets the import to add
       // (no measuring first: the median it printed, 5 s later, changed nothing the agent does next, and the next call measures)
       if (!await g.queue(() => g.page.evaluate("!!window.__threeRuntime")))
-        return text(`The runtime layer is not installed in this game, so no switch can be tried. ${ensureRuntime(cwd)} \`perf\` with optimize: true tries the switches once the reopened page imports it.`);
-      const issued = contractOrNull(cwd), contract = issued ?? testsOrNull(cwd); // the project's own checks stand in for a contract
-      const r = await optimize(g, { contract, budget: { ...BUDGETS.desktop, ...contract?.budget, ...named }, cwd });
+        return text(`The runtime layer is not installed in this game, so no switch can be tried. ${ensureRuntime(S().cwd)} \`perf\` with optimize: true tries the switches once the reopened page imports it.`);
+      const issued = contractOrNull(S().cwd), saved = testsOrNull(S().cwd), contract = issued ?? (saved && onPage(saved, pageOf(g.url)).contract); // the project's own checks on this page stand in for a contract
+      const r = await optimize(g, { contract, budget: { ...BUDGETS.desktop, ...contract?.budget, ...named }, cwd: S().cwd });
       // the final check rides along: one tool call at the end of a session, not two, and never a background check lost at exit
-      const c = issued ? await runCheck(g, cwd, { result: r.check }) : contract ? r.check ?? await check(g, contract, { cwd }) : null;
+      const c = issued ? await runCheck(g, S().cwd, { result: r.check }) : contract ? r.check ?? await check(g, contract, { cwd: S().cwd }) : null;
       return text(c ? `${r.text}\n\nFinal ${issued ? "check" : "test"}:\n${c.text}` : r.text);
     }
-    const budget: Budget = { ...BUDGETS.desktop, ...contractOrNull(cwd)?.budget, ...named };
+    const budget: Budget = { ...BUDGETS.desktop, ...contractOrNull(S().cwd)?.budget, ...named };
     const network = netArg(a.network) ?? (budget.firstSceneFrameMs ? "fast-4g" : undefined); // the network the budget is set for
     // the first visit's line, or the paused load's time with a slow one called out; then the loading overlay the sample
     // waited for, which the first frame may have been (a poster read as the scene, #164)
@@ -774,7 +925,7 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
     const stuck = (p: PerfResult) => p.overlay && !p.overlay.cleared ? 0 : undefined;
     const costs = (p: PerfResult) => p.costs !== undefined ? `\n${costsText(p.costs, p)}` : "";
     const start = Date.now();
-    const name = typeof a.budget === "string" ? a.budget : a.budget ? "given" : contractOrNull(cwd)?.budget ? "contract" : "desktop";
+    const name = typeof a.budget === "string" ? a.budget : a.budget ? "given" : contractOrNull(S().cwd)?.budget ? "contract" : "desktop";
     const felt = (p: PerfResult) => ({ frameMs: p.work?.paced ? p.work.ms : p.median, assetMB: p.assetMB, ...p.firstFrame && { scriptMB: p.firstFrame.scriptMB, firstSceneFrameMs: p.firstFrame.ms ?? Infinity } });
     // mobile and quest are limits only: the frame is timed on this host's GPU, and throttle slows JavaScript alone (opinion-7: 4 of 5)
     const proxy = budget.proxy ? `\nOnly the limits are a ${name === "quest" ? "headset" : "phone"}'s: the frame ran on this host's GPU, which is faster than a ${name === "quest" ? "headset" : "phone"}'s, so GPU work (shadows, post-processing, a high pixel ratio) costs more there than this says.` : "";
@@ -796,19 +947,21 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
       let slowest = 0; // the slowest run so far: stop before a run that would carry the call past CALL_CAP_S, with the closing reload
       const timed = async <T>(f: () => Promise<T>) => { const t = Date.now(); try { return await f(); } finally { slowest = Math.max(slowest, Date.now() - t); } };
       const room = () => Date.now() - start + 2 * slowest < CALL_CAP_S * 1000;
+      // a software renderer's frame times say nothing of a GPU's: one run of every variant, for its counts (dev #293)
+      const soft = !!g.software;
       for (let round = 0; round < RUNS_CAP; round++) {
         const todo = vs.filter(x => !x.settled && !x.error);
         if (!todo.length) break;
         const order: (typeof vs[number] | null)[] = [null, ...todo]; // null: the baseline
         for (let k = round ? 0 : 1; k < order.length; k++) { // round 0's baseline run is `first`
-          if (!room()) break;
+          if (!soft && !room()) break;
           const x = order[(k + round) % order.length]!;
           if (!x) { bases.push(await timed(() => perf(g, budget, { ...short, url: home, overlayMs: stuck(first) }))); continue; }
           try { x.runs.push(await timed(() => perf(g, budget, { ...short, setup: variantSetup(x.v), url: variantUrl(home, x.v), overlayMs: stuck(first) }))); }
           catch (e) { x.error = (e as Error).message.split("\n")[0]!; }
         }
         if (round + 1 >= RUNS_FLOOR) for (const x of todo) x.settled = !!x.runs.length && compare(stats(bases), stats(x.runs)).settled;
-        if (!room()) break;
+        if (soft || !room()) break;
       }
       // the rows show the run nearest each side's median, so the baseline's verdict, costs and picture keep their shape
       const nearest = (ps: PerfResult[]) => { const m = stats(ps).sort((x, y) => x - y)[ps.length >> 1]!; return ps.reduce((b, p) => Math.abs(cost(p) - m) < Math.abs(cost(b) - m) ? p : b); };
@@ -816,7 +969,10 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
       const base: PerfResult = near === first ? first : { ...near, firstFrame: first.firstFrame, overlay: first.overlay, costs: first.costs, overBudget: [...near.overBudget, ...net] };
       // draw calls and triangles are counts, not samples: halved draw calls read only "within the noise of the baseline" (#163)
       const change = (n: number, b: number, what: string) => { const pct = Math.round((n - b) / Math.max(b, 1) * 100); return Math.abs(pct) > 2 ? `${pct < 0 ? "−" : "+"}${Math.abs(pct)}% ${what}` : ""; };
-      const counts = (p: PerfResult) => [change(p.calls, base.calls, "draw calls"), change(p.triangles, base.triangles, "triangles")].filter(Boolean).join(", ");
+      // each variant is a fresh load, so its asset MB is its own: `?tex=lite` showed no size change beside its times (dev #179)
+      const mb = (n: number) => Math.round(n * 10) / 10, assetChange = (p: PerfResult) => mb(p.assetMB) !== mb(base.assetMB) ? `${mb(base.assetMB)} → ${mb(p.assetMB)} MB of assets` : "";
+      const counts = (p: PerfResult) => [change(p.calls, base.calls, "draw calls"), change(p.triangles, base.triangles, "triangles"), assetChange(p), p.fillMpx !== base.fillMpx && `${base.fillMpx} → ${p.fillMpx} Mpx filled`,
+        mb(p.targetMB) !== mb(base.targetMB) && `${mb(base.targetMB)} → ${mb(p.targetMB)} MB of render targets`].filter(Boolean).join(", ");
       const line = (label: string, p: PerfResult, verdict: string) => `${label}: ${p.median} ms median (p95 ${p.p95})${p.work ? `, work ${p.work.ms} ms` : ""}, ${p.calls} draw calls, ${p.triangles} triangles; ${verdict}`;
       const rows = [line("baseline", base, budgetText(base.overBudget, budget, felt(base), name)),
         ...vs.map(x => x.runs.length ? line(x.label, nearest(x.runs), [compare(stats(bases), stats(x.runs), paced).text, counts(nearest(x.runs))].filter(Boolean).join("; ")) : `${x.label}: ${x.error || "not measured: the call reached its time limit first"}`)];
@@ -824,7 +980,8 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
       const spread = `Baseline over ${bc.length} load${bc.length > 1 ? "s" : ""}: ${bc.sort((x, y) => x - y)[bc.length >> 1]} ms median${paced ? " work" : ""}, runs spread ${Math.round(sd / mean * 100)}%.`;
       await g.reload(undefined, home); // nothing a variant hid, changed or loaded with stays in the page
       recordPlain("perf", await shot(g, "perf"), Date.now() - start, { perf: base });
-      return text(`${rows.join("\n")}${slowed(throttle)}${proxy}\nWork: the median of the frames that drew, of ${WORK_IS}.${paced ? ` The baseline's ${base.median} ms is pacing, not work, so each variant is compared on its work: ${PACED}` : ""}\n${spread} ${loaded(base)}\n${hostLoad()} ${gpuLine(g)}\nThe page is reloaded as it was.${costs(base)}`);
+      const softLine = soft ? "Software renderer (no GPU): its frame times say nothing of a GPU's, so each variant ran once and is compared on its counted draw calls and triangles; time them on a machine with a GPU.\n" : "";
+      return text(`${softLine}${rows.join("\n")}${slowed(throttle)}${proxy}\nWork: the median of the frames that drew, of ${WORK_IS}.${paced ? ` The baseline's ${base.median} ms is pacing, not work, so each variant is compared on its work: ${PACED}` : ""}\n${spread} ${loaded(base)}\n${hostLoad()} ${gpuLine(g)}\nThe page is reloaded as it was.${costs(base)}`);
     }
     const n = g.errors.length;
     const { p, pic } = await g.queue(async () => ({ p: await perf(g, budget, { passes: true, work: true, throttle: a.throttle, network, costs: !!a.costs }), pic: await shot(g, "perf") })); // one entry, so a socket check cannot run between the measure and its picture
@@ -842,7 +999,8 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
     const home = g.page.url();
     if (manyLights(lights)) {
       const many = lights.point + lights.spot > 8, what = many ? "point and spot lights" : "shadows";
-      const code = many ? "scene.traverse(o => { if (o.isPointLight || o.isSpotLight || o.isRectAreaLight) o.visible = false; })" : "scene.traverse(o => { if (o.isLight) o.castShadow = false; })";
+      // clustered point lights stay on: they are not the ones counted (dev #305)
+      const code = many ? `scene.traverse(o => { if (o.isPointLight${lights.clustered ? " && o.castShadow" : ""} || o.isSpotLight || o.isRectAreaLight) o.visible = false; })` : "scene.traverse(o => { if (o.isLight) o.castShadow = false; })";
       try {
         const off = await perf(g, budget, { setup: variantSetup({ code }), url: home, throttle: a.throttle, work: true, overlayMs: stuck(p) });
         const cost = (q: PerfResult) => p.work?.paced ? q.work?.ms ?? q.median : q.median; // a paced interval says nothing of the lights (#132)
@@ -860,9 +1018,9 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
     // `model_audit` words it (1024 px: a cap at the desktop guide's 2048 leaves the commonest big texture as it is), or for
     // an image the words of the over-budget texture list (`perf` with optimize, `check`)
     const big = p.overBudget.includes("assetMB") ? p.assets[0]?.file : undefined;
-    const fix = !big ? "" : /\.(gl(b|tf)|usd[acz]?)$/i.test(big) ? `\n${shrinkFix(relative(cwd, big), Math.min(1024, budget.textureMax))}`
-      : /\.(png|jpe?g|webp|avif|gif|bmp|ktx2|hdr|exr)$/i.test(big) ? `\nFix: resize or compress ${relative(cwd, big)}.` : "";
-    return text(`${p.median} ms median frame (p95 ${p.p95} ms, ${p.fps} fps on average), ${p.calls} draw calls, ${p.triangles} triangles, ${p.assetMB} MB assets; ${over}${hitch}${slowed(a.throttle)}${proxy}${scripts}${lightLine}${work}${fetched}${fix}\n${loaded(p)}\n${hostLoad()} ${gpuLine(g)}\n${more}${p.passes ? `\n${passesText(p.passes)}` : ""}${costs(p)}`);
+    const fix = !big ? "" : /\.(gl(b|tf)|usd[acz]?)$/i.test(big) ? `\n${shrinkFix(relative(S().cwd, big), Math.min(1024, budget.textureMax))}`
+      : /\.(png|jpe?g|webp|avif|gif|bmp|ktx2|hdr|exr)$/i.test(big) ? `\nFix: resize or compress ${relative(S().cwd, big)}.` : "";
+    return text(`${p.median} ms median frame (p95 ${p.p95} ms, ${p.fps} fps on average), ${p.calls} draw calls, ${p.triangles} triangles, ${p.assetMB} MB assets; ${over}${hitch}${slowed(a.throttle)}${proxy}${scripts}${lightLine}${work}${fetched}${fix}\n${loaded(p)}\n${hostLoad()} ${gpuLine(g)}\n${more}\n${fillText(p)}${p.passes ? `\n${passesText(p.passes)}` : ""}${costs(p)}`);
   },
 
   async invariants() {
@@ -872,7 +1030,7 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
 
   async test() {
     const g = need();
-    return text((await runCheck(g, cwd, { tests: true, reload: false })).text);
+    return text((await runCheck(g, S().cwd, { tests: true, reload: false })).text);
   },
 
 
@@ -883,31 +1041,35 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
     if (a.path && USD.test(file)) throw new Error(`model_audit: shrink rewrites .glb and .gltf files only: ${CONVERT(a.path)}`);
     if (!a.path || !existsSync(file) || !/\.gl(b|tf)$/i.test(file)) throw new Error("model_audit: shrink rewrites one .glb or .gltf file: give it as path");
     const resize = typeof a.shrink.textures === "number";
-    if (resize && !(await chrome?.catch(() => null))?.connected) chrome = launchChrome(); // textures are resized in the shared Chrome's canvas
-    const s = await shrink(file, { textures: a.shrink.textures, out: a.shrink.out && resolve(dir, a.shrink.out) }, resize ? chrome : undefined);
+    if (resize) await sharedChrome(); // textures are resized in the shared Chrome's canvas
+    const s = await shrink(file, { textures: a.shrink.textures, triangles: a.shrink.triangles, drop: a.shrink.drop, out: a.shrink.out && resolve(dir, a.shrink.out) }, resize ? chrome : undefined);
     return text(shrinkText(dir, file, s, a.target ?? "site"));
   },
   // the modelling scene is a page of the shared Chrome, launched when first needed, as reference's canvas is
   async model_run(a) {
-    if (!(await chrome?.catch(() => null))?.connected) chrome = launchChrome();
+    await sharedChrome();
     const r = await modelRun(chrome!, resolve(a.cwd), a.code, a.searched);
     return r.failed ? fail(r.text) : text(r.text);
   },
   async model_look(a) {
-    if (!(await chrome?.catch(() => null))?.connected) chrome = launchChrome();
+    await sharedChrome();
     const r = await modelLook(chrome!, resolve(a.cwd), { object: a.object, cameras: a.cameras, size: a.size });
     return { content: [{ type: "text", text: r.text }, ...r.jpeg ? [{ type: "image" as const, data: r.jpeg, mimeType: "image/jpeg" }] : []] };
+  },
+  async unity_export(a) {
+    const r = await unityExport(need(), S().cwd, { out: a.out, name: a.name });
+    return r.failed ? fail(r.text) : text(r.text);
   },
   async reference(a) {
     const dir = resolve(a.cwd), { file, name } = pictureFile(dir, a.file);
     let lookPng: string | undefined, kept = false;
     if (a.compare) {
-      if (!game) throw new Error("reference: compare needs the page open: call `open` first, or leave compare out to read the picture alone");
+      if (!S().game) throw new Error("reference: compare needs the page open: call `open` first, or leave compare out to read the picture alone");
       const cam = a.camera ? namedOr(dir, a.camera) : viewpoint(dir, file); kept = !a.camera && !!cam;
       const quiet = { peek: true, surfaces: false }; // the reply shows only the picture, so the look leaves nothing for the next look to compare against
-      lookPng = (await (cam ? lookFrom(game, cam, quiet) : look(game, quiet))).picture;
+      lookPng = (await (cam ? lookFrom(S().game!, cam, quiet) : look(S().game!, quiet))).picture;
     }
-    if (!(await chrome?.catch(() => null))?.connected) chrome = launchChrome(); // the canvas work runs in the shared Chrome, page open or not
+    await sharedChrome(); // the canvas work runs in the shared Chrome, page open or not
     const r = await reference(chrome!, { file, crop: a.crop, grid: a.grid, sample: a.sample, look: lookPng, cells: a.cells }, name);
     return { content: [{ type: "text", text: (kept ? `The page's look is from cameras.json's viewpoint for ${basename(file)}.\n` : "") + r.text }, { type: "image", data: r.jpeg, mimeType: "image/jpeg" }] };
   },
@@ -917,7 +1079,7 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
     const agent = a.model || client; // Claude Code tells a server its own name, never the model's
     if (a.pick) return text(await pick(a.pick, a.kind ?? "model", resolve(a.cwd), agent, a.height, a.textures, a.format));
     // the crop and the contact sheet are drawn in the shared Chrome's canvas, launched when first needed
-    const shared = async () => { if (!(await chrome?.catch(() => null))?.connected) chrome = launchChrome(); return chrome!; };
+    const shared = async () => { await sharedChrome(); return chrome!; };
     let cut: string | undefined;
     if (a.image) { const { file, name } = pictureFile(resolve(a.cwd), a.image); cut = (await reference(shared(), { file, crop: a.crop }, name)).jpeg; }
     const s = await search({ ...a, image: cut }, agent, a.cwd && resolve(a.cwd), a.sheet === false ? undefined : shared);
@@ -937,34 +1099,65 @@ const TOOL_FNS: Record<string, (a: Record<string, any>) => Promise<Result>> = {
 const INSTRUCTIONS = "Use these tools, the `paprika` server's, rather than a Playwright or Chrome DevTools script, to run, see, test, play or profile any three.js, React Three Fiber or other WebGL page, new or existing, in Chrome or Firefox: a game, a viewer, a product configurator, a simulation, a shader or post-processing demo. " +
   "`open` runs the page in headless Chrome (by default) on a paused, seeded clock, so the same inputs always give the same frames and state; `look` shows what a viewer sees and lists what is on screen and what never appears (a model loaded at the wrong scale, out of view or not loaded at all shows only there). " +
   "`look`'s `Lighting:` and `Surfaces:` lines name the object, where it is and the number that fixes it. " +
-  "Search for the tool by what you need: `look` to see the page, `interact` to play it, `observe` to read its state, `eval` to run code in it, `feel` to measure how an event reacts, `perf` to time it against a budget, `model_run` to build a model in code (three and Manifold, as in Blender) and `model_look` to see it from four sides, saved as a .glb the page loads, `asset_search` for a ready-made model (57,732, CC BY or CC0), PBR texture or HDRI sky from the hosted library. " +
+  "Search for the tool by what you need: `look` to see the page, `interact` to play it, `observe` to read its state, `eval` to run code in it, `feel` to measure how an event reacts, `perf` to time it against a budget, `model_run` to build a model in code (three and Manifold, as in Blender) and `model_look` to see it from four sides, saved as a .glb the page loads, `unity_export` to hand the scene to Unity as a project, `asset_search` for a ready-made model (84,249, CC BY or CC0), PBR texture or HDRI sky from the hosted library. " +
+  "Before building a character, creature, vehicle, building, prop, surface texture or sky in code, search `asset_search` for it, as paprika-make's picking round does (https://github.com/Keeno-Corp/paprika3d/blob/main/skills/paprika-make/sheets.md#the-picking-round): `pick` a close hit (it writes the loading code and the credit line in CREDITS.md) and build in code only what no search finds. " +
   "Calls run one at a time: a call made while another still runs, one moved to the background included, waits for it to finish, and its reply starts with how long it waited.";
 
-let calls: Promise<unknown> = Promise.resolve();
-// the tool whose call is running now, named by a call that waits behind it (report 7b22b0d6: an `interact` queued
-// 111 s behind a backgrounded look sheet and nothing said so)
-let running: string | null = null;
-const HOOK = "after-edit hook"; // `running` while the control socket's check runs
-/** Runs one tools/call after every earlier one (a client may send them in parallel, and `open` swaps the game);
+// the calls queued or running, in order, named by a call that waits behind them (report 7b22b0d6: an `interact` queued
+// 111 s behind a backgrounded look sheet and nothing said so; #206: naming only the running one, a look that waited
+// 18.8 min behind a look said it waited for `perf`)
+const HOOK = "after-edit hook"; // queued for the control socket's check
+// the same in a project with no saved checks, where it only reloads the page and rechecks Lighting and Surfaces: named
+// "the check of the saved checks", a 27-50 s wait read as a replay of the agent's last interact (public #329)
+const HOOK_BARE = "after-edit hook recheck";
+const savedChecks = (dir: string) => existsSync(join(dir, "game-tests.json")) || existsSync(join(dir, "game-contract.json"));
+const BARE = "the after-edit hook's recheck of the reloaded page's Lighting and Surfaces lines (the project has no saved checks)";
+const unqueue = (s: Slot, q: { name: string }) => { const i = s.queued.indexOf(q); if (i >= 0) s.queued.splice(i, 1); };
+/** What a call waited for: the one call ahead of it, or each of them in order. */
+function aheadOf(ahead: { name: string }[]): string {
+  const one = (n: string) => n === HOOK ? "the after-edit hook's check of the saved checks" : n === HOOK_BARE ? BARE : `the \`${n}\` call`;
+  if (ahead.length < 2) return ahead[0] ? one(ahead[0].name) : "the calls";
+  const names = ahead.map(q => q.name === HOOK ? "the after-edit hook's check" : q.name === HOOK_BARE ? "the after-edit hook's Lighting and Surfaces recheck" : `\`${q.name}\``);
+  return `the ${ahead.length} calls ${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+/** Runs one tools/call after every earlier one for its game (a client may send them in parallel; calls for other games
+    run beside it, and a tool that takes no `game` runs with the main game's calls);
     a tool's own failure is an isError result for the model. */
 // Tools that read or drive the page reload it first when the sources changed since it loaded: agents reopened with
 // `open` after every edit, one model call each (21 in an AA-3D full-1 cell).
 const FRESH = new Set(["observe", "eval", "interact", "look", "feel"]);
 // reload() sets loadMs; the time shows a slow software-GL reload as the cost of this call (AA-3D: 570 such lines)
 const reloaded = (ms: number) => `Reloaded (sources changed), ran on the new code from frame 0 (ready in ${(ms / 1000).toFixed(1)} s).\n`;
+/** The note when the dev server sent the page a reload after its last call: Vite's client runs location.reload() on a
+    timer the paused clock holds until a call steps a frame, so it would land under this call, which would then run
+    again on a fresh page (dev #369). The page is reloaded first and the reason named, from the server's log since that
+    call or from the message's path. */
+function devReloaded(ms: number, path: string | null, log: string[], from: { length: number; last?: string }): string {
+  const dep = log.slice(since(log, from)).find(l => /optimized dependencies changed\. reloading/.test(l));
+  const why = dep ? `Vite optimized a dependency the page imported after it started (its log: "${dep.trim().slice(0, 200)}"); name that package in optimizeDeps.include in vite.config, or restart the dev server once after adding a dependency, and these reloads stop`
+    : path && path !== "*" ? `a file it serves changed: ${path}` : "a file it serves changed, or it optimized a dependency the page imported after it started (name that package in optimizeDeps.include)";
+  return `Reloaded first: the dev server sent the page a reload after your last call (${why}), so this ran on the new page from frame 0 (ready in ${(ms / 1000).toFixed(1)} s); state earlier calls set is gone.\n`;
+}
+const devReload = (g: Game) => g.queue(() => g.page.evaluate("window.__harness?.devReload ?? null") as Promise<{ path: string | null } | null>).catch(() => null);
 // an agent killed the harness's Chrome to measure in its own (AA-3D excavator cell); the next call failed with "detached
 // Frame" and it reopened by hand, each time
 const HOOK_RESET = "The after-edit hook reran its checks since your last call, so the page restarted at frame 0.\n";
+const HOOK_PAUSED = "The after-edit hook's rerun of the saved checks paused between checks for this call and goes on after it; the page restarted at frame 0.\n";
+const HOOK_RESET_BARE = "The after-edit hook reloaded the page since your last call to recheck its Lighting and Surfaces lines (the project has no saved checks), so the page restarted at frame 0.\n";
 const REOPENED = "Reopened first: the game's page had closed (a call before this one hung, or Chrome was killed or crashed), so the game was opened again and this ran from frame 0.\n";
 // a reopen's new folder, which no other reply names: the hooks find a session's runs by the folders its replies name
-const newRun = () => `Run folder: ${game!.runDir}`;
-const gone = () => !!game && (game.page.isClosed() || !game.page.browser().connected); // Chrome died, or a hung page was closed
-async function reopen() { await TOOL_FNS.open(opened); }
-if (FEEDBACK) TOOL_FNS[REPORT_TOOL.name] = async a => text(await reportTool(a, game?.runDir));
+const newRun = () => `Run folder: ${S().game!.runDir}`;
+const gone = () => { const g = S().game; return !!g && (g.page.isClosed() || !g.page.browser().connected); }; // Chrome died, or a hung page was closed
+async function reopen() { await TOOL_FNS.open(S().opened); }
+{ // a game being opened counts toward MAX_GAMES before its page exists
+  const open = TOOL_FNS.open!;
+  TOOL_FNS.open = async a => { const s = S(); s.opening = true; try { return await open(a); } finally { s.opening = false; } };
+}
+if (PUBLISHED) TOOL_FNS[REPORT_TOOL.name] = async a => text(await reportTool(a, S().game?.runDir));
 // `publish` (src/publish.ts): the key and the build stay in the server; the reply holds the URL, never the secret
 TOOL_FNS.publish = async a => {
   const { publish } = await import("./publish.ts");
-  return text(await publish(resolve(a.cwd), { client, model: a.model }, { slug: a.slug, rotate: a.rotate === true }));
+  return text(await publish(resolve(a.cwd), { client, model: a.model }, { slug: a.slug, rotate: a.rotate === true, playtest: a.playtest === true, feedback: a.feedback === true }));
 };
 
 /** For the finish check (hooks/before-stop.ts): when this game was last played or looked at, and a plain look's fault
@@ -976,13 +1169,13 @@ function noteTest(g: Game, l?: Look, keyFrames = 0, own = true): string {
   let was: { faults?: string[]; keyFrames?: number; plain?: Plain } = {};
   try { was = JSON.parse(readFileSync(f, "utf8")); } catch {}
   // from the Look, not the reply: a look repeating the last one's faults prints them as one line
-  const faults = l ? faultLines(l).filter(x => /^(Lighting|Surfaces|Surface): /.test(x)) : was.faults ?? [];
+  const faults = l ? faultLines(l).filter(x => /^(Lighting|Surfaces|Surface|Skinned scale): /.test(x)) : was.faults ?? [];
   // the longest key-driven `interact` so far, for the finish check's feel item
   const keys = Math.max(was.keyFrames ?? 0, keyFrames);
   const plain = l ? plainOf(l) : was.plain;
   try { writeFileSync(f, JSON.stringify({ at: new Date().toISOString(), faults, ...(keys && { keyFrames: keys }), ...(plain && { plain }) })); } catch {}
   if (l) {
-    lookPrint.set(g, loadedPrint);
+    lookPrint.set(g, S().loadedPrint);
     // not faultLines: its picture-based Surface line is one the hook's recheck (faultsNow) never makes. A look after play
     // (interact to frame 120) never replaces the fresh page's baseline, which every later recheck at frame 0 compares with;
     // a look whose z-fighting check stopped at its work or triangle limit keeps the baseline's Surfaces lines it may have missed
@@ -1015,7 +1208,10 @@ const keyFramesOf = (steps: Step[] = [], ran?: number) => !steps.some(s => "key"
 // away (game.abandon(): its context closed, other games' pages untouched). The bound is on silence, not on the call: one
 // clock step evaluate is one main-thread task (a check keypoint's 60 frames, a feel run), so a slow software-GL step is
 // silent for a while without being hung. A call whose page keeps answering runs to the old limit: an `interact` ran 35 min
-// in an AA-3D excavator cell, waiting on something that never came. Checks, opens and `perf` with optimize get twice as long.
+// in an AA-3D excavator cell, waiting on something that never came. Checks, opens, `perf` with optimize and a reload under any call get twice as long.
+// A page is heard through its frames and compiles too (Game.progress, told on a binding the watchdog's session hears
+// while the main thread is busy): a frame stepped counts as an answer, and a GPU shader or pipeline compile in flight
+// makes the bound 4 times as long, so SwiftShader linking a TSL page for a minute is not a loop (dev #404, #371, #385).
 const LIMIT_MS = Number(process.env.PAPRIKA3D_CALL_LIMIT_MS) || 10 * 60_000;
 const BOUND_MS = Number(process.env.PAPRIKA3D_BOUND_MS) || 30_000;
 const LONG = new Set(["open", "check", "contract", "test"]); // `test` reruns the same saved checks as the hook's `check` (#205)
@@ -1023,13 +1219,26 @@ class Hung extends Error {}
 /** The one reply for a call stopped because its page hung or never finished: what happened, and that the game starts over. */
 // on a busy host the page can be starved rather than stuck: four of four feel-5 agents searched their code for a loop at
 // load 64 to 98 on 8 cores, and the same call passed on the next try
-const hung = (name: string, what: string) => {
+// and on a software renderer one frame can outlast the bound: a WebGPU runner's 3.2 s frame at 1.8x its instances, in a
+// `perf` variant, read as an endless loop (dev #286)
+// and a page that kept answering while its steps ran was only asked for more frames than one call holds: { wait: 3000 }
+// meant as 3 s ran 10 min and read as a hang (dev #316), so that reply says how far the steps got instead
+const hung = (name: string, what: string, software = false, ran?: string) => {
   const load = loadavg()[0]!, cores = cpus().length, busy = load > cores * 2;
+  if (ran) return new Hung(`\`${name}\` ${what}, so the harness closed its page: the next call opens the game again at frame 0. ${ran}`);
   return new Hung(`\`${name}\` ${what}, so the harness closed its page: the next call opens the game again at frame 0. ${busy
     ? `The host is busy (load ${load.toFixed(0)} on ${cores} cores), which can starve the page: run the call again before looking for a loop. If it hangs again, find`
+    : software ? "On this software renderer (no GPU) one frame or load of a heavy page can take that long: ask for less in one call (fewer variants, lower counts, fewer frames, a smaller viewport) before looking for a loop. If it hangs again, find"
     : "Find"} what never ends before running it again: an endless loop in the game or in code you ran, or a frame that waits on something that never comes (a network request, audio, a worker).`);
 };
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+/** For steps cut at the call's limit while the page kept answering: the frames stepped of those asked, the step that asks
+    for the most, and the state reached (observe(), read before the page is closed). */
+async function stepped(g: Game): Promise<string> {
+  const { asked, most, now } = g.stepping!, n = now(), f = (k: number) => k.toLocaleString("en-US");
+  const state = await Promise.race([g.page.evaluate("JSON.stringify(window.__game?.observe?.() ?? null)").catch(() => null), sleep(3_000).then(() => null)]) as string | null;
+  return `The page kept answering: it had stepped ${f(n)} of the ${f(asked)} frames its steps ask for (${f(Math.round(asked / 60))} s of game time at 60 Hz${most && most.frames > asked / 2 ? `; step ${most.at}, { ${Object.entries(most.step).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(", ")} }, is ${f(most.frames)} frames alone` : ""}). A wait and a step's frames count frames, not milliseconds: { wait: 60 } is one second. Ask for fewer frames in one call.${state && state !== "null" ? `\nState reached: ${state.length > 600 ? `${state.slice(0, 600)}…` : state}` : ""}`;
+}
 /** p, unless the page of `page()` stops answering for the bound or p outlives the limit, counted from `start` (the
     call's, so its rerun after a navigation gets only what is left): then that page is abandoned and, once p settles
     (10 s at most), a Hung error. Also used for the control socket's and the CLI's checks. */
@@ -1037,29 +1246,48 @@ export async function guarded<T>(p: Promise<T>, name: string, page: () => Game |
   // the bound grows with the host's load: at load 64 to 98 on 8 cores a look's pass alone was silent for 30 s, and
   // pages that were starved, not stuck, were thrown away 20 to 36 times a cell (feel-5)
   const limit = long ? 2 * LIMIT_MS : LIMIT_MS;
-  const bound = () => (long ? 2 : 1) * BOUND_MS * Math.min(4, Math.max(1, loadavg()[0]! / cpus().length)); // 4x at most: an endless loop still ends in 2 min
-  let done = false, heard = start;
+  // a reload under any call (`perf`'s own, one after an edit) is the same load an open waited twice the bound for: a page
+  // whose load held the main thread for longer than the bound and less than twice it opened, and `perf` then closed it (dev #371)
+  let done = false, heard = start, loading = false;
+  const bound = () => (long || loading ? 2 : 1) * BOUND_MS * Math.min(4, Math.max(1, loadavg()[0]! / cpus().length)); // 4x at most: an endless loop still ends in 2 min
   const settled = p.then(() => { done = true; }, () => { done = true; });
+  // a ping is pending at every moment, never waited on: a page stepping slow frames frees its main thread for one task
+  // after each frame past a second (`step` in inject/clock.js), and a ping waited on for its 1 s and sent again a second
+  // later was pending half the time, so a page whose frames came near a multiple of 2 s missed every one of them and was
+  // closed at the bound while it answered (dev #377: 6 s frames under SwiftShader, each ending 0.2 s after a ping's second)
+  const ping = (g: Game) => { g.alive().then(ok => { if (ok && !done) heard = Date.now(); }); };
   for (;;) {
     await Promise.race([settled, sleep(1_000)]);
-    const g = page();
-    if (!done && (!g || await g.alive())) heard = Date.now();
+    const g = page(), was = loading;
+    loading = !!g?.loading;
+    if (!done && (!g || was && !loading)) heard = Date.now(); // a load that ended had the page's answer
+    else if (!done && g) ping(g);
+    if (!done && g?.progress && g.progress.at > heard) heard = g.progress.at;
     if (done) return p;
-    const now = Date.now(), b = bound();
+    const compiles = g?.progress?.compiles ?? 0, now = Date.now(), b = bound() * (compiles ? 4 : 1);
     if (now - heard < b && now - start < limit) continue;
     // an `eval` past the bound on Chrome is stopped and its page kept (#165: finite runs of 30 to 62 s lost the page and
     // its state in six scene loops), so a false stop on a starved host costs one eval and needs no busy-host sentence
-    if (name === "eval" && now - heard >= b && g && await g.stop()) {
+    // a stop that cut a clock step (the code awaited a frame the harness stepped) closes the page, and says it was a
+    // frame, or two evals of the same work read as a hang and as a kept page (dev #320)
+    // read once: closing the page ends the pending ping as heard (a closed page's error is no timeout), and the reply
+    // of a silent page then read "ran for 8 s without finishing" (dev #404)
+    const silent = now - heard >= b, quiet = Math.round((now - heard) / 1000);
+    let midFrame = false;
+    if (name === "eval" && silent && g && await g.stop()) {
       await Promise.race([settled, sleep(1_000)]); // the code's own run fails at once; a script of the page's own lets it run on
-      const whole = await Promise.race([g.page.evaluate(AFTER_STOP).then(Boolean, () => false), sleep(1_000).then(() => false)]);
+      const after = await Promise.race([g.page.evaluate(AFTER_STOP).then(Boolean, () => null), sleep(1_000).then(() => null)]);
       await Promise.race([settled, sleep(1_000)]);
-      const line = `\`eval\` ran ${Math.round((now - heard) / 1000)} s without yielding and was stopped; the page is kept. Split the work across calls, or await a 0 ms timer every few hundred iterations (the harness steps the clock once and the page answers).`;
-      if (whole && done) return p.then(r => withText(r as Result, `${line}\n${body(r as Result)}`) as T, () => { throw new Hung(line); });
+      const line = `\`eval\` ran ${quiet} s without yielding and was stopped; the page is kept. Split the work across calls, or await a 0 ms timer every few hundred iterations (the harness steps the clock once and the page answers).`;
+      if (after && done) return p.then(r => withText(r as Result, `${line}\n${body(r as Result)}`) as T, () => { throw new Hung(line); });
+      midFrame = after === false;
     }
+    const ran = name === "interact" && !silent && g?.stepping ? await stepped(g) : undefined;
     await g?.abandon();
     await Promise.race([settled, sleep(10_000)]); // the stuck call fails once its page is gone
-    throw now - heard >= b ? hung(name, `stopped: the page answered nothing for ${Math.round((now - heard) / 1000)} s (its main thread never came free)`)
-      : hung(name, `ran for ${Math.round((now - start) / 1000)} s without finishing`);
+    throw midFrame ? hung(name, `was stopped inside a game frame it stepped, silent for ${quiet} s (a frame cannot be stopped halfway)`, g?.software)
+      : silent ? hung(name, `stopped: the page answered nothing for ${quiet} s (its main thread never came free${compiles ? `; ${compiles === 1 ? "1 GPU shader or pipeline compile was" : `${compiles} GPU shader or pipeline compiles were`} in flight` : ""})`, g?.software)
+      : hung(name, `ran for ${Math.round((now - start) / 1000)} s without finishing`, g?.software, ran);
   }
 }
 
@@ -1067,16 +1295,31 @@ export async function guarded<T>(p: Promise<T>, name: string, page: () => Game |
 // raised; the other page tools did not, so a frame loop that threw every frame read "within budget" in `perf` and a
 // shader that failed to compile read as objects "never visible" in `look` (AA-3D full-1).
 const told = new WeakMap<Game, number>();
+const BETWEEN = new Set(["interact", "eval"]);
 const OWN_ERRORS = new Set(["open", "observe", "interact", "eval", "check", "invariants", "test", "contract", "asset_search", "model_audit", "model_run", "model_look", "sheet", "publish"]);
+/** An error whose first line is empty: a `throw ""` or an empty console.error printed a blank line under its count (dev #329). */
+const NO_TEXT = "an error with no text (an empty throw, rejection or console.error; the page gave nothing more)";
 /** Page errors, the same ones counted once each, or "" when there are none. */
 export function errorsText(errors: string[]): string {
   if (!errors.length) return "";
-  const firsts = errors.map(e => e.split("\n")[0]!.slice(0, 300)), kinds = new Set(firsts).size;
+  const firsts = errors.map(e => (e.split("\n")[0] || NO_TEXT).slice(0, 300)), kinds = new Set(firsts).size;
   const lines = uniq(firsts, 5);
-  const shader = errors.some(e => /Shader Error|VALIDATE_STATUS|program not valid/i.test(e))
-    ? "\nA shader failed to compile: what is drawn with it draws nothing (a look lists it never visible) until it compiles." : "";
+  const failed = errors.filter(e => /Shader Error|VALIDATE_STATUS|program not valid|Error while parsing WGSL|pipeline creation failed|\/ (?:vertex|fragment|compute) error\]/i.test(e));
+  const shader = failed.length ? `\nA shader failed to compile: what is drawn with it draws nothing (a look lists it never visible) until it compiles.${uniq(failed.map(shaderLog).filter(Boolean), 3).map(l => `\n${l}`).join("")}`
+    + (failed.some(e => /\batomic[A-Z]\w*\s*\(/.test(e)) ? "\nIt uses atomics, which three's WebGL 2 backend (a WebGPURenderer page on a browser with no WebGPU) cannot compile: storage atomics and the compute or material that reads them run on WebGPU only." : "") : "";
   return `\nPage errors since the last call (${errors.length}):\n${lines.join("\n")}${kinds > 5 ? `\n… ${kinds - 5} more kinds` : ""}${shader}`;
 }
+// three's shader error below its first line: the material it names (WebGLRenderer only), the compiler's first error and
+// the source line it points at; a WebGPURenderer on WebGL 2 names no material, so the line is how to find it (dev #304)
+const shaderLog = (e: string) => {
+  // WebGPU: three's compilation-info line names the pipeline (its material type), the stage and the WGSL line (dev #332)
+  const wgsl = e.match(/^THREE\.WebGPURenderer \[(\S+) \/ (\w+) error\] at line [\d:]+: (.+)\n\s*(.*)/);
+  if (wgsl) return `${wgsl[1]!.match(/_(\w+)_\d+$/)?.[1] ?? wgsl[1]} ${wgsl[2]}: ${wgsl[3]!.trim()}${wgsl[4]?.trim() ? ` at \`${wgsl[4].trim().slice(0, 160)}\`` : ""}`.slice(0, 300);
+  const mat = e.match(/^Material Name: (.+)$/m)?.[1]?.trim(), type = e.match(/^Material Type: (.+)$/m)?.[1]?.trim();
+  const err = e.match(/^(?:ERROR|error): .+$/m)?.[0]?.trim() ?? e.match(/^Program Info Log: (.+)$/m)?.[1]?.trim(), at = e.match(/^> \d+: (.+)$/m)?.[1]?.trim();
+  if (!err && !mat) return "";
+  return `${mat || type ? `${[mat, type].filter(Boolean).join(" ")}: ` : ""}${err ?? ""}${at ? ` at \`${at.slice(0, 160)}\`` : ""}`.slice(0, 300);
+};
 
 // A page that navigates under a call (its own location.reload(), or a dev server's live reload after an edit sent in the
 // same turn) failed 8 of 9 evals in one tester session although each reply said to run the call again (telemetry
@@ -1089,9 +1332,9 @@ const RERAN = "The page navigated during the first try of this call, so the harn
     optimizes a dependency first imported after it started (a lazy import, a package just added) that shares code with
     ones it optimized before, and says "optimized dependencies changed. reloading"; run-folder writes never reload it
     (Vite 8 reloads for an .html outside the module graph only), so #135's navigations were named wrongly. */
+const since = (log: string[], from: { length: number; last?: string }) => from.last === undefined ? 0 : log.length > from.length && log[from.length - 1] === from.last ? from.length : log.lastIndexOf(from.last) + 1;
 export function reloadCause(log: string[], from: { length: number; last?: string }): string {
-  const at = from.last === undefined ? 0 : log.length > from.length && log[from.length - 1] === from.last ? from.length : log.lastIndexOf(from.last) + 1;
-  const lines = log.slice(at);
+  const lines = log.slice(since(log, from));
   const dep = lines.find(l => /optimized dependencies changed\. reloading/.test(l)), page = lines.find(l => /\bpage reload\b/.test(l));
   if (dep) return `\nVite reloaded it: it optimized a dependency the page imported after the dev server started (its log: "${dep.trim().slice(0, 200)}"). Name that package in optimizeDeps.include in vite.config, or restart the dev server once after adding a dependency, and these reloads stop.`;
   if (page) return `\nThe dev server reloaded it (its log: "${page.trim().slice(0, 200)}"): a file it serves changed while the call ran.`;
@@ -1166,43 +1409,65 @@ export function checkArgs(name: string, args: Record<string, any>, openCwd: stri
   return outside.length && outside.every(Boolean) ? outside.at(-1)! : null;
 }
 
-const NOTES_RAN = new Set(["look", "interact", "eval"]); // the tools that call noteTest
+const NOTES_RAN = new Set(["look", "interact", "eval", "test"]); // the tools that call noteTest
 function call(name: string, args: Record<string, any>): Promise<Result> {
   const tool = !HIDDEN.includes(name) && TOOL_FNS[name]; // a hidden tool is not called by name either
   if (!tool) throw { code: -32602, message: `unknown tool ${name}` };
-  const named = typeof args.game === "string" && args.game.trim() ? args.game.trim() : "main", slot = slotOf(named);
+  // a tool that takes no `game` (the model tools share one modelling page, `sheet`, `publish`) runs with main's calls whatever it was passed
+  const takesGame = "game" in ((TOOLS.find(t => t.name === name)?.inputSchema.properties ?? {}) as object);
+  const named = takesGame && typeof args.game === "string" && args.game.trim() ? args.game.trim() : "main", slot = slotOf(named);
   // the page's size when the call runs, held here: as opened, or an `interact` resize's until the next reload (browser.ts reload())
   const own = { width: slot.opened.size?.[0] ?? VIEWPORT.width, height: slot.opened.size?.[1] ?? VIEWPORT.height }, resized = slot.game?.resized;
   const bad = checkArgs(name, args, slot.cwd, slot.game ? [own, ...resized ? [resized] : []] : []);
   if (bad) return Promise.resolve(fail(bad + REPORT_ASK)); // before the queue, so it never waits behind another call
+  // send_feedback needs no page: it never waits in the queue behind a long call or reopens a closed page (dev #375)
+  if (name === REPORT_TOOL.name) return running.run(slot, () => tool(args)).catch(e => fail(String((e as Error)?.message ?? e)));
   // `perf` with optimize runs a trial per switch and the final test, as `check` runs keypoints: the long tools' bound, and
   // no page-error list after it (a reverted switch's error is in its row)
   const optimizing = name === "perf" && !!args.optimize;
+  const s = slot;
   const once = (start: number) => answer(name, (async () => {
-    use(named);
     let note = "";
-    const from = game ? told.get(game) ?? game.errors.length : 0; // a game running in real time can throw between calls
+    const from = s.game ? told.get(s.game) ?? s.game.errors.length : 0; // a game running in real time can throw between calls
     if (name !== "open" && gone()) { await reopen(); note = `${REOPENED}${newRun()}\n`; }
-    else if (game && (FRESH.has(name) || name === "reference" && args.compare)) { // reference reads the page only to compare (#149)
-      const print = fingerprint(cwd);
-      if (print !== loadedPrint) { owed.delete(game); await game.reload(); loadedPrint = print; note = reloaded(game.loadMs); }
-      else if (hookReset.has(game) && name !== "feel") note = HOOK_RESET; // it reloads anyway
+    else if (s.game && (FRESH.has(name) || name === "reference" && args.compare)) { // reference reads the page only to compare (#149)
+      const print = fingerprint(s.cwd);
+      if (print !== s.loadedPrint) { owed.delete(s.game); await s.game.reload(); s.loadedPrint = print; note = reloaded(s.game.loadMs); }
+      else if (hookPaused.has(s.game) && name !== "feel") note = HOOK_PAUSED;
+      else if (hookReset.has(s.game) && name !== "feel") note = savedChecks(s.cwd) ? HOOK_RESET : HOOK_RESET_BARE; // it reloads anyway
+      else {
+        const dev = await devReload(s.game);
+        if (dev) { const from = heardBefore.get(s.game) ?? { length: 0 }; owed.delete(s.game); await s.game.reload(); note = devReloaded(s.game.loadMs, dev.path, s.game.serverLog, from); }
+      }
     }
-    if (game && !selfFresh(name, args) && owed.delete(game)) await game.reload();
-    if (game) hookReset.delete(game);
+    if (s.game && !selfFresh(name, args) && owed.delete(s.game)) await s.game.reload();
+    if (s.game) { hookReset.delete(s.game); hookPaused.delete(s.game); }
+    if (s.game && name !== "open" && !existsSync(s.game.runDir)) { mkdirSync(s.game.runDir, { recursive: true }); note += `Run folder was deleted; made it again: ${s.game.runDir}\n`; } // #251
+    const at = s.game?.errors.length ?? 0;
+    // for the finish check: this call is playing the sources as they are now (a Stop while it runs in the background, dev #384)
+    if (s.game && NOTES_RAN.has(name)) { s.playing = join(s.game.runDir, "playing.json"); try { writeFileSync(s.playing, JSON.stringify({ tool: name, at: new Date().toISOString(), pid: process.pid })); } catch {} }
     const r = await tool(args);
+    if (s.game && !OWN_ERRORS.has(name)) { const g = s.game; await g.queue(() => gpuSettled(g.page)); }
     // what the page ran, for the finish check; a look or play that failed is not its last look (noteTest)
-    if (game && NOTES_RAN.has(name) && !r.isError) { const g = game; await g.queue(() => pageRan(g)).then(files => writeFileSync(join(g.runDir, "ran.json"), JSON.stringify({ files }))).catch(() => {}); }
+    if (s.game && NOTES_RAN.has(name) && !r.isError) { const g = s.game; await g.queue(() => pageRan(g)).then(files => writeFileSync(join(g.runDir, "ran.json"), JSON.stringify({ files }))).catch(() => {}); }
     // after an error's first line and the lines it threw at: a reply that began "Reloaded (sources changed)" read as that (#166)
     if (note && r.content[0]?.type === "text") r.content[0] = { type: "text", text: r.isError ? r.content[0].text.replace(/^.*(\nat .*)*/, l => `${l}\n${note.trimEnd()}`) : note + r.content[0].text };
-    if (game && !OWN_ERRORS.has(name) && !optimizing && r.content[0]?.type === "text") r.content[0] = { type: "text", text: r.content[0].text + errorsText(game.errors.slice(from)) };
-    if (game) told.set(game, game.errors.length);
+    if (s.game && !OWN_ERRORS.has(name) && !optimizing && r.content[0]?.type === "text") {
+      // a look's errors lead: under eight ordinary lines about an empty frame, a page that crashed at load read as fine (opinion-15)
+      const errs = errorsText(s.game.errors.slice(from)), t = r.content[0].text;
+      r.content[0] = { type: "text", text: name === "look" && errs && !r.isError ? `${errs.slice(1)}\n${t}` : t + errs };
+    }
+    // interact and eval tell the errors their own run raised; the ones logged since the last call (a WebGPU shader's,
+    // a GPU round trip after its frame) are told here, or no reply but observe's ever named them (dev #332)
+    else if (s.game && BETWEEN.has(name) && r.content[0]?.type === "text") r.content[0] = { type: "text", text: r.content[0].text + errorsText(s.game.errors.slice(from, at)) };
+    if (s.game) told.set(s.game, s.game.errors.length);
     return r;
-  })(), () => game, LONG.has(name) || optimizing, start);
-  const arrived = Date.now(), before = running;
-  const run = calls.then(async () => {
+  })(), () => s.game, LONG.has(name) || optimizing, start).finally(() => { if (s.playing) rmSync(s.playing, { force: true }); s.playing = null; });
+  const arrived = Date.now(), ahead = [...s.queued], me = { name };
+  s.queued.push(me);
+  const run = s.calls.then(() => running.run(s, async () => {
+    s.used = Date.now();
     const waited = Date.now() - arrived;
-    running = name;
     // one limit for the call: a rerun after a navigation with a limit of its own ran a call to 12 to 19 min (telemetry 2026-10-25)
     const start = Date.now();
     let r = await once(start); // answer() turns every failure into a reply, so this never throws
@@ -1211,17 +1476,19 @@ function call(name: string, args: Record<string, any>): Promise<Result> {
       const cause = /\n(Vite reloaded it|The dev server reloaded it)[^\n]*/.exec(body(r))?.[0].slice(1) ?? ""; // the first try's cause, for a second try that ran
       r = again.isError && body(again).includes(NAVIGATED) ? withText(again, body(again).replace(NAVIGATED, NAVIGATED_TWICE)) : again.isError ? again : withText(again, RERAN + (cause && `${cause}\n`) + body(again));
     }
-    running = null;
+    unqueue(s, me);
+    s.used = Date.now();
     // both builds: a failed reply asks for a report, since no tester's agent sent one unasked (telemetry 2026-10-20)
     if (FEEDBACK && r.isError && REPORT_ASK && r.content[0]?.type === "text") r = withText(r, body(r) + REPORT_ASK);
-    if (waited > 5000) r = withText(r, `Waited ${Math.round(waited / 1000)} s for ${before === HOOK ? "the after-edit hook's check of the saved checks" : before ? `the \`${before}\` call` : "the calls"} before this one to finish (calls run one at a time).\n` + body(r));
+    if (waited > 5000) r = withText(r, `Waited ${Math.round(waited / 1000)} s for ${aheadOf(ahead)} before this one to finish (a game's calls run one at a time).\n` + body(r));
     return r;
-  });
-  calls = run;
+  }));
+  s.calls = run;
   return run;
 }
 
 const heard = new WeakMap<Game, { length: number; last?: string }>(); // where each game's server log stood when its last call began
+const heardBefore = new WeakMap<Game, { length: number; last?: string }>(); // and when the call before it began (devReloaded)
 
 /** One call's reply from its run p, bound by guarded(): p's result, or its failure as a reply (a hung page, what the
     engine lacks, a navigation under the call, a closed Chrome, a protocol timeout), with the engine's notes after it.
@@ -1230,7 +1497,7 @@ export function answer(name: string, p: Promise<Result>, page: () => Game | null
   // the dev server's lines since the game's last call began: Vite's reload is a timer on the page's paused clock, so a
   // reload it sent during one call (an `eval`'s lazy import) lands in the next call that steps a frame
   const g0 = page(), log = g0?.serverLog, from = (g0 && heard.get(g0)) ?? { length: 0 };
-  if (g0) heard.set(g0, { length: g0.serverLog.length, last: g0.serverLog.at(-1) });
+  if (g0) { heardBefore.set(g0, from); heard.set(g0, { length: g0.serverLog.length, last: g0.serverLog.at(-1) }); }
   return guarded(p, name, page, long, start).catch(async e => {
     const game = page();
     if (e instanceof Hung) return fail(e.message);
@@ -1266,23 +1533,66 @@ export function answer(name: string, p: Promise<Result>, page: () => Game | null
   });
 }
 
+// The `paprika-make` skill as an MCP prompt, so a client with no plugin or skills (Cursor, VS Code, Claude Desktop) starts
+// a build the same way. Such a client may not read files beside this server, so `prompts/get` carries the skill's text and
+// every file under `skills/` is an MCP resource (`paprika3d://skills/<path>`): the files the skill sends the agent to
+// (sheets.md, critic.md, the method, the templates) are named by that URI wherever a plugin path stood, in the prompt and
+// in each resource's own text. `paprika-loop` is left out as a prompt: its driver runs `claude -p`.
+const SKILLS = resolve(import.meta.dirname, "../skills");
+const MAKE = { name: "paprika-make", title: "Make a three.js page", description: "Builds a new three.js, React Three Fiber or WebGL page with the paprika3d tools: a short brief first, then the build start to finish.",
+  arguments: [{ name: "request", description: "What to build, in the person's words.", required: true }] };
+
+const SKILL_URI = "paprika3d://skills/";
+const MIME: Record<string, string> = { md: "text/markdown", html: "text/html", ts: "text/typescript", tsx: "text/typescript" };
+const mime = (f: string) => MIME[f.slice(f.lastIndexOf(".") + 1)] ?? "text/plain";
+/** A skill file's text with plugin paths as resource URIs, which any client of this server can read; the line on where
+ *  the plugin root is in an `npx skills add` install is about files on disk, so it goes. */
+const skillText = (file: string) => readFileSync(file, "utf8").replace(/^Outside Claude Code \(an `npx skills add` install.*\n+/m, "").replaceAll("${CLAUDE_PLUGIN_ROOT}/skills/", SKILL_URI)
+  .replaceAll("${CLAUDE_PLUGIN_ROOT}", dirname(SKILLS)); // what is left is a command to run or a file to copy on the server's machine
+// names only: a Dirent's folder is `parentPath` from Node 20.12 and `path` before it
+const skillFiles = () => (readdirSync(SKILLS, { recursive: true }) as string[]).filter(f => statSync(join(SKILLS, f)).isFile()).map(f => f.replaceAll("\\", "/")).sort();
+function skillResource(uri: unknown) {
+  let rel = "";
+  try { if (typeof uri === "string" && uri.startsWith(SKILL_URI)) rel = decodeURIComponent(uri.slice(SKILL_URI.length)); } catch {} // a stray % names no file
+  const file = resolve(SKILLS, rel);
+  // only a file listed under skills/: no `..`, and no link that leads out of it
+  if (!rel || !skillFiles().includes(rel) || relative(realpathSync(SKILLS), realpathSync(file)).startsWith("..")) throw { code: -32002, message: `no resource ${uri}: resources/list names each one`, data: { uri } };
+  return { contents: [{ uri, mimeType: mime(rel), text: skillText(file) }] };
+}
+
 /** The result for one JSON-RPC request; throws `{ code, message }` to send a JSON-RPC error. */
 async function handle(method: string, params: any): Promise<unknown> {
   switch (method) {
     case "initialize":
       client = [params?.clientInfo?.name, params?.clientInfo?.version].filter(Boolean).join("/") || client;
       void installed(client);
-      return { protocolVersion: params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "paprika3d", title: "paprika3d", version: process.env.PAPRIKA3D_VERSION ?? "0.0.0-src" }, instructions: INSTRUCTIONS };
+      return { protocolVersion: params?.protocolVersion ?? "2025-06-18", capabilities: { tools: COMPACT ? { listChanged: true } : {}, prompts: {}, resources: {} }, serverInfo: { name: "paprika3d", title: "paprika3d", version: process.env.PAPRIKA3D_VERSION ?? "0.0.0-src" }, instructions: INSTRUCTIONS };
     case "ping":
       return {};
     case "tools/list":
-      return { tools: LISTED };
+      return { tools: listed() };
+    case "prompts/list":
+      return { prompts: [MAKE] };
+    case "prompts/get": {
+      const request = params?.arguments?.request;
+      if (params?.name !== MAKE.name) throw { code: -32602, message: `no prompt named ${params?.name}: the one prompt is ${MAKE.name}` };
+      if (typeof request !== "string" || !request.trim()) throw { code: -32602, message: `${MAKE.name} takes request, what to build in the person's words` };
+      const skill = skillText(join(SKILLS, "paprika-make/SKILL.md")).replace(/^---\n[\s\S]*?\n---\n+/, "");
+      return { description: MAKE.description, messages: [{ role: "user", content: { type: "text", text: `Follow these instructions for this request: ${request.trim()}\n\nEach paprika3d:// path below is an MCP resource of the paprika3d server: read it with resources/read (resources/list names them all, the files of a folder included), not from disk.\n\n${skill}` } }] };
+    }
+    case "resources/list":
+      return { resources: skillFiles().map(f => ({ uri: SKILL_URI + f, name: f, mimeType: mime(f) })) };
+    case "resources/templates/list":
+      return { resourceTemplates: [] };
+    case "resources/read":
+      return skillResource(params?.uri);
     case "tools/call": {
       const name = params?.name, args = params?.arguments ?? {}, start = Date.now();
       log(`${name} ${JSON.stringify(args).slice(0, 300)}`);
-      const r = await call(name, args).catch(e => { event(name, args, null, Date.now() - start); throw e; });
+      const more = COMPACT && name === MORE_TOOL.name; // counted as a call like any other, so usage shows what the short list costs
+      const r = more ? moreTools(args) : await call(name, args).catch(e => { event(name, args, null, Date.now() - start); throw e; });
       // a named budget is a string or an object of limits, so its schema has no enum: its names stand in for one
-      const props = { ...(LISTED.find(t => (t as { name: string }).name === name) as { inputSchema?: { properties?: object } } | undefined)?.inputSchema?.properties, ...name === "perf" && { budget: { enum: Object.keys(BUDGETS) } } };
+      const props = { ...more && MORE_TOOL.inputSchema.properties, ...(LISTED.find(t => (t as { name: string }).name === name) as { inputSchema?: { properties?: object } } | undefined)?.inputSchema?.properties, ...name === "perf" && { budget: { enum: Object.keys(BUDGETS) } } };
       event(name, args, r, Date.now() - start, { properties: props } as any);
       return r;
     }
@@ -1309,6 +1619,7 @@ async function* lines(stream: AsyncIterable<Uint8Array>): AsyncGenerator<string>
 /** Serves MCP on stdin/stdout until stdin closes, then closes the game and its Chrome. */
 export async function serve(): Promise<void> {
   const send = (msg: unknown) => { process.stdout.write(JSON.stringify(msg) + "\n"); };
+  listChanged = () => send({ jsonrpc: "2.0", method: "notifications/tools/list_changed" });
   const stop = async () => {
     await closeGame().catch(() => {});
     for (const v of slots.values()) await v.game?.close().catch(() => {}); await chrome?.then(c => c.close()).catch(() => {}); control?.close(); process.exit(0); };

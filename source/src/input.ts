@@ -6,10 +6,11 @@
 // its own setState; an `until` step steps a frame at a time until the state holds. A trace reads chosen paths of
 // observe() every frame (a frame callback of its own, as the Motion line's), and `expect` checks the state after.
 import type { KeyInput, MouseButton } from "puppeteer-core";
-import { NAV_LOST, type Game } from "./browser.ts";
+import { gpuSettled, NAV_LOST, type Game } from "./browser.ts";
 import { FIRST, look, threeUrl } from "./look.ts";
-import { predicates, show, verdicts, type Expected } from "./contract.ts";
-import { REC_FRAMES, RECORD_MAX_S, startRecording, startVideo, VIDEO_MAX_S, type Clip, type Video } from "./record.ts";
+import { isSetup, predicates, show, verdicts, type Expected } from "./contract.ts";
+import { REC_FRAMES, RECORD_MAX_S, startRecording, startVideo, VIDEO_MAX_S, type Clip, type Video, type VideoOpts } from "./record.ts";
+import { CONTACT, contactText, type Contact } from "./contact.ts";
 
 /** One input step; `frames` is how many frames the clock advances after it (default 1). An `action` step reaches
  *  `__game.act` whole, minus `frames`, so it can carry arguments such as `{ action: "swap", from, to }`. */
@@ -34,7 +35,7 @@ export type Trace = { first: number; last: number; min: [number, number]; max: [
 /** The game's state before and after the steps (its __game.observe(), or null without one) and what changed, and the
     Motion line when the subject turned or stopped; with `trace`, each path's series and line; with `expect`, its line
     and whether every entry held. */
-export interface ActResult { before: unknown; after: unknown; changed: Record<string, unknown>; hint?: string; motion?: string; sound?: string;
+export interface ActResult { before: unknown; after: unknown; changed: Record<string, unknown>; hint?: string; motion?: string; controls?: string; contact?: string; sound?: string;
   trace?: Record<string, Trace>; traceText?: string; expect?: string; passed?: boolean; framesRun: number; clip?: Clip; video?: Video }
 
 const STATE = "window.__game?.observe ? __game.observe() : null";
@@ -45,7 +46,7 @@ const STATE = "window.__game?.observe ? __game.observe() : null";
 // shallowest within a few cm), else the best-ranked name, not the first met: AA-3D's AI karts (kart_ruby) were built
 // before the player's (player).
 const NAMES = ["player", "hero", "avatar", "kart", "car", "vehicle", "ship", "plane", "boat"];
-export const motionStart = (at: [number, number] | null) => `(() => {
+export const motionStart = (at: [number, number] | null, ready = false) => `(() => {
   const s0f = window.__game?.subject, s0 = typeof s0f === "function" ? (() => { try { return s0f(); } catch {} })() : s0f, scene = window.__harness.mainScene(), at = ${JSON.stringify(at)}, NAMES = ${JSON.stringify(NAMES)};
   const o = s0?.isObject3D ? s0 : typeof s0 === "string" ? scene?.getObjectByName(s0) : null;
   let subject = o, best = Infinity;
@@ -56,13 +57,27 @@ export const motionStart = (at: [number, number] | null) => `(() => {
   if (!subject) scene?.traverse(x => { const i = NAMES.findIndex(n => x.name?.toLowerCase().startsWith(n)); if (i >= 0 && i < rank) { rank = i; subject = x; } });
   // each sample updates the subject's world matrix first: a pose set since the last render is not in it yet
   let f = 0; // frames from the start of the steps, as trace and until count (opinion-4: 7 of 9 saw two counts)
-  const samples = [], sample = () => { subject.updateWorldMatrix(true, false); const e = subject.matrixWorld.elements; samples.push([e[12], e[13], e[14], f]); };
+  const contact = (${CONTACT})(subject);
+  const samples = [], screen = [0, 0, 0], sample = () => {
+    subject.updateWorldMatrix(true, false); const e = subject.matrixWorld.elements, prev = samples.at(-1);
+    const view = window.__harness.main()?.[1], camera = view?.camera;
+    if (prev && camera) {
+      camera.updateMatrixWorld(true);
+      const a = subject.position.clone().set(...prev.slice(0, 3)).project(camera), b = subject.position.clone().set(e[12], e[13], e[14]).project(camera);
+      if ([a.x, a.y, a.z, b.x, b.y, b.z].every(Number.isFinite) && Math.abs(a.z) < 1 && Math.abs(b.z) < 1) {
+        const rect = view.renderer.domElement.getBoundingClientRect();
+        screen[0] += (b.x - a.x) * rect.width / 2; screen[1] -= (b.y - a.y) * rect.height / 2; screen[2]++;
+      }
+    }
+    samples.push([e[12], e[13], e[14], f]);
+    contact?.sample(e[12], e[14], f);
+  };
   let on = !!subject;
   const tick = () => { f++; if (on) { sample(); requestAnimationFrame(tick); } };
   // no frame drawn yet (a save's or an edit's reload, or straight after open): a pose the loop sets each frame is not in
   // the scene until frame 1, and sampling the pose before it added a false first step (#176: 4.34 units for a 4-unit run)
-  if (on) { if (window.__harness.main()?.[1].screen) sample(); requestAnimationFrame(tick); }
-  window.__harnessMotion = { end: () => { on = false; delete window.__harnessMotion; return subject ? { name: subject.name || subject.type, samples } : null; } };
+  if (on) { if (${ready} || window.__harness.main()?.[1].screen) sample(); requestAnimationFrame(tick); }
+  window.__harnessMotion = { end: () => { on = false; delete window.__harnessMotion; return subject ? { name: subject.name || subject.type, samples, screen, contact: contact?.result() } : null; } };
 })()`;
 
 /** Where the state puts its player: the best-ranked NAMES key holding { x, z }, { position: { x, z } } or { position: [x, y, z] }. */
@@ -83,6 +98,25 @@ function straightKey(steps: Step[], held: string[]): string | undefined {
   if (steps.some(s => "mouse" in s || "touch" in s || "action" in s || "state" in s)) return;
   const keys = [...new Set([...held, ...steps.flatMap(s => "key" in s && s.down !== false ? [s.key as string] : [])])].filter(k => !STEERS_NOT.test(k));
   return keys.length === 1 && FORWARD.test(keys[0]!) ? keys[0] : undefined;
+}
+
+const SCREEN_KEYS: Record<string, [number, number]> = {
+  ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
+  KeyW: [0, -1], KeyS: [0, 1], KeyA: [-1, 0], KeyD: [1, 0],
+  w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0], W: [0, -1], S: [0, 1], A: [-1, 0], D: [1, 0],
+};
+
+export function controlsText(m: { name: string; samples: number[][]; screen?: number[] } | null, steps: Step[], held: string[]): string | undefined {
+  if (!m?.screen || steps.some(s => !("key" in s || "wait" in s)) || held.some(k => k.startsWith("mouse:"))) return;
+  const keys = [...new Set([...held, ...steps.flatMap(s => "key" in s && s.down !== false ? [s.key as string] : [])])];
+  if (keys.length !== 1 || !SCREEN_KEYS[keys[0]!] || /direction of travel turned/.test(motionText(m) ?? "")) return;
+  const [x, y, frames] = m.screen as [number, number, number], distance = Math.hypot(x, y);
+  if (frames < 8 || distance < 12 || m.samples.length < 3) return;
+  const a = m.samples[0]!, b = m.samples.at(-1)!, path = m.samples.slice(1).reduce((sum, p, i) => sum + Math.hypot(...p.slice(0, 3).map((n, k) => n - m.samples[i]![k]!)), 0);
+  if (!path || Math.hypot(...b.slice(0, 3).map((n, k) => n - a[k]!)) / path < 0.97) return;
+  const [kx, ky] = SCREEN_KEYS[keys[0]!]!, angle = Math.round(Math.acos(Math.max(-1, Math.min(1, (x * kx + y * ky) / distance))) * 180 / Math.PI);
+  if (angle <= 30 || angle > 135) return;
+  return `Controls: ${keys[0]} moved ${m.name} ${angle}° away from screen ${ky < 0 ? "up" : ky > 0 ? "down" : kx < 0 ? "left" : "right"} over ${frames} frames; the camera and the stick disagree; aim the camera along the controls' axes or map input to camera space.`;
 }
 
 /** The Motion line from the subject's samples ([x, y, z, frame]), or undefined when it went straight and kept moving. */
@@ -180,35 +214,53 @@ const expectText = (vs: ReturnType<typeof verdicts>) => `Expect: ${vs.map(v => `
 
 /** `record`: the steps after the leading { state } ones play in real time, recorded as a clip; "video": they play on the
     paused clock, every frame filmed (record.ts). */
-export interface ActOptions { trace?: string[]; expect?: Record<string, Expected>; record?: boolean | "video" }
+export interface ActOptions { trace?: string[]; expect?: Record<string, Expected>; record?: boolean | "video"; video?: VideoOpts }
 export const KINDS = ["key", "mouse", "wheel", "resize", "scroll", "touch", "wait", "clock", "state", "until", "action"];
 // each kind's fields, from Step; an action step passes any field to __game.act
 const FIELDS: Record<string, string[]> = { key: ["key", "down", "frames"], mouse: ["mouse", "x", "y", "button", "relative", "frames"],
   wheel: ["wheel", "x", "y", "frames"], resize: ["resize", "frames"], scroll: ["scroll", "frames"], touch: ["touch", "x", "y", "frames"],
   wait: ["wait"], clock: ["clock", "frames"], state: ["state", "frames"], until: ["until", "max"] };
 for (const f of Object.values(FIELDS)) f.push("draw");
+/** Every field a step of any kind takes (an action step also passes its own args). */
+export const STEP_FIELDS = [...new Set(["action", ...Object.values(FIELDS).flat()])];
 /** A step's kind, as play() picks it (action first). */
 const kindOf = (s: object) => ["action", ...KINDS].find(k => k in s)!;
 /** A field the step's kind does not take: { key, frame: 20 } played one frame (opinion-7). */
 const stray = (s: object) => { const k = kindOf(s);
   const f = k === "action" ? undefined : Object.keys(s).find(f => !FIELDS[k]!.includes(f));
-  return f && `step ${JSON.stringify(s)}: ${k} steps take ${FIELDS[k]!.join(", ")}; "${f}" is not one; nothing was played`; };
-const isSetup = (s: unknown) => !!s && typeof s === "object" && "state" in s;
+  if (f) return `step ${JSON.stringify(s)}: ${k} steps take ${FIELDS[k]!.join(", ")}; "${f}" is not one; nothing was played`;
+  // puppeteer's "Unsupported mouse button: 2" came mid-play and named no button it takes (dev #308)
+  if (k === "mouse" && "button" in s && !BUTTONS.includes(s.button as string))
+    return `step ${JSON.stringify(s)}: a mouse step's button is "left", "right" or "middle" (also "back", "forward"), not ${JSON.stringify(s.button)}; nothing was played`; };
+const BUTTONS = ["left", "right", "middle", "back", "forward"];
+
+/** An until step, as play() picks it: an action step's own `until` or `wait` arg goes to act() and runs the step's frames (dev #386). */
+const isUntil = (s: Step) => kindOf(s) === "until";
+/** The frames the steps ask for, untils left out (they run to a state). */
+const fixedFrames = (steps: Step[]) => steps.reduce((t, s) => t + (isUntil(s) ? 0 : !("action" in s) && "wait" in s ? Math.max(0, Number(s.wait) || 0) : "frames" in s && s.frames !== undefined ? Math.max(0, Number(s.frames) || 0) : 1), 0);
+
+/** The frames the steps ask for (an until its max) and the step that asks for the most, with no frames stepped yet. */
+const stepping = (steps: Step[]): NonNullable<Game["stepping"]> => {
+  const max = (s: Step) => { const m = Number((s as { max?: unknown }).max); return Number.isFinite(m) && (s as { max?: unknown }).max !== undefined ? Math.max(0, Math.floor(m)) : 600; };
+  const each = steps.map(s => isUntil(s) ? max(s) : fixedFrames([s]));
+  const at = each.indexOf(Math.max(0, ...each));
+  return { asked: each.reduce((a, b) => a + b, 0), ...at >= 0 && { most: { at: at + 1, step: steps[at]!, frames: each[at]! } }, now: () => 0 };
+};
 
 /** Refuses, before anything plays, steps a recording cannot play: over RECORD_MAX_S of fixed frames (VIDEO_MAX_S for a
     video; an until stops at the deadline instead), none that runs a frame (a 0.02 s clip of one picture read "0 game
     frames, 0 ms apart"), or a clock step that pauses or resumes, which would stop the clip's clock or run the video's. */
 function recordable(steps: Step[], video: boolean) {
   const max = video ? VIDEO_MAX_S : RECORD_MAX_S, kind = video ? "a video" : "a recording";
-  const fixed = steps.reduce((t, s) => t + ("until" in s ? 0 : "wait" in s ? Math.max(0, Number(s.wait) || 0) : "frames" in s && s.frames !== undefined ? Math.max(0, Number(s.frames) || 0) : 1), 0);
-  if (!fixed && !steps.some(s => "until" in s)) throw new Error(`record: no step after the leading { state } steps runs a frame, so there is nothing to ${video ? "film" : "play in real time"}; add a { wait: frames } or a key held for frames; nothing was played`);
+  const fixed = fixedFrames(steps);
+  if (!fixed && !steps.some(isUntil)) throw new Error(`record: no step after the leading { state } steps runs a frame, so there is nothing to ${video ? "film" : "play in real time"}; add a { wait: frames } or a key held for frames; nothing was played`);
   if (fixed > max * 60) throw new Error(`record: the steps run ${fixed} frames, ${(fixed / 60).toFixed(1)} s ${video ? "of game time" : "in real time"}; ${kind} is ${max} s at most (${max * 60} frames); nothing was played`);
   if (steps.some(s => "clock" in s && typeof s.clock === "object" && s.clock && "paused" in s.clock)) throw new Error(video ? "record: a video steps the paused clock one filmed frame at a time, so a clock step takes timescale only; nothing was played" : "record: the clock runs in real time while recording, so a clock step takes timescale only; nothing was played");
 }
 
 /** Runs the steps in order on the page's queue and returns the state before and after, with the changed keys. Leading
     { state } steps set the scene up: the Motion line and the trace start after them, so a setup jump is never motion. */
-export function act(game: Game, steps: Step[], { trace, expect, record }: ActOptions = {}): Promise<ActResult> {
+export function act(game: Game, steps: Step[], { trace, expect, record, video: filming }: ActOptions = {}): Promise<ActResult> {
   return game.queue(async () => {
     // all checked before any input, so a typo costs no play: an unknown step thrown mid-loop left the earlier ones played (opinion-4)
     const bad = Array.isArray(steps) ? steps.find(s => !s || typeof s !== "object" || !KINDS.some(k => k in s)) : undefined;
@@ -224,6 +276,7 @@ export function act(game: Game, steps: Step[], { trace, expect, record }: ActOpt
     if (record === true) await game.page.evaluate(FIRST);
     const before = await game.page.evaluate(STATE), [heard, named] = await game.page.evaluate(AUDIO) as [number, number];
     const n = Array.isArray(steps) ? (i => i < 0 ? steps.length : i)(steps.findIndex(s => !isSetup(s))) : 0;
+    game.stepping = Array.isArray(steps) ? stepping(steps) : undefined;
     const setup = n ? await run(game, steps.slice(0, n)) : { frames: 0 };
     await game.page.evaluate(motionStart(statePos(n ? await game.page.evaluate(STATE) : before))).catch(() => {});
     if (trace) await game.page.evaluate(traceStart(trace));
@@ -231,7 +284,7 @@ export function act(game: Game, steps: Step[], { trace, expect, record }: ActOpt
     let clip: Clip | undefined, video: Video | undefined, hint: string | undefined, frames: number, released: number | undefined;
     // the stable build has no video (server.ts); the channel test folds at build time, so its bundle holds no mp4-muxer
     if (process.env.PAPRIKA3D_CHANNEL !== "stable" && record === "video") {
-      const film = await startVideo(game);
+      const film = await startVideo(game, filming);
       try { ({ hint, frames, released } = await run(game, played, undefined, n, film.frame)); }
       catch (e) {
         // the video up to the failed step is still kept, and said (none after a navigation: stop() throws then)
@@ -254,15 +307,30 @@ export function act(game: Game, steps: Step[], { trace, expect, record }: ActOpt
       }
       clip = await stop();
       frames = clip.gameFrames;
-    } else ({ hint, frames, released } = await run(game, played, undefined, n));
-    const motion = motionText(await game.page.evaluate("window.__harnessMotion?.end() ?? null").catch(() => null) as Parameters<typeof motionText>[0], released, Array.isArray(played) ? straightKey(played, heldBefore) : undefined);
+      // in real time a slow page runs fewer game frames than the steps' 1/60 s each: a held key got a tenth of its frames
+      // on a 274 ms software-rendered page, and the reply read as if every frame had run (dev #280)
+      const asked = Array.isArray(played) && !played.some(isUntil) ? fixedFrames(played) : 0;
+      if (asked && frames < asked * 0.9) hint = [hint, `The steps asked for ${asked} frames (${(asked / 60).toFixed(1)} s at 60 Hz); the game ran ${frames} of them in that time, ${clip.median} ms apart, so each held key and wait got about ${Math.round(100 * frames / asked)}% of its frames. Leave record out to play every frame on the paused clock.`].filter(Boolean).join("\n");
+    } else {
+      const t0 = Date.now();
+      ({ hint, frames, released } = await run(game, played, undefined, n));
+      // a { wait: 590 } at 280 ms a frame ran for minutes with nothing said of why (dev #406)
+      const took = Date.now() - t0;
+      if (frames >= 30 && took > 10_000) hint = [hint, `These ${frames} frames took ${Math.round(took / 1000)} s of real time (${Math.round(took / frames)} ms a frame here): a wait counts frames, not milliseconds, and about ${Math.max(1, Math.floor(60_000 * frames / took))} fit in a minute${game.software ? " on this software renderer (no GPU)" : ""}. Ask for fewer per call, or set the moment up with a { state } step.`].filter(Boolean).join("\n");
+    }
+    await gpuSettled(game.page);
+    const sampled = await game.page.evaluate("window.__harnessMotion?.end() ?? null").catch(() => null) as (NonNullable<Parameters<typeof controlsText>[0]> & { contact?: Contact | null }) | null;
+    const motion = motionText(sampled, released, Array.isArray(played) ? straightKey(played, heldBefore) : undefined);
+    const controls = Array.isArray(played) ? controlsText(sampled, played, heldBefore) : undefined;
+    const contact = sampled ? contactText(sampled.name, sampled.contact) : undefined;
+    game.stepping = undefined;
     if (Array.isArray(steps)) game.played.push(...steps);
     const rows = trace ? await game.page.evaluate("window.__harnessTrace?.end() ?? []") as unknown[][] : [];
     const after = await game.page.evaluate(STATE), end = await game.page.evaluate(`({ audio: window.__harness?.audio ?? 0, names: window.__harness?.sounds?.slice(${named}) ?? [] })`) as { audio: number; names: string[] };
     const sound = soundText(heard, end.audio, end.names);
     const traced = trace?.map(p => [p, traceOf(p, rows.map(r => (c => c && typeof c === "object" && !("type" in c) ? undefined : c)(r[trace.indexOf(p)])))] as const);
     const vs = want && verdicts(want, after);
-    return { before, after, changed: diff(before, after), framesRun: setup.frames + frames, ...(clip && { clip }), ...(video && { video }), ...(hint ? { hint } : {}), ...(motion ? { motion } : {}), ...(sound ? { sound } : {}),
+    return { before, after, changed: diff(before, after), framesRun: setup.frames + frames, ...(clip && { clip }), ...(video && { video }), ...(hint ? { hint } : {}), ...(motion ? { motion } : {}), ...(controls ? { controls } : {}), ...(contact ? { contact } : {}), ...(sound ? { sound } : {}),
       ...(traced && { trace: Object.fromEntries(traced.flatMap(([p, t]) => t.trace ? [[p, t.trace]] : [])),
         traceText: `${rows.length > TRACE_MAX ? `Trace (the first ${TRACE_MAX} frames):\n` : ""}${traced.map(([, t]) => t.line).join("\n")}` }),
       ...(vs && { expect: expectText(vs), passed: vs.every(v => v.ok) }) };
@@ -291,8 +359,10 @@ const SCROLL = `(() => {
     loads) had none yet when the after-edit hook's check called setState (Backrooms, #136). */
 export const GAME_WAIT_S = 5;
 /** What a wait in vain says: it steps no frame, so a __game the page sets in its animation loop or after awaiting a frame
-    is not missing, only not there yet; "has no window.__game.setState 5 s after the reload" blamed the game (batch 3 review). */
-export const GAME_LATE = `after ${GAME_WAIT_S} s with no frame stepped (a __game set in the animation loop or after a frame comes only once a frame runs)`;
+    is not missing, only not there yet; "has no window.__game.setState 5 s after the reload" blamed the game (batch 3 review).
+    compileAsync is named: three polls a GPU's parallel compile on requestAnimationFrame, so a game that awaited it before
+    __game failed every saved check (dev #362). */
+export const GAME_LATE = `after ${GAME_WAIT_S} s with no frame stepped (a __game set in the animation loop or after awaiting a frame, as renderer.compileAsync does on a GPU, comes only once a frame runs: set it before that await)`;
 /** Waits up to GAME_WAIT_S of real time, no frame stepped, until window.__game has each of `keys`; whether it does. */
 export const gameUp = (game: Game, keys: string[]) => game.page.evaluate(`(async (keys) => { const up = () => keys.every(k => window.__game?.[k]);
   for (const end = __clock.realNow() + ${GAME_WAIT_S * 1000}; !up() && __clock.realNow() < end;) await __clock.realSleep(20); return up(); })(${JSON.stringify(keys)})`)
@@ -317,6 +387,8 @@ function run(game: Game, steps: Step[], deadline?: number, offset = 0, film?: ()
     // in evaluates of at most 10 frames: one evaluate of 215 frames at 0.7 s a frame (a heavy scene in software WebGL)
     // ran past puppeteer's 180 s protocol timeout and failed the call in an AA-3D excavator cell
     let frame = 0, released: number | undefined; // frames stepped so far, for the until lines; the frame the last key went up
+    const before = game.stepping?.now() ?? 0;
+    if (game.stepping) game.stepping.now = () => before + frame;
     // All but a step's last frame run without drawing (devtools.js's skip: the game's logic runs, three's draw does not),
     // unless the step says draw: true: a drawn 230-frame wait took 80 s under software WebGL in an AA-3D cell, and a
     // tester's full-race `until` runs took 2 minutes drawn (2026-10-20). Trails and progressive rendering build up over
@@ -362,8 +434,8 @@ function run(game: Game, steps: Step[], deadline?: number, offset = 0, film?: ()
       // action first: its open fields would otherwise match every other step's `in` check
       if ("action" in s) {
         const { frames: _, ...call } = s;
-        const ok = await page.evaluate(call => { const g = (window as any).__game; if (!g?.act) return false; g.act(call); return true; }, call);
-        if (!ok) throw new Error(`action "${s.action}": this game has no window.__game.act`);
+        const ok = await gameUp(game, ["act"]) && await page.evaluate(call => { const g = (window as any).__game; if (!g?.act) return false; g.act(call); return true; }, call);
+        if (!ok) throw new Error(`action "${s.action}": no window.__game.act ${GAME_LATE}`);
         await step(frames, s.draw === true);
       } else if ("state" in s) {
         if (!s.state || typeof s.state !== "object" || Array.isArray(s.state)) throw new Error("state step needs an object for window.__game.setState, as { state: { player: { x: 2, z: 0 } } }");
@@ -474,7 +546,8 @@ function run(game: Game, steps: Step[], deadline?: number, offset = 0, film?: ()
       }
     }
     await release();
-    if (cut >= 0) untils.push(`record: ${RECORD_MAX_S} s of real time passed before step ${cut + 1} of ${steps.length}, so it and the steps after it were not played.`);
+    // a heavy software-rendered page (1.7 s a frame) reached the cap before the moment the agent wanted to show (dev #313)
+    if (cut >= 0) untils.push(`record: ${RECORD_MAX_S} s of real time passed before step ${cut + 1} of ${steps.length}, so it and the steps after it were not played. To show a later moment, play the steps before it in a call without record, then record only the moment${process.env.PAPRIKA3D_CHANNEL !== "stable" ? '; record: "video" films every frame on the paused clock, however slow the page' : ""}.`);
     const hints = [...untils, ...[...missed].map(([on, at]) => `${at} landed on ${on}, not the canvas: listeners on the canvas never got it.`), ...over.values(),
       ...slow ? [`A ${slow}-frame wait took over 20 s drawing every frame: leave draw: true out unless the picture builds up over frames.`] : [],
       ...scrolled ? [await page.evaluate(SCROLL) as string] : []];

@@ -11,6 +11,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make levels in a game: levels as data in a three.js game
 
@@ -244,7 +245,7 @@ These replies were captured on 2026-10-30 on a machine with no graphics card, wh
 paprika3d does not design levels or tell you whether one is fun or too hard. The flood fill is a few lines of code the agent writes for this game's rules, not a built-in check; a game with jumps or keys and doors needs its own version. To add paprika3d to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal, the window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

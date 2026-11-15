@@ -4,6 +4,19 @@
 import { isAbsolute, relative } from "node:path";
 import { uniq, type Game } from "./browser.ts";
 
+/** The version a geo.js or fx.js names in its first line (`// @paprika3d/game-fx 0.4.3-dev.80, written by…`). */
+export const bundleVersion = (text: string) => text.match(/^\/\/ @paprika3d\/game-\w+ (\d+\.\d+\.\d+(?:-[\w.]+)?),/)?.[1];
+
+/** Whether bundle version `a` is newer than `b`. A dev build X.Y.Z-dev.N is cut after release X.Y.Z (publish.yml adds
+    the run number to package.json's version), so it is newer than that release and older than the next. */
+export function newerBundle(a: string | undefined, b: string | undefined): boolean {
+  const key = (v: string) => { const [, x, y, z, n] = v.match(/^(\d+)\.(\d+)\.(\d+)(?:-\D*(\d+))?/) ?? []; return [x, y, z, n ?? -1].map(Number); };
+  if (!a || !b) return false;
+  const [ka, kb] = [key(a), key(b)];
+  for (let i = 0; i < 4; i++) if (ka[i] !== kb[i]) return ka[i]! > kb[i]!;
+  return false;
+}
+
 const FRAME = /^\s+at (?:.*\()?(.+?):(\d+):\d+\)?$/;
 
 /** "Dev server: …" for each distinct line matching error or warn the dev command printed after its URL (at most 5), with

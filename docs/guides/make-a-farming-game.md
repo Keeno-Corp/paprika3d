@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-11-01
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a farming game in three.js: plant, water and harvest
 
@@ -238,7 +239,7 @@ These replies were captured on 2026-11-01 on a machine with no graphics card, wh
 paprika3d does not balance the prices or tell you whether the farm is relaxing to play; that is for you to judge by playing it. To add it to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

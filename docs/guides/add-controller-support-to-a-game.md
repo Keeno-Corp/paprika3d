@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-31
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to add controller support to a game: the Gamepad API in a three.js game
 
@@ -223,7 +224,7 @@ HTML over the canvas: 1 (div via page), 0 overlap, 0 off-screen, 0 cut off: div#
 These replies were captured on 2026-10-31 on a machine with no graphics card, where Chrome draws in software. The fake pad tests your code's logic, not a controller: paprika3d has no gamepad, so it cannot tell you how a real stick feels, whether your dead zone suits a worn pad, or how a pad maps buttons in another browser. Plug one in and play before you share the game. To add paprika3d to Claude Code (it needs Google Chrome and Node.js):
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

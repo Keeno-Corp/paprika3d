@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a horror game in three.js: darkness, a flashlight and something following
 
@@ -328,7 +329,7 @@ Faced, it never moved in 600 frames. With its back turned, the player was caught
 paprika3d cannot tell you whether the game is scary, and it hears nothing: it counts the sounds a page starts and measures light. `open` also writes `fx.js` into the project, whose `sfx` makes sounds in code and includes a low `thud` among its presets. To add paprika3d to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal, the window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

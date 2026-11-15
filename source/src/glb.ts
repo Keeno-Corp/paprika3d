@@ -5,6 +5,7 @@
 import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import type { Browser } from "puppeteer-core";
+import type { Accessor, Document, Node, TypedArray } from "@gltf-transform/core";
 import { utilPage } from "./reference.ts";
 import { assetFiles, imageSize } from "./perf.ts";
 import { BUDGETS, overBudget, type Budget } from "./budgets.ts";
@@ -118,10 +119,20 @@ export const CONVERT = (rel: string) => `convert ${rel} to GLB (Blender's USD im
 
 /** The shrink call for a model at `rel` (relative to cwd) with each texture capped at `max` px: `model_audit`'s Fix line
     for a failing file, and `perf`'s for a download over budget whose largest file is a model. */
-export function shrinkFix(rel: string, max: number): string {
+export function shrinkFix(rel: string, max: number, triangles?: number): string {
   if (USD.test(rel)) return `Fix: ${CONVERT(rel)}`;
   const out = join(dirname(rel), `${basename(rel, extname(rel))}-opt.glb`);
-  return `Fix: \`model_audit\` { path: ${JSON.stringify(rel)}, shrink: { textures: ${max} } } writes ${out} with each texture at most ${max} px (WebP; textures: false drops them); then \`look\` compare against a look saved before (save).`;
+  return `Fix: \`model_audit\` { path: ${JSON.stringify(rel)}, shrink: { textures: ${max}${triangles ? `, triangles: ${triangles}` : ""} } } writes ${out} with each texture at most ${max} px (WebP; textures: false drops them)${triangles ? ` and about ${triangles.toLocaleString("en-US")} triangles` : ""}; then \`look\` compare against a look saved before (save).`;
+}
+
+/** For a model `asset_search` saved: a line when the file alone is over the site's asset budget, with the shrink call
+    (textures at 1024 px, triangles cut in proportion to aim at about the budget), else null. */
+export function heavyPick(cwd: string, file: string, r: ModelReport): string | null {
+  const budget = BUDGETS.site.assetMB!, MB = mb(r.bytes);
+  if (MB <= budget || USD.test(file)) return null;
+  const rel = relative(cwd, file), out = join(dirname(rel), `${basename(rel, extname(rel))}-opt.glb`);
+  const triangles = Math.max(1000, Math.round(r.triangles * (budget / 4) / MB / 1000) * 1000);
+  return `${rel} is ${MB} MB, over the ${budget} MB site budget for all of a page's assets on its own: \`model_audit\` { path: ${JSON.stringify(rel)}, shrink: { textures: 1024${triangles < r.triangles ? `, triangles: ${triangles}` : ""} } } writes ${out} smaller (then check it with \`look\`).`;
 }
 
 /** The report for a .glb/.gltf, or every one under a folder, relative to cwd: a facts line, the verdict and, for a failing
@@ -136,7 +147,8 @@ export function assetsText(cwd: string, path: string, target: Target): string {
     let r: ModelReport;
     try { r = readModel(f); } catch (e) { if (files.length === 1) throw e; return `${rel}: unreadable, ${(e as Error).message}`; } // one bad file in a folder leaves the rest
     const v = verdict(r, target), lines = [factsLine(rel, r), v], max = TARGETS[target].textureMax!;
-    if (v.includes("fails")) lines.push(shrinkFix(rel, max) + (r.triangles > (TARGETS[target].triangles ?? Infinity) ? " Shrink keeps every triangle: for fewer, pick a lower-poly model." : ""));
+    const tris = TARGETS[target].triangles;
+    if (v.includes("fails")) lines.push(shrinkFix(rel, max, tris && r.triangles > tris ? tris : undefined));
     return lines.join("\n");
   }).join("\n\n");
 }
@@ -156,7 +168,7 @@ const RESIZE = async (b64: string, cap: number) => {
 /** Rewrites a .glb or .gltf smaller, to `out` (`<name>-opt.glb` beside it by default; `file` itself to replace it):
     `textures: false` drops every texture, a number caps each one's longer side at that many pixels, re-encoded as WebP in
     Chrome's canvas (`chrome`). Meshopt files stay meshopt; a Draco file is refused (no decoder in the plugin). */
-export async function shrink(file: string, o: { textures?: false | number; out?: string }, chrome?: Promise<Browser>): Promise<{ out: string; before: ModelReport; after: ModelReport }> {
+export async function shrink(file: string, o: { textures?: false | number; triangles?: number; drop?: string[]; out?: string }, chrome?: Promise<Browser>): Promise<{ out: string; before: ModelReport; after: ModelReport }> {
   const before = readModel(file), out = o.out ?? join(dirname(file), `${basename(file, extname(file))}-opt.glb`);
   if (before.draco) throw new Error(`model_audit: ${basename(file)} is Draco-compressed, which shrink cannot decode; shrink the source model before its Draco step`);
   if (typeof o.textures === "number" && !(o.textures >= 1)) throw new Error("model_audit: shrink's textures is false or a size in pixels, at least 1");
@@ -164,7 +176,10 @@ export async function shrink(file: string, o: { textures?: false | number; out?:
     import("@gltf-transform/core"), import("@gltf-transform/extensions"), import("meshoptimizer/decoder"), import("meshoptimizer/encoder")]);
   await Promise.all([MeshoptDecoder.ready, MeshoptEncoder.ready]);
   const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ "meshopt.decoder": MeshoptDecoder, "meshopt.encoder": MeshoptEncoder });
+  if (o.triangles !== undefined && !(o.triangles >= 1)) throw new Error("model_audit: shrink's triangles is how many the file keeps, at least 1");
   const doc = await io.read(file), textures = doc.getRoot().listTextures();
+  if (o.drop?.length) dropNodes(doc, o.drop);
+  if (o.triangles && o.triangles < before.triangles) await decimate(doc, o.triangles / before.triangles);
   // the writer leaves out what nothing references, so a disposed texture's image goes with it
   if (o.textures === false) for (const t of textures) t.dispose();
   else if (typeof o.textures === "number") {
@@ -184,6 +199,49 @@ export async function shrink(file: string, o: { textures?: false | number; out?:
   }
   await io.write(out, doc);
   return { out, before, after: readModel(out) };
+}
+
+/** Removes each node named in `names`, with its children, and a mesh no node uses after; throws on a name no node has. */
+function dropNodes(doc: Document, names: string[]) {
+  const nodes = doc.getRoot().listNodes();
+  for (const name of names) if (!nodes.some(n => n.getName() === name))
+    throw new Error(`model_audit: no node is named ${JSON.stringify(name)}; its nodes: ${[...new Set(nodes.map(n => n.getName()).filter(Boolean))].slice(0, 40).join(", ")}`);
+  const gone = (n: Node) => { for (const c of n.listChildren()) gone(c); const m = n.getMesh(); n.dispose(); if (m && !m.listParents().some(p => p.propertyType === "Node")) m.dispose(); };
+  for (const n of nodes) if (!n.isDisposed() && names.includes(n.getName())) gone(n);
+}
+
+/** Cuts each triangle primitive to about `ratio` of its triangles with meshoptimizer: its simplifier on the vertices
+    welded by position (so a mesh whose triangles share no vertex, as many exported scans', still collapses), then its
+    sloppy simplifier where that stops short, and keeps only the vertices still used. */
+async function decimate(doc: Document, ratio: number) {
+  const { MeshoptSimplifier: S } = await import("meshoptimizer/simplifier");
+  await S.ready;
+  const buffer = doc.getRoot().listBuffers()[0] ?? doc.createBuffer();
+  for (const mesh of doc.getRoot().listMeshes()) for (const prim of mesh.listPrimitives()) {
+    const pos = prim.getAttribute("POSITION"), idx = prim.getIndices();
+    if (prim.getMode() !== 4 || !pos) continue; // triangle lists only
+    const count = pos.getCount(), p = new Float32Array(count * 3), el: number[] = [];
+    for (let i = 0; i < count; i++) p.set(pos.getElement(i, el), i * 3);
+    const tris = idx ? Uint32Array.from(idx.getArray()!) : Uint32Array.from({ length: count }, (_, i) => i);
+    const target = Math.max(3, Math.floor(tris.length * ratio / 3) * 3);
+    if (target >= tris.length) continue;
+    let [kept] = S.simplify(tris, p, 3, target, 0.01);
+    if (kept.length > target * 1.2) { const remap = S.generatePositionRemap(p, 3); [kept] = S.simplify(tris.map(i => remap[i]!), p, 3, target, 0.05); }
+    if (kept.length > target * 1.2) [kept] = S.simplifySloppy(kept, p, 3, null, target, 1);
+    // the vertices still used, in first-use order, and each attribute and morph target cut to them
+    const used = new Map<number, number>(), order: number[] = [];
+    const out = kept.map(i => { let j = used.get(i); if (j === undefined) { used.set(i, j = order.length); order.push(i); } return j; });
+    const cut = (a: Accessor) => {
+      const C = a.getArray()!.constructor as new (n: number) => TypedArray, n = a.getElementSize(), arr = new C(order.length * n), e: number[] = [];
+      order.forEach((v, i) => arr.set(a.getElement(v, e), i * n));
+      return doc.createAccessor().setType(a.getType()).setArray(arr).setNormalized(a.getNormalized()).setBuffer(a.getBuffer() ?? buffer);
+    };
+    const old = [...prim.listAttributes(), ...prim.listTargets().flatMap(t => t.listAttributes()), ...idx ? [idx] : []];
+    for (const sem of prim.listSemantics()) prim.setAttribute(sem, cut(prim.getAttribute(sem)!));
+    for (const t of prim.listTargets()) for (const sem of t.listSemantics()) t.setAttribute(sem, cut(t.getAttribute(sem)!));
+    prim.setIndices(doc.createAccessor().setType("SCALAR").setArray(order.length > 65535 ? out : Uint16Array.from(out)).setBuffer(idx?.getBuffer() ?? buffer));
+    for (const a of old) if (a.listParents().every(q => q.propertyType === "Root")) a.dispose(); // the writer keeps an accessor nothing uses
+  }
 }
 
 /** The reply for a shrink: the file before and after, and the new file's verdict. */

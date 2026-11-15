@@ -28,6 +28,22 @@
       return res;
     }, err => { h.loads.push({ name, status: 0, error: String(err?.message ?? err) }); throw err; });
   };
+  // A dev server's reload (Vite's client gets a `full-reload` message and calls location.reload() on a 20 ms timer) sits on
+  // the paused clock until a later call steps a frame, so a reload sent after one call landed under the next, which ran
+  // twice on a fresh page (dev #369); noted here, the server reloads the page before that call and says why.
+  h.devReload = null;
+  const WS = window.WebSocket;
+  if (WS) window.WebSocket = class WebSocket extends WS {
+    constructor(url, protocols) {
+      super(url, protocols);
+      if (protocols === "vite-hmr" || Array.isArray(protocols) && protocols.includes("vite-hmr")) this.addEventListener("message", e => {
+        try {
+          const m = JSON.parse(e.data);
+          if (m?.type === "full-reload" && !(m.ifFallback && !globalThis.__vite_is_fallback_page__)) h.devReload = { path: typeof m.path === "string" ? m.path : null };
+        } catch {}
+      });
+    }
+  };
   for (const [C, m] of [[window.AudioBufferSourceNode, "start"], [window.OscillatorNode, "start"], [window.HTMLMediaElement, "play"]]) {
     const f = C?.prototype?.[m];
     if (f) C.prototype[m] = function () { h.audio++; return f.apply(this, arguments); };
@@ -41,6 +57,8 @@
     h.frame.push(e);
     // `open` / `perf` `network`: real ms after navigation of the first render to the screen (not to a target)
     if (h.firstFrameAt === undefined && e.target === null) h.firstFrameAt = realNow();
+    // a scene or quad drawn to the screen, not just a clear: until then the game is still loading (look's FIRST, dev #429)
+    if (e.target === null && !e.clear) h.shown = true;
   };
   // Real time (performance.now is the harness's clock) and a GPU sync: a 1-pixel clear and read of a framebuffer of the
   // harness's own waits for all the work queued before it. A read of the bound framebuffer did not: after a multisampled
@@ -77,6 +95,9 @@
   // uids it added (a shadow map is a pass of its own), and gpuTimes() resolves them into each call's ms after the frames.
   const pool = (r) => r.backend?.isWebGPUBackend ? r.backend.timestampQueryPool?.render ?? null : null;
   const tracked = new Map(); // a game that tracks timestamps itself keeps them on
+  // shader programs a renderer holds: WebGLRenderer lists them in info.programs, WebGPURenderer keeps none there, so its
+  // render and compute pipelines (one per shader pair) are counted instead (dev #280: perf read 0 shader programs)
+  h.programs = (r) => r?.info.programs?.length ?? r?._pipelines?.caches?.size ?? 0;
   h.track = (on) => {
     for (const r of h.renderers) if (r.backend?.isWebGPUBackend && r.hasFeature?.("timestamp-query")) {
       if (on) { tracked.set(r, r.backend.trackTimestamp); r.backend.trackTimestamp = true; }
@@ -100,12 +121,32 @@
     const m = [one.material].flat()[0];
     return `${o?.isScene ? "scene: " : ""}${one.name || one.type}${m ? ` (${matName(m)})` : ""}`;
   };
+  // Scenes a render call is drawing now: a call nested in one for the same scene is a view of it the game never shows,
+  // so it is no view: three's WebGPU ShadowNode draws the scene again with the light's shadow camera, and on a page drawn
+  // through a RenderPipeline (bloom) no call reaches the screen, so the shadow camera was look's and eval's (dev #279).
+  const drawing = new Set();
+  const within = (scene, f) => {
+    if (!scene?.isScene || drawing.has(scene)) return f();
+    drawing.add(scene);
+    try { return f(); } finally { drawing.delete(scene); }
+  };
   const watch = (r) => {
     const render = r.render, clear = r.clear;
-    h.raw.set(r, render);
-    r.render = function (scene, camera) {
+    h.raw.set(r, function (scene) { return within(scene, () => render.apply(this, arguments)); });
+    r.render = function (scene, camera) { const nested = drawing.has(scene); return within(scene, () => {
       const target = r.getRenderTarget(), screen = target === null;
-      if (scene?.isScene && (screen || !h.views.get(scene)?.screen)) h.views.set(scene, { renderer: r, camera, screen });
+      // Off screen, a draw into a target smaller than the last view's (and than the canvas) is a side view of the scene,
+      // not the game's: a planar reflection's mirrored camera drawn after a post-processed frame was eval's camera (dev #390)
+      const last = h.views.get(scene), full = (r.domElement?.width * r.domElement?.height) || Infinity,
+        area = screen ? full : Math.min(target.width * target.height || full, full),
+        side = !screen && last && last.camera !== camera && area < Math.min(last.area, full);
+      if (scene?.isScene && !nested && (screen || !last?.screen) && !side) h.views.set(scene, { renderer: r, camera, screen, area });
+      if (h.skip && !h.depth && r.domElement && !r.domElement.isConnected) { // a renderer whose canvas is not in the document
+        // (a hidden thumbnail renderer the page reads back with toDataURL or readPixels, or an OffscreenCanvas) still draws
+        // in a skipped frame, or its read-back is the previous picture (dev #268); unrecorded, so look's redraw keeps the last drawn frame
+        h.depth++; window.__clock?.drawing(1);
+        try { return render.apply(this, arguments); } finally { h.depth--; window.__clock?.drawing(-1); }
+      }
       if (h.skip && !h.depth) { // a frame `interact` or `eval` runs without drawing: what render does besides drawing,
         // except info.reset(), so info keeps the last drawn frame's counts (an observe() that reads them read 0 after an until)
         if (scene?.matrixWorldAutoUpdate) scene.updateMatrixWorld();
@@ -113,7 +154,8 @@
         if (r.info?.render.frame !== undefined) r.info.render.frame++;
         return;
       }
-      if (h.depth) return render.apply(this, arguments); // a render inside a render (Reflector, CubeCamera) is part of the outer one
+      // A RenderPipeline's scene pass keeps the game camera and renders inside its output quad's redraw.
+      if (h.depth) return render.call(this, scene, camera && h.lookCam?.from === camera ? h.lookCam.to : camera);
       // `out`: a RenderPipeline draws its output quad with tone mapping off and the working colour space, and puts the
       // renderer's back after, so look's redraw of that quad encoded it to sRGB a second time (dev #120)
       record({ r, target, scene, camera, auto: [r.autoClear, r.autoClearColor, r.autoClearDepth, r.autoClearStencil], out: [r.toneMapping, r.outputColorSpace] });
@@ -136,9 +178,9 @@
             calls, triangles, ...(uids ? { uids } : {}) });
         }
       }
-    };
+    }); };
     r.clear = function (color = true, depth = true, stencil = true) {
-      if (!h.depth) record({ r, target: r.getRenderTarget(), clear: [color, depth, stencil] });
+      if (!h.depth && !h.skip) record({ r, target: r.getRenderTarget(), clear: [color, depth, stencil] }); // a skipped frame records nothing
       return clear.apply(this, arguments);
     };
   };
@@ -231,7 +273,7 @@
   };
   // `look`'s seam, the page-canvas boundary both ways (`free(x, y)`: the look's ID image has no object at page point x, y).
   // Behind: only when the page shows through the canvas: a context with alpha, a clear alpha under 1, no scene background
-  // and no CSS background on the canvas. Then, of an 8 × 8 grid over the canvas, the share where the scene draws nothing,
+  // (nor a WebGPU backgroundNode) and no CSS background on the canvas. Then, of an 8 × 8 grid over the canvas, the share where the scene draws nothing,
   // the background most of those points show (the first element behind the canvas with one, else the root's), and for
   // each text behind the canvas, the share of a 6 × 3 grid over its glyphs' box where it is behind the canvas and the scene
   // draws nothing there. Labels: every CSS2DObject's element (CSS2DRenderer), drei Html's (an absolute div positioned
@@ -245,7 +287,7 @@
     const hex = (col) => col.startsWith("rgb") ? "#" + col.match(/[\d.]+/g).slice(0, 3).map(n => (+n).toString(16).padStart(2, "0")).join("") : col;
     const box = (q) => [Math.round(q.left), Math.round(q.top), Math.round(q.right) - 1, Math.round(q.bottom) - 1];
     let behind = null;
-    if (ctx?.getContextAttributes?.()?.alpha && r.getClearAlpha() < 1 && !scene.background && alpha(getComputedStyle(c).backgroundColor) <= 0.05) behind = forced(() => {
+    if (ctx?.getContextAttributes?.()?.alpha && r.getClearAlpha() < 1 && !scene.background && !scene.backgroundNode && alpha(getComputedStyle(c).backgroundColor) <= 0.05) behind = forced(() => {
       const pts = grid(b), bgs = new Map(), page = (e) => { const s = getComputedStyle(e); return alpha(s.backgroundColor) > 0.05 ? hex(s.backgroundColor) : s.backgroundImage !== "none" ? "an image" : null; };
       const root = [document.documentElement, document.body].find(e => e && page(e)), dflt = root ? `${page(root)} (${tag(root)})` : "#ffffff (the browser's default)";
       let open = 0;
@@ -271,6 +313,7 @@
       }
       return { clear: +r.getClearAlpha().toFixed(2), open: +(open / pts.length).toFixed(2), background: [...bgs].sort((a, b) => b[1] - a[1])[0]?.[0] ?? dflt, texts: texts.slice(0, 3), more: Math.max(0, texts.length - 3) };
     });
+    if (behind && !behind.open) behind = null; // the scene covers every point: a clear-0 canvas under a sky dome shows nothing (dev #299)
     const els = new Map(), shown = (o) => { for (; o; o = o.parent) if (!o.visible) return false; return true; };
     for (const s of h.scenes) s.traverse(o => { if (o.isCSS2DObject && o.element && shown(o)) els.set(o.element, "CSS2DRenderer"); });
     if (scene.__r3f) for (const e of (c.parentElement?.parentElement ?? c.parentElement)?.querySelectorAll("div") ?? [])

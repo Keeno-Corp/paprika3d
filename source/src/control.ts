@@ -8,7 +8,7 @@ export interface Edit { ref: string; file: string; time: string; session: string
 /** What a check returns to the CLI: counts, whether the failing set changed, and the runner text; when asked with
     `faults`, the Lighting and Surfaces lines on the reloaded page against the last look's (or the last recheck's) at the
     same frame: closed, opened and all open now (left out when the page drew nothing to check). */
-export type CheckReply = { passed: number; failed: number; changed: boolean; text: string; faults?: { closed: string[]; opened: string[]; open: string[] } };
+export type CheckReply = { passed: number; failed: number; changed: boolean; text: string; /** the `Drawn on:` line, which only the CLI's plain report prints */ drew?: string; faults?: { closed: string[]; opened: string[]; open: string[] } };
 
 /** Asks the server named in the project's state.json to run a check (of the saved checks in game-tests.json with
     `tests`, and a recheck of the fault lines with `faults`); null when none answers for this project. */

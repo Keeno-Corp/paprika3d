@@ -45279,9 +45279,9 @@ function validateContract2(c, { tests = !1 } = {}) {
       errs.push(`${at}: actions must be a list (may be empty)`);
     else
       k.actions.forEach((a2, j2) => {
-        let kind = isObj2(a2) ? kinds.filter((n) => (n in a2)) : [];
+        let kind = !isObj2(a2) ? [] : ("action" in a2) ? ["action"] : kinds.filter((n) => (n in a2));
         if (kind.length !== 1)
-          errs.push(`${at}: action ${j2 + 1} needs exactly one of ${kinds.join(", ")}`);
+          errs.push(`${at}: action ${j2 + 1} ${show2(a2)} needs exactly one of ${kinds.join(", ")}${kind.length ? `; it has ${kind.join(" and ")}` : ""}`);
         else if (kind[0] === "wait" && !isCount2(a2.wait))
           errs.push(`${at}: action ${j2 + 1} wait must be a frame count`);
         else if ((kind[0] === "state" || kind[0] === "until") && !isObj2(a2[kind[0]]))
@@ -45356,9 +45356,11 @@ function predicates(e, field = "expect") {
       return [{ path: path14, op: ">=", value: v2[0] }, { path: path14, op: "<=", value: v2[1] }];
     if (Array.isArray(v2) && v2.length)
       return [{ path: path14, op: "in", value: v2 }];
+    if (Array.isArray(v2))
+      return [{ path: path14, op: "==", value: [] }];
     if (["number", "string", "boolean"].includes(typeof v2))
       return [{ path: path14, op: "==", value: v2 }];
-    throw Error(`${field} "${path14}": use a number, string or boolean (equal), [min, max] (a range; two numbers are always a range), a list of other values (one of them) or null (exists)`);
+    throw Error(`${field} "${path14}": use a number, string or boolean (equal), [min, max] (a range; two numbers are always a range), a list of other values (one of them; [null] is null), [] (an empty list) or null (exists)`);
   });
 }
 function holds(p, got) {
@@ -45370,11 +45372,30 @@ function verdicts(preds, state) {
   for (let p of preds)
     by.set(p.path, [...by.get(p.path) ?? [], p]);
   return [...by].map(([path14, ps]) => {
-    let got = pathValue(state, path14), lo = ps.find((p) => p.op === ">="), hi = ps.find((p) => p.op === "<="), want = ps.length === 2 && lo && hi ? `${show(lo.value)} to ${show(hi.value)}` : ps.map((p) => p.op === "exists" ? "to exist" : p.op === "==" ? show(p.value) : p.op === "in" ? `one of ${p.value.map(show).join(", ")}` : `${SYM[p.op]} ${show(p.value)}`).join(" and "), cond = want === "to exist" ? "exists" : ps.length === 1 && ps[0].op === "==" ? `== ${want}` : want;
+    let got = pathValue(state, path14), lo = ps.find((p) => p.op === ">="), hi = ps.find((p) => p.op === "<="), want = ps.length === 2 && lo && hi ? `${show2(lo.value)} to ${show2(hi.value)}` : ps.map((p) => p.op === "exists" ? "to exist" : p.op === "==" ? show2(p.value) : p.op === "in" ? `one of ${p.value.map(show2).join(", ")}` : `${SYM[p.op]} ${show2(p.value)}`).join(" and "), cond = want === "to exist" ? "exists" : ps.length === 1 && ps[0].op === "==" ? `== ${want}` : want;
     return { path: path14, ok: ps.every((p) => holds(p, got)), got, want, cond };
   });
 }
-function saveTest(cwd, id, steps, expect) {
+function pageOf(url) {
+  let u = new URL(url), path14 = u.pathname.replace(/\/index\.html$/, "/");
+  return (["127.0.0.1", "localhost"].includes(u.hostname) ? path14 : u.origin + path14) + u.search;
+}
+function onPage(c, page) {
+  let elsewhere = {}, here = (k) => !k.page || pathOf(k.page) === pathOf(page) && (!queryOf(k.page) || queryOf(k.page) === queryOf(page));
+  for (let k of c.keypoints)
+    if (!here(k))
+      elsewhere[k.page] = (elsewhere[k.page] ?? 0) + 1;
+  let keypoints = c.keypoints.filter(here);
+  return { contract: { ...c, keypoints }, elsewhere };
+}
+function elsewhereLine(elsewhere, page) {
+  let at = Object.entries(elsewhere);
+  if (!at.length)
+    return "";
+  let n = at.reduce((t, [, c]) => t + c, 0);
+  return `${n === 1 ? "1 check was" : `${n} checks were`} saved on ${at.map(([p]) => p).join(", ")}, not the open page (${page}), so ${n === 1 ? "it was" : "they were"} not run; open ${at.length === 1 ? "that page" : "each page"} to rerun ${n === 1 ? "it" : "them"}.`;
+}
+function saveTest(cwd, id, steps, expect, page, drawn) {
   let path14 = join7(cwd, TESTS_FILE), c = { v: 1, keypoints: [] };
   if (existsSync5(path14))
     try {
@@ -45382,7 +45403,7 @@ function saveTest(cwd, id, steps, expect) {
     } catch (e) {
       throw Error(`${TESTS_FILE} is not JSON (${e.message}); fix it before saving another check`);
     }
-  let lead = steps.findIndex((s) => !isObj2(s) || !("state" in s)), n = lead < 0 ? steps.length : lead, state = Object.assign({}, ...steps.slice(0, n).map((s) => s.state)), wait = steps.slice(0, n).reduce((t, s) => t + Number(s.frames ?? 1), 0), k = { id, title: id, state, actions: [...wait ? [{ wait }] : [], ...steps.slice(n)], frames: 0, expect };
+  let n = leadCount(steps), state = leadState(steps), wait = steps.slice(0, n).reduce((t, s) => t + Number(s.frames ?? 1), 0), k = { id, title: id, state, actions: [...wait ? [{ wait }] : [], ...steps.slice(n)], frames: 0, expect, ...page && { page }, ...drawn && { drawn } };
   c.keypoints = [...(Array.isArray(c.keypoints) ? c.keypoints : []).filter((x2) => x2?.id !== id), k];
   let errs = validateContract2(c, { tests: !0 });
   if (errs.length)
@@ -45426,10 +45447,16 @@ RULES:
 EXAMPLE (two of its keypoints):
 ${JSON.stringify(EXAMPLE, null, 2)}`;
 }
-var OPS2, FILE3 = "game-contract.json", MAX_FRAMES2 = 600, VIEWPORT, VIEWPORTS, ACTION_KINDS2, TEST_KINDS2, TESTS_FILE = "game-tests.json", HAND_EDITED2, issuedFile = () => join7(harnessHome(), "issued.json"), isObj2 = (x2) => !!x2 && typeof x2 === "object" && !Array.isArray(x2), isCount2 = (x2) => Number.isInteger(x2) && x2 >= 0, canonical = (x2) => Array.isArray(x2) ? `[${x2.map(canonical).join(",")}]` : isObj2(x2) ? `{${Object.keys(x2).sort().map((k) => `${JSON.stringify(k)}:${canonical(x2[k])}`).join(",")}}` : JSON.stringify(x2), hashOf = (c) => createHash2("sha256").update(canonical(c)).digest("hex"), pathValue = (o, path14) => path14.split(".").reduce((v2, k) => v2?.[k], o), show = (v2) => {
+var drawnOn = (info) => {
+  let r = String(info?.renderer ?? "");
+  return /on WebGPU$/.test(r) ? "webgpu" : /WebGL 2 backend/.test(r) ? "webgl2" : void 0;
+}, OPS2, FILE3 = "game-contract.json", MAX_FRAMES2 = 600, VIEWPORT, VIEWPORTS, ACTION_KINDS2, TEST_KINDS2, TESTS_FILE = "game-tests.json", HAND_EDITED2, issuedFile = () => join7(harnessHome(), "issued.json"), isObj2 = (x2) => !!x2 && typeof x2 === "object" && !Array.isArray(x2), isCount2 = (x2) => Number.isInteger(x2) && x2 >= 0, canonical = (x2) => Array.isArray(x2) ? `[${x2.map(canonical).join(",")}]` : isObj2(x2) ? `{${Object.keys(x2).sort().map((k) => `${JSON.stringify(k)}:${canonical(x2[k])}`).join(",")}}` : JSON.stringify(x2), hashOf = (c) => createHash2("sha256").update(canonical(c)).digest("hex"), pathValue = (o, path14) => path14.split(".").reduce((v2, k) => v2?.[k], o), show2 = (v2) => {
   let s = v2 === void 0 ? "nothing" : JSON.stringify(v2) ?? String(v2);
   return s.length > 200 ? `${s.slice(0, 200)}…` : s;
-}, SYM, EXAMPLE;
+}, SYM, pathOf = (page) => /^https?:/.test(page) ? new URL(page).pathname : page.replace(/\?.*$/, ""), queryOf = (page) => {
+  let i = page.indexOf("?");
+  return i < 0 ? "" : page.slice(i);
+}, isSetup = (s) => isObj2(s) && ("state" in s) && !("action" in s), leadCount = (steps) => ((i) => i < 0 ? steps.length : i)(steps.findIndex((s) => !isSetup(s))), leadState = (steps) => Object.assign({}, ...steps.slice(0, leadCount(steps)).map((s) => s.state)), EXAMPLE;
 var init_contract = __esm(() => {
   init_state();
   OPS2 = ["==", "!=", "<", "<=", ">", ">=", "in", "exists"], VIEWPORT = { width: 1280, height: 800 }, VIEWPORTS = { phone: [390, 844, 3], tablet: [820, 1180, 2], laptop: [1440, 900, 2], desktop: [1920, 1080, 1] }, ACTION_KINDS2 = ["key", "mouse", "touch", "wait", "action"], TEST_KINDS2 = [...ACTION_KINDS2, "state", "until", "wheel", "scroll", "resize"], HAND_EDITED2 = `${FILE3} was changed by hand; run \`contract\` again with the user's prompt`;
@@ -45516,6 +45543,8 @@ function fallback() {
 function refuse(browser, a2) {
   if (BROWSERS[browser] !== "chromium" && a2.network !== void 0)
     throw new EngineUnsupported("network");
+  if (BROWSERS[browser] !== "chromium" && a2.device !== void 0)
+    throw new EngineUnsupported("device");
 }
 function notes(page) {
   return (shimNotes.get(page) ?? []).splice(0);
@@ -45653,11 +45682,15 @@ var exports_browser = {};
 __export(exports_browser, {
   uniq: () => uniq,
   stopChrome: () => stopChrome,
+  readyWait: () => readyWait,
   printedLines: () => printedLines,
   openGame: () => openGame,
   launchChrome: () => launchChrome,
+  harnessLoads: () => harnessLoads,
+  gpuSettled: () => gpuSettled,
   gpuLine: () => gpuLine,
   findChrome: () => findChrome,
+  drewOn: () => drewOn,
   NOT_GAME: () => NOT_GAME,
   NAV_LOST: () => NAV_LOST,
   CHROME_ARGS: () => CHROME_ARGS,
@@ -45665,7 +45698,8 @@ __export(exports_browser, {
 });
 import { createReadStream as createReadStream2, readFileSync as readFileSync8, readdirSync as readdirSync3, mkdirSync as mkdirSync4, rmSync as rmSync4, statSync as statSync5, existsSync as existsSync7 } from "node:fs";
 import { join as join8, resolve as resolve7, relative as relative3, isAbsolute as isAbsolute3, dirname as dirname8, extname as extname2, posix as posix2, win32 } from "node:path";
-import { homedir as homedir2 } from "node:os";
+import { cpus as cpus2, homedir as homedir2, loadavg } from "node:os";
+import { randomBytes } from "node:crypto";
 import { spawn as spawn4 } from "node:child_process";
 import { createServer } from "node:http";
 import { once } from "node:events";
@@ -45747,8 +45781,12 @@ async function stopChrome(b2) {
   let gone = new Promise((r) => b2.once("disconnected", r));
   b2.process()?.kill("SIGKILL"), await Promise.race([gone, sleep(5000)]);
 }
+function readyWait(load = loadavg()[0], cores = cpus2().length) {
+  let per = load / cores;
+  return { ms: Math.round(1e4 * Math.min(4, Math.max(1, per))), busy: per > 1 ? ` (the machine is busy: load ${load.toFixed(1)} on ${cores} cores, so the page may only have loaded slowly; try again once other work on it has stopped)` : "" };
+}
 async function ready(page, errors, requests2) {
-  let end = Date.now() + 1e4, quiet = !1, idleSince = 0, unframedSince = 0, wait = 5;
+  let { ms, busy } = readyWait(), end = Date.now() + ms, quiet = !1, idleSince = 0, unframedSince = 0, wait = 5;
   for (;; ) {
     let late = unframedSince > 0 && Date.now() - unframedSince >= 3000, s = await page.evaluate(`__clock.endBoot(${quiet && !requests2.size}, ${late})`).catch(() => null);
     if (s === "booted")
@@ -45762,7 +45800,7 @@ async function ready(page, errors, requests2) {
       if (await page.evaluate("!!(window.__harness?.renderers.length || window.__harness?.gl.size) && (__clock.booted(), true)").catch(() => !1))
         return;
       let says = String(await page.evaluate("(document.body?.innerText ?? '').trim().slice(0, 300)").catch(() => "")).replace(/\s+/g, " ");
-      throw Error(`game not ready after 10 s: no window.__game, three.js renderer or WebGL canvas on ${page.url()}${says ? `
+      throw Error(`game not ready after ${Math.round(ms / 1000)} s: no window.__game, three.js renderer or WebGL canvas on ${page.url()}${busy}${says ? `
 The page shows: "${says}"` : ""}${errors.length ? `
 ${errors.join(`
 `)}` : ""}`);
@@ -45814,7 +45852,7 @@ async function serveStatic(root, threeOnly = !1) {
     }
   }), answer = (req, res) => {
     let url = posix2.normalize(decodeURIComponent(new URL(req.url ?? "/", "http://127.0.0.1").pathname)), three = url.startsWith(THREE_DIR), path14 = join8(root, url);
-    if (relative3(root, path14).startsWith("..") || threeOnly && !three)
+    if (relative3(root, path14).startsWith("..") || threeOnly && !three || privateKey() && req.headers["x-paprika3d-key"] !== privateKey())
       return res.writeHead(403).end("forbidden");
     let file3 = path14, st = statSync5(path14, { throwIfNoEntry: !1 });
     if (st?.isDirectory())
@@ -45870,7 +45908,7 @@ async function openGame(opts) {
     if (opts.command) {
       if ({ proc, url, log: serverLog } = await startCommand(opts.command, cwd), opts.url) {
         let u = new URL(opts.url, url), file3 = opts.url.match(/^[^?#]*/)[0];
-        if (file3 && existsSync7(resolve7(cwd, file3)) && !/^https?:\/\//.test(opts.url))
+        if (file3 && statSync5(resolve7(cwd, file3), { throwIfNoEntry: !1 })?.isFile() && !/^https?:\/\//.test(opts.url))
           fileNote = `url names the file ${file3}, which is not a path on the command's server, so its own URL opened${u.search || u.hash ? " with the url's query" : ""}`, url = new URL(u.search + u.hash, url).href;
         else
           url = new URL(u.pathname + u.search + u.hash, url).href;
@@ -45898,8 +45936,14 @@ async function openGame(opts) {
     if (shared)
       context2 = await browser.createBrowserContext();
     let page = racked?.page ?? (shared ? await context2.newPage() : (await browser.pages())[0] ?? await browser.newPage());
-    if (shared)
-      await page.setViewport(viewport);
+    if (shared || opts.device)
+      await page.setViewport({ ...viewport, ...opts.device && { isMobile: !0, hasTouch: !0 } });
+    if (opts.device && !racked) {
+      let v2 = (await page.browser().version()).match(/\/([\d.]+)/)?.[1] ?? "131.0.0.0";
+      await page.setUserAgent(`Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${v2} Mobile Safari/537.36`, { platform: "Android", platformVersion: "14", architecture: "", model: "Pixel 8", mobile: !0 });
+    }
+    if (privateKey() && !racked)
+      await page.setExtraHTTPHeaders({ "x-paprika3d-key": privateKey() });
     if (opts.reducedMotion && !racked)
       await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
     if (!opts.command && /^https?:\/\//.test(opts.url ?? ""))
@@ -45912,7 +45956,7 @@ async function openGame(opts) {
 `));
     }), page.on("console", (m) => {
       let at = m.type() === "error" ? m.location().url ?? "" : "/favicon.ico";
-      if (!at.endsWith("/favicon.ico"))
+      if (!at.endsWith("/favicon.ico") && !harnessLoads.has(at) && ![...harnessLoads].some((u) => m.text().includes(u)))
         errors.push(m.text() + (/^Failed to load resource/.test(m.text()) && at ? ` ${at.replace(page.url().replace(/[^/]*([?#].*)?$/, ""), "")}${at.includes("/node_modules/three/") ? " (run bun add three in cwd)" : ""}` : ""));
       if (m.type() === "warn" && m.text().startsWith("THREE.") && warned.length < 200)
         warned.push(m.text().slice(0, 300));
@@ -45964,7 +46008,17 @@ ${INJECT}`)).identifier, load = async (go) => {
           frozen = !0, await life("frozen");
         }).catch(() => {});
       }, freezeMs), idle.unref?.();
-    }, b2 = browser, watch = racked ? null : await page.createCDPSession(), seat = racked ?? {
+    }, b2 = browser, watch = racked ? null : await page.createCDPSession(), progress = { at: 0, compiles: 0 };
+    if (watch)
+      watch.on("Runtime.bindingCalled", (e) => {
+        if (e.name !== "__paprika3dProgress")
+          return;
+        progress.at = Date.now();
+        let c = /^c(\d+)$/.exec(e.payload);
+        if (c)
+          progress.compiles = Number(c[1]);
+      }), await watch.send("Runtime.addBinding", { name: "__paprika3dProgress" }).catch(() => {});
+    let seat = racked ?? {
       version: chromeVersion(b2),
       alive: () => watch.send("Runtime.evaluate", { expression: "1" }, { timeout: 1000 }).then(() => !0, (e) => !/timed out/.test(String(e?.message))),
       abandon: async () => {
@@ -46004,6 +46058,7 @@ ${INJECT}`)).identifier, load = async (go) => {
       adapter,
       software: SOFTWARE_GL.test(gpu) || /fallback|swiftshader/i.test(adapter),
       alive: seat.alive,
+      ...watch && { progress },
       abandon: () => dropped ??= (async () => {
         clearTimeout(idle), await seat.abandon();
       })(),
@@ -46039,7 +46094,13 @@ ${INJECT}`)).identifier;
           if (game.resized = void 0, v2 && r && v2.width === r.width && v2.height === r.height)
             await page.setViewport({ ...v2, ...r.back });
           let t0 = Date.now();
-          await load(() => to ? page.goto(to) : page.reload()), game.loadMs = Date.now() - t0;
+          game.loading = !0, progress.compiles = 0;
+          try {
+            await load(() => to ? page.goto(to) : page.reload());
+          } finally {
+            game.loading = !1;
+          }
+          game.loadMs = Date.now() - t0;
         });
       },
       settle() {
@@ -46064,14 +46125,20 @@ ${INJECT}`)).identifier;
     throw served?.server.close(), served?.server.closeAllConnections(), proc?.stdin.end(), e;
   }
 }
-var CHROME, CHROME_ARGS, INJECT, NOT_GAME, launched, versions, chromeVersion = (b2) => versions.get(b2) ?? (versions.set(b2, b2.version().then((v2) => v2.replace(/^\D*\//, ""), () => "")), versions.get(b2)), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), NAV_LOST, GPU_NAME = `(() => { const gl = document.createElement("canvas").getContext("webgl"); if (!gl) return "";
+var CHROME, CHROME_ARGS, INJECT, gpuSettled = (page) => page.evaluate(`(async () => { const h = window.__harness, d = (h?.renderers ?? []).map(r => r.backend?.isWebGPUBackend && r.backend.device).filter(Boolean);
+  if (!d.length) return; await Promise.all(d.map(d => d.queue.onSubmittedWorkDone())); for (let i = 0; i < 3; i++) await __clock.realTick(); })()`).catch(() => {}), harnessLoads, NOT_GAME, launched, versions, chromeVersion = (b2) => versions.get(b2) ?? (versions.set(b2, b2.version().then((v2) => v2.replace(/^\D*\//, ""), () => "")), versions.get(b2)), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), NAV_LOST, GPU_NAME = `(() => { const gl = document.createElement("canvas").getContext("webgl"); if (!gl) return "";
   const name = gl.getParameter(gl.getExtension("WEBGL_debug_renderer_info")?.UNMASKED_RENDERER_WEBGL ?? gl.RENDERER);
   gl.getExtension("WEBGL_lose_context")?.loseContext(); return String(name); })()`, ADAPTER = `(async () => { const r = window.__harness?.renderers.find(r => r.backend?.isWebGPUBackend); if (!r) return "";
   const i = r.backend.device?.adapterInfo ?? (await navigator.gpu?.requestAdapter())?.info; if (!i) return "";
-  return [i.vendor, i.architecture, i.description].filter(Boolean).join(", ") + (i.isFallbackAdapter ? " (fallback adapter)" : ""); })()`, DESCRIBE = `(() => {
+  return [i.vendor, i.architecture, i.description].filter(Boolean).join(", ") + (i.isFallbackAdapter ? " (fallback adapter)" : ""); })()`, drewOn = (g) => {
+  let renderer = typeof g.info?.renderer === "string" ? g.info.renderer : "";
+  return { renderer, gpu: g.gpu, adapter: g.adapter, software: g.software, line: `Drawn on: ${renderer ? `${renderer}. ` : ""}${gpuLine(g)}` };
+}, DESCRIBE = `(() => {
   const g = window.__game, h = window.__harness;
-  // which backend a WebGPURenderer page drew with: Linux Chrome has no WebGPU, so three falls back to WebGL 2 there
-  const gpu = h.renderers.find(r => r.isWebGPURenderer), renderer = gpu ? { renderer: gpu.backend?.isWebGPUBackend ? "WebGPURenderer on WebGPU" : "WebGPURenderer on its WebGL 2 backend (this browser has no WebGPU)" } : {};
+  // which backend a WebGPURenderer page drew with: where Chrome has no WebGPU (Linux with a GPU), three falls back to WebGL 2,
+  // and a page's forceWebGL picks it whatever the browser has (dev #333)
+  const gpu = h.renderers.find(r => r.isWebGPURenderer), renderer = gpu ? { renderer: gpu.backend?.isWebGPUBackend ? "WebGPURenderer on WebGPU"
+    : "WebGPURenderer on its WebGL 2 backend (" + (gpu.backend?.parameters?.forceWebGL ? "the page set forceWebGL" : "this browser has no WebGPU") + ")" } : {};
   // a describe() that returns a string, not an object, is kept whole: spread, it printed one key per character (#62)
   if (g?.describe) { const d = g.describe(); return { ...(d && typeof d === "object" ? d : { description: String(d) }), ...renderer, hasConvention: true }; }
   const scene = h.mainScene();
@@ -46081,7 +46148,7 @@ var CHROME, CHROME_ARGS, INJECT, NOT_GAME, launched, versions, chromeVersion = (
   for (const o of scene?.children ?? []) if (o.name) { const k = o.name.replace(/\\d+$/, ""), g = groups.get(k); g ? g.push(o.name) : groups.set(k, [o.name]); }
   const entities = [...groups].flatMap(([k, names]) => names.length > 3 ? [k + "* (" + names.length + ")"] : names);
   return { three: h.revision, ...renderer, scenes: h.scenes.length, entities: entities.length > 50 ? [...entities.slice(0, 50), "… " + (entities.length - 50) + " more"] : entities, hasConvention: !!g };
-})()`, LOCAL, THREE_DIR = "/node_modules/three/", TYPES, staticPort = 0;
+})()`, LOCAL, THREE_DIR = "/node_modules/three/", TYPES, staticPort = 0, staticKey = "", privateKey = () => process.env.PAPRIKA3D_PRIVATE ? staticKey ||= randomBytes(16).toString("hex") : "";
 var init_browser = __esm(() => {
   init_puppeteer_core();
   init_state();
@@ -46090,11 +46157,15 @@ var init_browser = __esm(() => {
   CHROME = findChrome(), CHROME_ARGS = [
     `--window-size=${VIEWPORT.width},${VIEWPORT.height}`,
     "--disable-frame-rate-limit",
-    ...process.platform === "linux" ? ["--no-sandbox", "--enable-unsafe-swiftshader"] : [],
+    ...process.platform === "linux" ? [
+      "--no-sandbox",
+      "--enable-unsafe-swiftshader",
+      ...existsSync7("/dev/dri") ? [] : ["--enable-unsafe-webgpu", "--enable-features=Vulkan", "--use-vulkan=swiftshader", "--use-angle=swiftshader"]
+    ] : [],
     ...(process.env.PAPRIKA3D_CHROME_ARGS ?? "").split(/\s+/).filter(Boolean)
   ], INJECT = ["devtools.js", "geometry.js", "clock.js"].map((f) => readFileSync8(join8(import.meta.dirname, "inject", f), "utf8")).join(`
 `);
-  NOT_GAME = /\/(node_modules|runtime\/dist)\/|\/(three|three\.module|three\.core|three-runtime|geo)\.js$/;
+  harnessLoads = /* @__PURE__ */ new Set, NOT_GAME = /\/(node_modules|runtime\/dist)\/|\/(three|three\.module|three\.core|three-runtime|geo)\.js$/;
   launched = [];
   versions = /* @__PURE__ */ new WeakMap, NAV_LOST = /Execution context was destroyed|Cannot find context with specified id|Not attached to an active page|detached Frame/;
   LOCAL = /https?:\/\/(?:localhost|127\.0\.0\.1):\d+[^\s]*/, TYPES = {
@@ -46113,7 +46184,8 @@ var init_browser = __esm(() => {
 
 import { createReadStream as createReadStream3, readFileSync as readFileSync9, readdirSync as readdirSync4, mkdirSync as mkdirSync5, rmSync as rmSync5, statSync as statSync6, existsSync as existsSync8 } from "node:fs";
 import { join as join9, resolve as resolve8, relative as relative4, isAbsolute as isAbsolute4, dirname as dirname9, extname as extname3, posix as posix3, win32 as win322 } from "node:path";
-import { homedir as homedir3 } from "node:os";
+import { cpus as cpus3, homedir as homedir3, loadavg as loadavg2 } from "node:os";
+import { randomBytes as randomBytes2 } from "node:crypto";
 import { spawn as spawn5 } from "node:child_process";
 import { createServer as createServer2 } from "node:http";
 import { once as once2 } from "node:events";
@@ -46195,8 +46267,12 @@ async function stopChrome2(b2) {
   let gone = new Promise((r) => b2.once("disconnected", r));
   b2.process()?.kill("SIGKILL"), await Promise.race([gone, sleep2(5000)]);
 }
+function readyWait2(load = loadavg2()[0], cores = cpus3().length) {
+  let per = load / cores;
+  return { ms: Math.round(1e4 * Math.min(4, Math.max(1, per))), busy: per > 1 ? ` (the machine is busy: load ${load.toFixed(1)} on ${cores} cores, so the page may only have loaded slowly; try again once other work on it has stopped)` : "" };
+}
 async function ready2(page, errors, requests2) {
-  let end = Date.now() + 1e4, quiet = !1, idleSince = 0, unframedSince = 0, wait = 5;
+  let { ms, busy } = readyWait2(), end = Date.now() + ms, quiet = !1, idleSince = 0, unframedSince = 0, wait = 5;
   for (;; ) {
     let late = unframedSince > 0 && Date.now() - unframedSince >= 3000, s = await page.evaluate(`__clock.endBoot(${quiet && !requests2.size}, ${late})`).catch(() => null);
     if (s === "booted")
@@ -46210,7 +46286,7 @@ async function ready2(page, errors, requests2) {
       if (await page.evaluate("!!(window.__harness?.renderers.length || window.__harness?.gl.size) && (__clock.booted(), true)").catch(() => !1))
         return;
       let says = String(await page.evaluate("(document.body?.innerText ?? '').trim().slice(0, 300)").catch(() => "")).replace(/\s+/g, " ");
-      throw Error(`game not ready after 10 s: no window.__game, three.js renderer or WebGL canvas on ${page.url()}${says ? `
+      throw Error(`game not ready after ${Math.round(ms / 1000)} s: no window.__game, three.js renderer or WebGL canvas on ${page.url()}${busy}${says ? `
 The page shows: "${says}"` : ""}${errors.length ? `
 ${errors.join(`
 `)}` : ""}`);
@@ -46262,7 +46338,7 @@ async function serveStatic2(root, threeOnly = !1) {
     }
   }), answer = (req, res) => {
     let url = posix3.normalize(decodeURIComponent(new URL(req.url ?? "/", "http://127.0.0.1").pathname)), three = url.startsWith(THREE_DIR2), path14 = join9(root, url);
-    if (relative4(root, path14).startsWith("..") || threeOnly && !three)
+    if (relative4(root, path14).startsWith("..") || threeOnly && !three || privateKey2() && req.headers["x-paprika3d-key"] !== privateKey2())
       return res.writeHead(403).end("forbidden");
     let file3 = path14, st = statSync6(path14, { throwIfNoEntry: !1 });
     if (st?.isDirectory())
@@ -46318,7 +46394,7 @@ async function openGame2(opts) {
     if (opts.command) {
       if ({ proc, url, log: serverLog } = await startCommand2(opts.command, cwd), opts.url) {
         let u = new URL(opts.url, url), file3 = opts.url.match(/^[^?#]*/)[0];
-        if (file3 && existsSync8(resolve8(cwd, file3)) && !/^https?:\/\//.test(opts.url))
+        if (file3 && statSync6(resolve8(cwd, file3), { throwIfNoEntry: !1 })?.isFile() && !/^https?:\/\//.test(opts.url))
           fileNote = `url names the file ${file3}, which is not a path on the command's server, so its own URL opened${u.search || u.hash ? " with the url's query" : ""}`, url = new URL(u.search + u.hash, url).href;
         else
           url = new URL(u.pathname + u.search + u.hash, url).href;
@@ -46346,8 +46422,14 @@ async function openGame2(opts) {
     if (shared)
       context2 = await browser.createBrowserContext();
     let page = racked?.page ?? (shared ? await context2.newPage() : (await browser.pages())[0] ?? await browser.newPage());
-    if (shared)
-      await page.setViewport(viewport);
+    if (shared || opts.device)
+      await page.setViewport({ ...viewport, ...opts.device && { isMobile: !0, hasTouch: !0 } });
+    if (opts.device && !racked) {
+      let v2 = (await page.browser().version()).match(/\/([\d.]+)/)?.[1] ?? "131.0.0.0";
+      await page.setUserAgent(`Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${v2} Mobile Safari/537.36`, { platform: "Android", platformVersion: "14", architecture: "", model: "Pixel 8", mobile: !0 });
+    }
+    if (privateKey2() && !racked)
+      await page.setExtraHTTPHeaders({ "x-paprika3d-key": privateKey2() });
     if (opts.reducedMotion && !racked)
       await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
     if (!opts.command && /^https?:\/\//.test(opts.url ?? ""))
@@ -46360,7 +46442,7 @@ async function openGame2(opts) {
 `));
     }), page.on("console", (m) => {
       let at = m.type() === "error" ? m.location().url ?? "" : "/favicon.ico";
-      if (!at.endsWith("/favicon.ico"))
+      if (!at.endsWith("/favicon.ico") && !harnessLoads2.has(at) && ![...harnessLoads2].some((u) => m.text().includes(u)))
         errors.push(m.text() + (/^Failed to load resource/.test(m.text()) && at ? ` ${at.replace(page.url().replace(/[^/]*([?#].*)?$/, ""), "")}${at.includes("/node_modules/three/") ? " (run bun add three in cwd)" : ""}` : ""));
       if (m.type() === "warn" && m.text().startsWith("THREE.") && warned.length < 200)
         warned.push(m.text().slice(0, 300));
@@ -46412,7 +46494,17 @@ ${INJECT2}`)).identifier, load = async (go) => {
           frozen = !0, await life("frozen");
         }).catch(() => {});
       }, freezeMs), idle.unref?.();
-    }, b2 = browser, watch = racked ? null : await page.createCDPSession(), seat = racked ?? {
+    }, b2 = browser, watch = racked ? null : await page.createCDPSession(), progress = { at: 0, compiles: 0 };
+    if (watch)
+      watch.on("Runtime.bindingCalled", (e) => {
+        if (e.name !== "__paprika3dProgress")
+          return;
+        progress.at = Date.now();
+        let c = /^c(\d+)$/.exec(e.payload);
+        if (c)
+          progress.compiles = Number(c[1]);
+      }), await watch.send("Runtime.addBinding", { name: "__paprika3dProgress" }).catch(() => {});
+    let seat = racked ?? {
       version: chromeVersion2(b2),
       alive: () => watch.send("Runtime.evaluate", { expression: "1" }, { timeout: 1000 }).then(() => !0, (e) => !/timed out/.test(String(e?.message))),
       abandon: async () => {
@@ -46452,6 +46544,7 @@ ${INJECT2}`)).identifier, load = async (go) => {
       adapter,
       software: SOFTWARE_GL.test(gpu) || /fallback|swiftshader/i.test(adapter),
       alive: seat.alive,
+      ...watch && { progress },
       abandon: () => dropped ??= (async () => {
         clearTimeout(idle), await seat.abandon();
       })(),
@@ -46487,7 +46580,13 @@ ${INJECT2}`)).identifier;
           if (game.resized = void 0, v2 && r && v2.width === r.width && v2.height === r.height)
             await page.setViewport({ ...v2, ...r.back });
           let t0 = Date.now();
-          await load(() => to ? page.goto(to) : page.reload()), game.loadMs = Date.now() - t0;
+          game.loading = !0, progress.compiles = 0;
+          try {
+            await load(() => to ? page.goto(to) : page.reload());
+          } finally {
+            game.loading = !1;
+          }
+          game.loadMs = Date.now() - t0;
         });
       },
       settle() {
@@ -46512,14 +46611,20 @@ ${INJECT2}`)).identifier;
     throw served?.server.close(), served?.server.closeAllConnections(), proc?.stdin.end(), e;
   }
 }
-var CHROME2, CHROME_ARGS2, INJECT2, NOT_GAME2, launched2, versions2, chromeVersion2 = (b2) => versions2.get(b2) ?? (versions2.set(b2, b2.version().then((v2) => v2.replace(/^\D*\//, ""), () => "")), versions2.get(b2)), sleep2 = (ms) => new Promise((r) => setTimeout(r, ms)), NAV_LOST2, GPU_NAME2 = `(() => { const gl = document.createElement("canvas").getContext("webgl"); if (!gl) return "";
+var CHROME2, CHROME_ARGS2, INJECT2, gpuSettled2 = (page) => page.evaluate(`(async () => { const h = window.__harness, d = (h?.renderers ?? []).map(r => r.backend?.isWebGPUBackend && r.backend.device).filter(Boolean);
+  if (!d.length) return; await Promise.all(d.map(d => d.queue.onSubmittedWorkDone())); for (let i = 0; i < 3; i++) await __clock.realTick(); })()`).catch(() => {}), harnessLoads2, NOT_GAME2, launched2, versions2, chromeVersion2 = (b2) => versions2.get(b2) ?? (versions2.set(b2, b2.version().then((v2) => v2.replace(/^\D*\//, ""), () => "")), versions2.get(b2)), sleep2 = (ms) => new Promise((r) => setTimeout(r, ms)), NAV_LOST2, GPU_NAME2 = `(() => { const gl = document.createElement("canvas").getContext("webgl"); if (!gl) return "";
   const name = gl.getParameter(gl.getExtension("WEBGL_debug_renderer_info")?.UNMASKED_RENDERER_WEBGL ?? gl.RENDERER);
   gl.getExtension("WEBGL_lose_context")?.loseContext(); return String(name); })()`, ADAPTER2 = `(async () => { const r = window.__harness?.renderers.find(r => r.backend?.isWebGPUBackend); if (!r) return "";
   const i = r.backend.device?.adapterInfo ?? (await navigator.gpu?.requestAdapter())?.info; if (!i) return "";
-  return [i.vendor, i.architecture, i.description].filter(Boolean).join(", ") + (i.isFallbackAdapter ? " (fallback adapter)" : ""); })()`, DESCRIBE2 = `(() => {
+  return [i.vendor, i.architecture, i.description].filter(Boolean).join(", ") + (i.isFallbackAdapter ? " (fallback adapter)" : ""); })()`, drewOn2 = (g) => {
+  let renderer = typeof g.info?.renderer === "string" ? g.info.renderer : "";
+  return { renderer, gpu: g.gpu, adapter: g.adapter, software: g.software, line: `Drawn on: ${renderer ? `${renderer}. ` : ""}${gpuLine2(g)}` };
+}, DESCRIBE2 = `(() => {
   const g = window.__game, h = window.__harness;
-  // which backend a WebGPURenderer page drew with: Linux Chrome has no WebGPU, so three falls back to WebGL 2 there
-  const gpu = h.renderers.find(r => r.isWebGPURenderer), renderer = gpu ? { renderer: gpu.backend?.isWebGPUBackend ? "WebGPURenderer on WebGPU" : "WebGPURenderer on its WebGL 2 backend (this browser has no WebGPU)" } : {};
+  // which backend a WebGPURenderer page drew with: where Chrome has no WebGPU (Linux with a GPU), three falls back to WebGL 2,
+  // and a page's forceWebGL picks it whatever the browser has (dev #333)
+  const gpu = h.renderers.find(r => r.isWebGPURenderer), renderer = gpu ? { renderer: gpu.backend?.isWebGPUBackend ? "WebGPURenderer on WebGPU"
+    : "WebGPURenderer on its WebGL 2 backend (" + (gpu.backend?.parameters?.forceWebGL ? "the page set forceWebGL" : "this browser has no WebGPU") + ")" } : {};
   // a describe() that returns a string, not an object, is kept whole: spread, it printed one key per character (#62)
   if (g?.describe) { const d = g.describe(); return { ...(d && typeof d === "object" ? d : { description: String(d) }), ...renderer, hasConvention: true }; }
   const scene = h.mainScene();
@@ -46529,7 +46634,7 @@ var CHROME2, CHROME_ARGS2, INJECT2, NOT_GAME2, launched2, versions2, chromeVersi
   for (const o of scene?.children ?? []) if (o.name) { const k = o.name.replace(/\\d+$/, ""), g = groups.get(k); g ? g.push(o.name) : groups.set(k, [o.name]); }
   const entities = [...groups].flatMap(([k, names]) => names.length > 3 ? [k + "* (" + names.length + ")"] : names);
   return { three: h.revision, ...renderer, scenes: h.scenes.length, entities: entities.length > 50 ? [...entities.slice(0, 50), "… " + (entities.length - 50) + " more"] : entities, hasConvention: !!g };
-})()`, LOCAL2, THREE_DIR2 = "/node_modules/three/", TYPES2, staticPort2 = 0;
+})()`, LOCAL2, THREE_DIR2 = "/node_modules/three/", TYPES2, staticPort2 = 0, staticKey2 = "", privateKey2 = () => process.env.PAPRIKA3D_PRIVATE ? staticKey2 ||= randomBytes2(16).toString("hex") : "";
 var init_browser2 = __esm(() => {
   init_puppeteer_core();
   init_state();
@@ -46538,11 +46643,15 @@ var init_browser2 = __esm(() => {
   CHROME2 = findChrome2(), CHROME_ARGS2 = [
     `--window-size=${VIEWPORT.width},${VIEWPORT.height}`,
     "--disable-frame-rate-limit",
-    ...process.platform === "linux" ? ["--no-sandbox", "--enable-unsafe-swiftshader"] : [],
+    ...process.platform === "linux" ? [
+      "--no-sandbox",
+      "--enable-unsafe-swiftshader",
+      ...existsSync8("/dev/dri") ? [] : ["--enable-unsafe-webgpu", "--enable-features=Vulkan", "--use-vulkan=swiftshader", "--use-angle=swiftshader"]
+    ] : [],
     ...(process.env.PAPRIKA3D_CHROME_ARGS ?? "").split(/\s+/).filter(Boolean)
   ], INJECT2 = ["devtools.js", "geometry.js", "clock.js"].map((f) => readFileSync9(join9(import.meta.dirname, "inject", f), "utf8")).join(`
 `);
-  NOT_GAME2 = /\/(node_modules|runtime\/dist)\/|\/(three|three\.module|three\.core|three-runtime|geo)\.js$/;
+  harnessLoads2 = /* @__PURE__ */ new Set, NOT_GAME2 = /\/(node_modules|runtime\/dist)\/|\/(three|three\.module|three\.core|three-runtime|geo)\.js$/;
   launched2 = [];
   versions2 = /* @__PURE__ */ new WeakMap, NAV_LOST2 = /Execution context was destroyed|Cannot find context with specified id|Not attached to an active page|detached Frame/;
   LOCAL2 = /https?:\/\/(?:localhost|127\.0\.0\.1):\d+[^\s]*/, TYPES2 = {
@@ -48074,6 +48183,73 @@ If you want to offset all timestamps of a track such that the first one is zero,
   };
 });
 
+function contactText(name, c) {
+  if (!c || !(c.radius > 0) || !Number.isFinite(c.depth) || c.depth <= c.radius)
+    return;
+  return `Contact: ${name} overlapped ${c.peer} by ${+c.depth.toPrecision(3)} units (${Math.round(c.depth / c.radius * 100)}% of the smaller body radius) at frame ${c.frame}; register contact when bodies touch (reach ≈ ${+c.reach.toPrecision(3)} units), not after deep overlap.`;
+}
+var CONTACT = `(subject) => {
+  if (!subject) return null;
+  let Box3;
+  // a mesh drawn many times is many bodies (a ring of walls, a crowd, GPU-placed instances): its joint bounds are no one body.
+  // WebGPU instances a plain Mesh by mesh.count, an InstancedBufferGeometry by instanceCount and an indirect draw by its buffer
+  const many = p => p.isBatchedMesh || p.isInstancedMesh && p.count !== 1 || p.count > 1 || p.geometry?.indirect
+    || p.geometry?.isInstancedBufferGeometry && p.geometry.instanceCount !== 1;
+  const body = o => {
+    let mesh, largest = -1;
+    o.updateWorldMatrix(true, true);
+    o.traverseVisible(p => {
+      if (!p.isMesh || !p.geometry || many(p)) return;
+      p.geometry.computeBoundingBox();
+      Box3 ??= p.geometry.boundingBox?.constructor;
+      if (!Box3) return;
+      const bounds = p.geometry.boundingBox.clone().applyMatrix4(p.matrixWorld);
+      const volume = (bounds.max.x - bounds.min.x) * (bounds.max.y - bounds.min.y) * (bounds.max.z - bounds.min.z);
+      if (volume > largest) { mesh = p; largest = volume; }
+    });
+    if (!mesh) return 0;
+    const b = new Box3();
+    o.traverse(p => {
+      if (!p.isMesh || !p.geometry || many(p)) return;
+      if (p.isSkinnedMesh || p.isInstancedMesh) { p.computeBoundingBox(); b.union(p.boundingBox.clone().applyMatrix4(p.matrixWorld)); }
+      else { p.geometry.computeBoundingBox(); b.union(p.geometry.boundingBox.clone().applyMatrix4(p.matrixWorld)); }
+    });
+    const offset = mesh.worldToLocal(b.getCenter(mesh.position.clone()));
+    return { r: Math.min(b.max.x - b.min.x, b.max.z - b.min.z) / 2, h: (b.max.y - b.min.y) / 2, offset, mesh };
+  };
+  const ownBody = body(subject), own = ownBody?.r, ownH = ownBody?.h;
+  if (!(own > 0) || !Number.isFinite(own)) return null;
+  const pick = parent => {
+    const peers = [];
+    for (const o of (parent?.children ?? []).slice(0, 512)) {
+      if (o === subject || o === subject.parent || !o.visible) continue;
+      const b = body(o), r = b?.r;
+      // a flat thing on the ground (a warning ring, a shadow blob, a decal) is a marking the subject crosses, not a body
+      if (Number.isFinite(r) && r >= own * 0.5 && r <= own * 2 && b.h > r * 0.1) peers.push({ o, ...b });
+      if (peers.length === 64) break;
+    }
+    return peers;
+  };
+  let peers = pick(subject.parent);
+  if (!peers.length) peers = pick(subject.parent?.parent);
+  let deepest = null;
+  return {
+    sample: (x, z, frame) => {
+      ownBody.mesh.updateWorldMatrix(true, false);
+      const centre = ownBody.offset.clone().applyMatrix4(ownBody.mesh.matrixWorld);
+      for (const { o, r, h, offset, mesh } of peers) {
+        if (!o.visible) continue;
+        mesh.updateWorldMatrix(true, false);
+        const other = offset.clone().applyMatrix4(mesh.matrixWorld);
+        if (Math.abs(centre.y - other.y) >= ownH + h) continue; // one is above the other: a jump over it is no overlap
+        const depth = own + r - Math.hypot(centre.x - other.x, centre.z - other.z);
+        if (depth > 0 && (!deepest || depth > deepest.depth)) deepest = { depth, radius: Math.min(own, r), reach: own + r, peer: o.name || o.type, frame };
+      }
+    },
+    result: () => deepest,
+  };
+}`;
+
 function statePos(state) {
   if (!state || typeof state !== "object")
     return null;
@@ -48092,6 +48268,23 @@ function straightKey(steps, held) {
     return;
   let keys = [.../* @__PURE__ */ new Set([...held, ...steps.flatMap((s) => ("key" in s) && s.down !== !1 ? [s.key] : [])])].filter((k) => !STEERS_NOT.test(k));
   return keys.length === 1 && FORWARD.test(keys[0]) ? keys[0] : void 0;
+}
+function controlsText(m, steps, held) {
+  if (!m?.screen || steps.some((s) => !(("key" in s) || ("wait" in s))) || held.some((k) => k.startsWith("mouse:")))
+    return;
+  let keys = [.../* @__PURE__ */ new Set([...held, ...steps.flatMap((s) => ("key" in s) && s.down !== !1 ? [s.key] : [])])];
+  if (keys.length !== 1 || !SCREEN_KEYS[keys[0]] || /direction of travel turned/.test(motionText(m) ?? ""))
+    return;
+  let [x2, y, frames] = m.screen, distance = Math.hypot(x2, y);
+  if (frames < 8 || distance < 12 || m.samples.length < 3)
+    return;
+  let a2 = m.samples[0], b2 = m.samples.at(-1), path14 = m.samples.slice(1).reduce((sum, p, i) => sum + Math.hypot(...p.slice(0, 3).map((n, k) => n - m.samples[i][k])), 0);
+  if (!path14 || Math.hypot(...b2.slice(0, 3).map((n, k) => n - a2[k])) / path14 < 0.97)
+    return;
+  let [kx, ky] = SCREEN_KEYS[keys[0]], angle = Math.round(Math.acos(Math.max(-1, Math.min(1, (x2 * kx + y * ky) / distance))) * 180 / Math.PI);
+  if (angle <= 30 || angle > 135)
+    return;
+  return `Controls: ${keys[0]} moved ${m.name} ${angle}° away from screen ${ky < 0 ? "up" : ky > 0 ? "down" : kx < 0 ? "left" : "right"} over ${frames} frames; the camera and the stick disagree; aim the camera along the controls' axes or map input to camera space.`;
 }
 function motionText(m, released, only) {
   if (!m || m.samples.length < 3)
@@ -48137,7 +48330,7 @@ function traceOf(path14, col) {
     return { line: `${path14}: not in observe()${f0 >= 0 ? ` at frame ${gone}` : ""}` };
   if (odd)
     return { line: `${path14}: ${/^[aeiou]/.test(odd.type) ? "an" : "a"} ${odd.type}, not a number, string or boolean` };
-  let runs = col.flatMap((v2, f) => f && v2 === col[f - 1] ? [] : [f]), shown = runs.slice(0, 8).map((f, j2) => runs[j2 + 1] !== void 0 ? `${show(col[f])} until frame ${runs[j2 + 1]}` : `then ${show(col[f])}`), runsLine = runs.length === 1 ? `${path14}: ${show(col[0])} throughout the ${frames} frames` : `${path14}: ${shown.join(", ")}${runs.length > 8 ? `, … (${runs.length - 1} changes)` : ""}`;
+  let runs = col.flatMap((v2, f) => f && v2 === col[f - 1] ? [] : [f]), shown = runs.slice(0, 8).map((f, j2) => runs[j2 + 1] !== void 0 ? `${show2(col[f])} until frame ${runs[j2 + 1]}` : `then ${show2(col[f])}`), runsLine = runs.length === 1 ? `${path14}: ${show2(col[0])} throughout the ${frames} frames` : `${path14}: ${shown.join(", ")}${runs.length > 8 ? `, … (${runs.length - 1} changes)` : ""}`;
   if (!col.every((v2) => typeof v2 === "number" || typeof v2 === "boolean"))
     return { line: runsLine };
   let xs = col.map(Number), first2 = xs[0], last3 = xs.at(-1), i = xs.findIndex((v2) => v2 !== first2), lo = xs.indexOf(Math.min(...xs)), hi = xs.indexOf(Math.max(...xs)), k = Math.min(24, xs.length), trace = {
@@ -48159,15 +48352,15 @@ function traceOf(path14, col) {
   return { trace, line: `${path14}: ${num(first2)}${via} → ${num(last3)} at frame ${settled}; first changed at frame ${i}` };
 }
 function recordable(steps, video) {
-  let max = video ? VIDEO_MAX_S : RECORD_MAX_S, kind = video ? "a video" : "a recording", fixed = steps.reduce((t, s) => t + ("until" in s ? 0 : ("wait" in s) ? Math.max(0, Number(s.wait) || 0) : ("frames" in s) && s.frames !== void 0 ? Math.max(0, Number(s.frames) || 0) : 1), 0);
-  if (!fixed && !steps.some((s) => ("until" in s)))
+  let max = video ? VIDEO_MAX_S : RECORD_MAX_S, kind = video ? "a video" : "a recording", fixed = fixedFrames(steps);
+  if (!fixed && !steps.some(isUntil))
     throw Error(`record: no step after the leading { state } steps runs a frame, so there is nothing to ${video ? "film" : "play in real time"}; add a { wait: frames } or a key held for frames; nothing was played`);
   if (fixed > max * 60)
     throw Error(`record: the steps run ${fixed} frames, ${(fixed / 60).toFixed(1)} s ${video ? "of game time" : "in real time"}; ${kind} is ${max} s at most (${max * 60} frames); nothing was played`);
   if (steps.some((s) => ("clock" in s) && typeof s.clock === "object" && s.clock && ("paused" in s.clock)))
     throw Error(video ? "record: a video steps the paused clock one filmed frame at a time, so a clock step takes timescale only; nothing was played" : "record: the clock runs in real time while recording, so a clock step takes timescale only; nothing was played");
 }
-function act(game, steps, { trace, expect, record } = {}) {
+function act(game, steps, { trace, expect, record, video: filming } = {}) {
   return game.queue(async () => {
     let bad = Array.isArray(steps) ? steps.find((s) => !s || typeof s !== "object" || !KINDS.some((k) => (k in s))) : void 0;
     if (bad !== void 0)
@@ -48182,7 +48375,9 @@ function act(game, steps, { trace, expect, record } = {}) {
       recordable(((i) => i < 0 ? [] : steps.slice(i))(steps.findIndex((s) => !isSetup(s))), record === "video");
     if (record === !0)
       await game.page.evaluate(FIRST);
-    let before = await game.page.evaluate(STATE), [heard, named] = await game.page.evaluate(AUDIO), n = Array.isArray(steps) ? ((i) => i < 0 ? steps.length : i)(steps.findIndex((s) => !isSetup(s))) : 0, setup = n ? await run(game, steps.slice(0, n)) : { frames: 0 };
+    let before = await game.page.evaluate(STATE), [heard, named] = await game.page.evaluate(AUDIO), n = Array.isArray(steps) ? ((i) => i < 0 ? steps.length : i)(steps.findIndex((s) => !isSetup(s))) : 0;
+    game.stepping = Array.isArray(steps) ? stepping(steps) : void 0;
+    let setup = n ? await run(game, steps.slice(0, n)) : { frames: 0 };
     if (await game.page.evaluate(motionStart(statePos(n ? await game.page.evaluate(STATE) : before))).catch(() => {}), trace)
       await game.page.evaluate(traceStart(trace));
     let played = n ? steps.slice(n) : steps, heldBefore = [...game.held], clip, video, hint, frames, released;
@@ -48198,10 +48393,21 @@ record: the clip ends at the failed step: ${c.path} (${c.seconds} s), four momen
         throw e;
       }
       clip = await stop(), frames = clip.gameFrames;
-    } else
+      let asked = Array.isArray(played) && !played.some(isUntil) ? fixedFrames(played) : 0;
+      if (asked && frames < asked * 0.9)
+        hint = [hint, `The steps asked for ${asked} frames (${(asked / 60).toFixed(1)} s at 60 Hz); the game ran ${frames} of them in that time, ${clip.median} ms apart, so each held key and wait got about ${Math.round(100 * frames / asked)}% of its frames. Leave record out to play every frame on the paused clock.`].filter(Boolean).join(`
+`);
+    } else {
+      let t0 = Date.now();
       ({ hint, frames, released } = await run(game, played, void 0, n));
-    let motion = motionText(await game.page.evaluate("window.__harnessMotion?.end() ?? null").catch(() => null), released, Array.isArray(played) ? straightKey(played, heldBefore) : void 0);
-    if (Array.isArray(steps))
+      let took = Date.now() - t0;
+      if (frames >= 30 && took > 1e4)
+        hint = [hint, `These ${frames} frames took ${Math.round(took / 1000)} s of real time (${Math.round(took / frames)} ms a frame here): a wait counts frames, not milliseconds, and about ${Math.max(1, Math.floor(60000 * frames / took))} fit in a minute${game.software ? " on this software renderer (no GPU)" : ""}. Ask for fewer per call, or set the moment up with a { state } step.`].filter(Boolean).join(`
+`);
+    }
+    await gpuSettled2(game.page);
+    let sampled = await game.page.evaluate("window.__harnessMotion?.end() ?? null").catch(() => null), motion = motionText(sampled, released, Array.isArray(played) ? straightKey(played, heldBefore) : void 0), controls = Array.isArray(played) ? controlsText(sampled, played, heldBefore) : void 0, contact = sampled ? contactText(sampled.name, sampled.contact) : void 0;
+    if (game.stepping = void 0, Array.isArray(steps))
       game.played.push(...steps);
     let rows = trace ? await game.page.evaluate("window.__harnessTrace?.end() ?? []") : [], after = await game.page.evaluate(STATE), end = await game.page.evaluate(`({ audio: window.__harness?.audio ?? 0, names: window.__harness?.sounds?.slice(${named}) ?? [] })`), sound = soundText(heard, end.audio, end.names), traced = trace?.map((p) => [p, traceOf(p, rows.map((r) => ((c) => c && typeof c === "object" && !("type" in c) ? void 0 : c)(r[trace.indexOf(p)])))]), vs = want && verdicts(want, after);
     return {
@@ -48213,6 +48419,8 @@ record: the clip ends at the failed step: ${c.path} (${c.seconds} s), four momen
       ...video && { video },
       ...hint ? { hint } : {},
       ...motion ? { motion } : {},
+      ...controls ? { controls } : {},
+      ...contact ? { contact } : {},
       ...sound ? { sound } : {},
       ...traced && {
         trace: Object.fromEntries(traced.flatMap(([p, t]) => t.trace ? [[p, t.trace]] : [])),
@@ -48228,7 +48436,10 @@ function run(game, steps, deadline, offset = 0, film) {
   return game.queue(async () => {
     if (!Array.isArray(steps))
       throw Error('steps must be an array of steps, as in { steps: [{ key: "ArrowRight", frames: 5 }] }');
-    let { page } = game, frame = 0, released, SKIP = (k) => `(async () => { __harness.skip = true; try { await __clock.step(${k}); } finally { __harness.skip = false; } })()`, real = deadline !== void 0, wall = (ms) => new Promise((r) => setTimeout(r, Math.max(0, Math.min(ms, deadline - Date.now())))), step = async (n, draw = !1) => {
+    let { page } = game, frame = 0, released, before = game.stepping?.now() ?? 0;
+    if (game.stepping)
+      game.stepping.now = () => before + frame;
+    let SKIP = (k) => `(async () => { __harness.skip = true; try { await __clock.step(${k}); } finally { __harness.skip = false; } })()`, real = deadline !== void 0, wall = (ms) => new Promise((r) => setTimeout(r, Math.max(0, Math.min(ms, deadline - Date.now())))), step = async (n, draw = !1) => {
       if (real) {
         let k = Math.max(0, Math.floor(n));
         if (k)
@@ -48262,13 +48473,13 @@ function run(game, steps, deadline, offset = 0, film) {
       let frames = "frames" in s && s.frames !== void 0 ? s.frames : 1, from2 = frame;
       if ("action" in s) {
         let { frames: _3, ...call } = s;
-        if (!await page.evaluate((call2) => {
+        if (!(await gameUp(game, ["act"]) && await page.evaluate((call2) => {
           let g = window.__game;
           if (!g?.act)
             return !1;
           return g.act(call2), !0;
-        }, call))
-          throw Error(`action "${s.action}": this game has no window.__game.act`);
+        }, call)))
+          throw Error(`action "${s.action}": no window.__game.act ${GAME_LATE}`);
         await step(frames, s.draw === !0);
       } else if ("state" in s) {
         if (!s.state || typeof s.state !== "object" || Array.isArray(s.state))
@@ -48291,7 +48502,7 @@ function run(game, steps, deadline, offset = 0, film) {
             await film();
           n++;
         }
-        untils.push(vs.every((v2) => v2.ok) ? `until: ${vs.map((v2) => `${v2.path} ${v2.cond}`).join(", ")} held at frame ${frame}` : `until: not met in ${frame - at} frames (${vs.filter((v2) => !v2.ok).map((v2) => `${v2.path} ${show(v2.got)}, expected ${v2.want}`).join("; ")})`);
+        untils.push(vs.every((v2) => v2.ok) ? `until: ${vs.map((v2) => `${v2.path} ${v2.cond}`).join(", ")} held at frame ${frame}` : `until: not met in ${frame - at} frames (${vs.filter((v2) => !v2.ok).map((v2) => `${v2.path} ${show2(v2.got)}, expected ${v2.want}`).join("; ")})`);
       } else if ("wait" in s) {
         let n = Math.max(0, Math.floor(s.wait)), t = Date.now();
         if (await step(n, s.draw === !0), s.draw === !0 && n >= 60 && Date.now() - t > 20000)
@@ -48398,7 +48609,7 @@ function run(game, steps, deadline, offset = 0, film) {
       }
     }
     if (await release(), cut >= 0)
-      untils.push(`record: ${RECORD_MAX_S} s of real time passed before step ${cut + 1} of ${steps.length}, so it and the steps after it were not played.`);
+      untils.push(`record: ${RECORD_MAX_S} s of real time passed before step ${cut + 1} of ${steps.length}, so it and the steps after it were not played. To show a later moment, play the steps before it in a call without record, then record only the moment.`);
     let hints = [
       ...untils,
       ...[...missed].map(([on, at]) => `${at} landed on ${on}, not the canvas: listeners on the canvas never got it.`),
@@ -48425,7 +48636,7 @@ function hover(game, names, frames = 1) {
     return out;
   });
 }
-var STATE = "window.__game?.observe ? __game.observe() : null", NAMES, motionStart = (at) => `(() => {
+var STATE = "window.__game?.observe ? __game.observe() : null", NAMES, motionStart = (at, ready3 = !1) => `(() => {
   const s0f = window.__game?.subject, s0 = typeof s0f === "function" ? (() => { try { return s0f(); } catch {} })() : s0f, scene = window.__harness.mainScene(), at = ${JSON.stringify(at)}, NAMES = ${JSON.stringify(NAMES)};
   const o = s0?.isObject3D ? s0 : typeof s0 === "string" ? scene?.getObjectByName(s0) : null;
   let subject = o, best = Infinity;
@@ -48436,14 +48647,28 @@ var STATE = "window.__game?.observe ? __game.observe() : null", NAMES, motionSta
   if (!subject) scene?.traverse(x => { const i = NAMES.findIndex(n => x.name?.toLowerCase().startsWith(n)); if (i >= 0 && i < rank) { rank = i; subject = x; } });
   // each sample updates the subject's world matrix first: a pose set since the last render is not in it yet
   let f = 0; // frames from the start of the steps, as trace and until count (opinion-4: 7 of 9 saw two counts)
-  const samples = [], sample = () => { subject.updateWorldMatrix(true, false); const e = subject.matrixWorld.elements; samples.push([e[12], e[13], e[14], f]); };
+  const contact = (${CONTACT})(subject);
+  const samples = [], screen = [0, 0, 0], sample = () => {
+    subject.updateWorldMatrix(true, false); const e = subject.matrixWorld.elements, prev = samples.at(-1);
+    const view = window.__harness.main()?.[1], camera = view?.camera;
+    if (prev && camera) {
+      camera.updateMatrixWorld(true);
+      const a = subject.position.clone().set(...prev.slice(0, 3)).project(camera), b = subject.position.clone().set(e[12], e[13], e[14]).project(camera);
+      if ([a.x, a.y, a.z, b.x, b.y, b.z].every(Number.isFinite) && Math.abs(a.z) < 1 && Math.abs(b.z) < 1) {
+        const rect = view.renderer.domElement.getBoundingClientRect();
+        screen[0] += (b.x - a.x) * rect.width / 2; screen[1] -= (b.y - a.y) * rect.height / 2; screen[2]++;
+      }
+    }
+    samples.push([e[12], e[13], e[14], f]);
+    contact?.sample(e[12], e[14], f);
+  };
   let on = !!subject;
   const tick = () => { f++; if (on) { sample(); requestAnimationFrame(tick); } };
   // no frame drawn yet (a save's or an edit's reload, or straight after open): a pose the loop sets each frame is not in
   // the scene until frame 1, and sampling the pose before it added a false first step (#176: 4.34 units for a 4-unit run)
-  if (on) { if (window.__harness.main()?.[1].screen) sample(); requestAnimationFrame(tick); }
-  window.__harnessMotion = { end: () => { on = false; delete window.__harnessMotion; return subject ? { name: subject.name || subject.type, samples } : null; } };
-})()`, FORWARD, STEERS_NOT, AUDIO = "[window.__harness?.audio ?? 0, window.__harness?.sounds?.length ?? 0]", soundText = (before, after, names = []) => !after ? "" : after > before ? `Sound: ${after - before} started during these steps${names.length ? ` (${names.join(", ")})` : ""}.` : `Sound: none started during these steps (${after} since load).`, TRACE_MAX = 600, traceStart = (paths) => `(() => {
+  if (on) { if (${ready3} || window.__harness.main()?.[1].screen) sample(); requestAnimationFrame(tick); }
+  window.__harnessMotion = { end: () => { on = false; delete window.__harnessMotion; return subject ? { name: subject.name || subject.type, samples, screen, contact: contact?.result() } : null; } };
+})()`, FORWARD, STEERS_NOT, SCREEN_KEYS, AUDIO = "[window.__harness?.audio ?? 0, window.__harness?.sounds?.length ?? 0]", soundText = (before, after, names = []) => !after ? "" : after > before ? `Sound: ${after - before} started during these steps${names.length ? ` (${names.join(", ")})` : ""}.` : `Sound: none started during these steps (${after} since load).`, TRACE_MAX = 600, traceStart = (paths) => `(() => {
   const paths = ${JSON.stringify(paths)}, rows = [], get = (o, p) => p.split(".").reduce((v, k) => v?.[k], o);
   const sample = () => { let s; try { s = window.__game?.observe?.(); } catch {}
     rows.push(paths.map(p => { const v = get(s, p); return v === null || ["number", "string", "boolean"].includes(typeof v) ? v : v === undefined ? {} : { type: typeof v }; })); };
@@ -48451,10 +48676,19 @@ var STATE = "window.__game?.observe ? __game.observe() : null", NAMES, motionSta
   const tick = () => { if (on && rows.length <= ${TRACE_MAX}) { sample(); requestAnimationFrame(tick); } };
   sample(); requestAnimationFrame(tick);
   window.__harnessTrace = { end: () => { on = false; delete window.__harnessTrace; return rows; } };
-})()`, num = (v2) => +v2.toPrecision(4), expectText = (vs) => `Expect: ${vs.map((v2) => `${v2.path} ${show(v2.got)} ${v2.ok ? "✓" : `✗ expected ${v2.want}`}`).join(" · ")}`, KINDS, FIELDS, kindOf = (s) => ["action", ...KINDS].find((k) => (k in s)), stray = (s) => {
+})()`, num = (v2) => +v2.toPrecision(4), expectText = (vs) => `Expect: ${vs.map((v2) => `${v2.path} ${show2(v2.got)} ${v2.ok ? "✓" : `✗ expected ${v2.want}`}`).join(" · ")}`, KINDS, FIELDS, STEP_FIELDS, kindOf = (s) => ["action", ...KINDS].find((k) => (k in s)), stray = (s) => {
   let k = kindOf(s), f = k === "action" ? void 0 : Object.keys(s).find((f2) => !FIELDS[k].includes(f2));
-  return f && `step ${JSON.stringify(s)}: ${k} steps take ${FIELDS[k].join(", ")}; "${f}" is not one; nothing was played`;
-}, isSetup = (s) => !!s && typeof s === "object" && ("state" in s), SCROLL = '(() => {\n  const pct = n => Math.round(n * 100) + "%", max = document.documentElement.scrollHeight - innerHeight, y = Math.round(scrollY);\n  const out = [`Scroll: ${y} of ${max} px (${pct(max > 0 ? y / max : 0)})`];\n  let lenis = false;\n  for (const k of Object.keys(window)) { let v; try { v = window[k]; } catch { continue; }\n    if (typeof v?.targetScroll === "number" && typeof v.animatedScroll === "number") { lenis = true; out.push(`Lenis (window.${k}): target ${Math.round(v.targetScroll)} px, at ${Math.round(v.animatedScroll)} px`); } }\n  if (window.lenisVersion && !lenis) out.push(`Lenis ${window.lenisVersion}: its instance is not on window, so its progress is unknown`);\n  const st = window.ScrollTrigger?.getAll?.() ?? [];\n  if (st.length) out.push(`ScrollTrigger: ${st.length} triggers at ${st.slice(0, 8).map(t => pct(t.progress)).join(", ")}`);\n  const c = __harness.canvas(), el = c && [...c.parentElement?.children ?? []].find(e => e !== c && /auto|scroll/.test(getComputedStyle(e).overflowY) && e.scrollHeight > e.clientHeight + 1);\n  if (el) out.push(`drei ScrollControls: its own scroll element at ${pct(el.scrollTop / (el.scrollHeight - el.clientHeight))}, which a window scroll does not move`);\n  return out.join("; ");\n})()', GAME_WAIT_S = 5, GAME_LATE, gameUp = (game, keys) => game.page.evaluate(`(async (keys) => { const up = () => keys.every(k => window.__game?.[k]);
+  if (f)
+    return `step ${JSON.stringify(s)}: ${k} steps take ${FIELDS[k].join(", ")}; "${f}" is not one; nothing was played`;
+  if (k === "mouse" && "button" in s && !BUTTONS.includes(s.button))
+    return `step ${JSON.stringify(s)}: a mouse step's button is "left", "right" or "middle" (also "back", "forward"), not ${JSON.stringify(s.button)}; nothing was played`;
+}, BUTTONS, isUntil = (s) => kindOf(s) === "until", fixedFrames = (steps) => steps.reduce((t, s) => t + (isUntil(s) ? 0 : !("action" in s) && ("wait" in s) ? Math.max(0, Number(s.wait) || 0) : ("frames" in s) && s.frames !== void 0 ? Math.max(0, Number(s.frames) || 0) : 1), 0), stepping = (steps) => {
+  let max = (s) => {
+    let m = Number(s.max);
+    return Number.isFinite(m) && s.max !== void 0 ? Math.max(0, Math.floor(m)) : 600;
+  }, each = steps.map((s) => isUntil(s) ? max(s) : fixedFrames([s])), at = each.indexOf(Math.max(0, ...each));
+  return { asked: each.reduce((a2, b2) => a2 + b2, 0), ...at >= 0 && { most: { at: at + 1, step: steps[at], frames: each[at] } }, now: () => 0 };
+}, SCROLL = '(() => {\n  const pct = n => Math.round(n * 100) + "%", max = document.documentElement.scrollHeight - innerHeight, y = Math.round(scrollY);\n  const out = [`Scroll: ${y} of ${max} px (${pct(max > 0 ? y / max : 0)})`];\n  let lenis = false;\n  for (const k of Object.keys(window)) { let v; try { v = window[k]; } catch { continue; }\n    if (typeof v?.targetScroll === "number" && typeof v.animatedScroll === "number") { lenis = true; out.push(`Lenis (window.${k}): target ${Math.round(v.targetScroll)} px, at ${Math.round(v.animatedScroll)} px`); } }\n  if (window.lenisVersion && !lenis) out.push(`Lenis ${window.lenisVersion}: its instance is not on window, so its progress is unknown`);\n  const st = window.ScrollTrigger?.getAll?.() ?? [];\n  if (st.length) out.push(`ScrollTrigger: ${st.length} triggers at ${st.slice(0, 8).map(t => pct(t.progress)).join(", ")}`);\n  const c = __harness.canvas(), el = c && [...c.parentElement?.children ?? []].find(e => e !== c && /auto|scroll/.test(getComputedStyle(e).overflowY) && e.scrollHeight > e.clientHeight + 1);\n  if (el) out.push(`drei ScrollControls: its own scroll element at ${pct(el.scrollTop / (el.scrollHeight - el.clientHeight))}, which a window scroll does not move`);\n  return out.join("; ");\n})()', GAME_WAIT_S = 5, GAME_LATE, gameUp = (game, keys) => game.page.evaluate(`(async (keys) => { const up = () => keys.every(k => window.__game?.[k]);
   for (const end = __clock.realNow() + ${GAME_WAIT_S * 1000}; !up() && __clock.realNow() < end;) await __clock.realSleep(20); return up(); })(${JSON.stringify(keys)})`).catch(() => !1), keyHint = (e) => {
   throw e.message.startsWith("Unknown key") ? Error(`${e.message}; use KeyboardEvent.key names (ArrowRight, a, " " for space, Enter)`) : e;
 }, play = (game, steps) => run(game, steps).then((r) => r.hint);
@@ -48465,6 +48699,24 @@ var init_input = __esm(() => {
   init_record();
   NAMES = ["player", "hero", "avatar", "kart", "car", "vehicle", "ship", "plane", "boat"];
   FORWARD = /^(KeyW|KeyS|ArrowUp|ArrowDown|[wWsS])$/, STEERS_NOT = /^(Space| |Shift(Left|Right)?|mouse:.*)$/;
+  SCREEN_KEYS = {
+    ArrowUp: [0, -1],
+    ArrowDown: [0, 1],
+    ArrowLeft: [-1, 0],
+    ArrowRight: [1, 0],
+    KeyW: [0, -1],
+    KeyS: [0, 1],
+    KeyA: [-1, 0],
+    KeyD: [1, 0],
+    w: [0, -1],
+    s: [0, 1],
+    a: [-1, 0],
+    d: [1, 0],
+    W: [0, -1],
+    S: [0, 1],
+    A: [-1, 0],
+    D: [1, 0]
+  };
   KINDS = ["key", "mouse", "wheel", "resize", "scroll", "touch", "wait", "clock", "state", "until", "action"], FIELDS = {
     key: ["key", "down", "frames"],
     mouse: ["mouse", "x", "y", "button", "relative", "frames"],
@@ -48479,7 +48731,8 @@ var init_input = __esm(() => {
   };
   for (let f of Object.values(FIELDS))
     f.push("draw");
-  GAME_LATE = `after ${GAME_WAIT_S} s with no frame stepped (a __game set in the animation loop or after a frame comes only once a frame runs)`;
+  STEP_FIELDS = [.../* @__PURE__ */ new Set(["action", ...Object.values(FIELDS).flat()])], BUTTONS = ["left", "right", "middle", "back", "forward"];
+  GAME_LATE = `after ${GAME_WAIT_S} s with no frame stepped (a __game set in the animation loop or after awaiting a frame, as renderer.compileAsync does on a GPU, comes only once a frame runs: set it before that await)`;
 });
 
 import { readdirSync as readdirSync5, readFileSync as readFileSync10, realpathSync as realpathSync2, statSync as statSync7 } from "node:fs";
@@ -48517,7 +48770,7 @@ function sourceFiles(cwd, visit) {
     entries.sort((a2, b2) => a2.name < b2.name ? -1 : a2.name > b2.name ? 1 : 0);
     for (let e of entries) {
       let path14 = rel ? `${rel}/${e.name}` : e.name;
-      if (SKIP_TOP.has(path14) || isStoreCopy(e.name, entries) || /\.md$/i.test(e.name))
+      if (SKIP_TOP.has(path14) || isStoreCopy(e.name, entries) || /\.(md|log)$/i.test(e.name))
         continue;
       let { dir, file: file3 } = e.isSymbolicLink() ? follow(path14) : { dir: e.isDirectory(), file: e.isFile() };
       if (dir) {
@@ -48677,8 +48930,13 @@ var COPLANAR = `(() => {
   let spent = 0;
   const h = window.__harness, budget = window.__harnessConfig?.coplanarWork ?? 3.5e7, late = (share = 1) => spent > budget * share;
   const [scene, { camera: c0 }] = h.main(), camera = h.lookCam?.from === c0 ? h.lookCam.to : c0; // as SETUP: \`look\`'s stand-in camera
-  // a material that places its own vertices draws elsewhere than its geometry; polygon offset is the fix; no depth test never fights
-  const skip = m => !m || m.polygonOffset || !m.depthTest || m.isShaderMaterial || Object.hasOwn(m, "onBeforeCompile");
+  // a material that places its own vertices draws elsewhere than its geometry (a node material's positionNode or vertexNode,
+  // a displacement map: a clipmap terrain's flat levels lifted from a height texture read as 48 fights, dev #317); polygon
+  // offset is the fix; no depth test never fights
+  // a material that draws no colour is not seen to flicker (a click target's hit box: material.visible = false, colorWrite
+  // off or opacity 0, dev #420); only one that still writes depth stays in, since it cuts flickering holes in a mesh that draws
+  const blank = m => m.colorWrite === false || (m.transparent && m.opacity === 0);
+  const skip = m => !m || m.visible === false || (blank(m) && !m.depthWrite) || m.polygonOffset || !m.depthTest || m.isShaderMaterial || Object.hasOwn(m, "onBeforeCompile") || m.positionNode || m.vertexNode || (m.displacementMap && m.displacementScale);
   const meshes = [];
   scene.traverseVisible(o => {
     const g = o.geometry, p = g?.attributes?.position;
@@ -48692,7 +48950,7 @@ var COPLANAR = `(() => {
   // instanced bricks whose top row is flush with the mortar fights there, not at the first brick: 3jsbench pilot-1)
   // shortcut: a mesh over 20k triangles (instances included) is judged by its first 20k, the scene by its first 500k;
   // raise them if a big merged mesh hides a fight. Two instances of one InstancedMesh pair as two faces of one mesh do.
-  const tris = [], unchecked = new Set(); // unchecked: meshes some of whose faces were not compared within the budget
+  const tris = [], per9 = [], unchecked = new Set(); // unchecked: meshes some of whose faces were not compared within the budget
   let total = 0, x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
   for (const o of meshes) {
     if (total >= 500000) { for (let i = tris.length; i < meshes.length; i++) unchecked.add(i); break; }
@@ -48708,7 +48966,7 @@ var COPLANAR = `(() => {
       const X = w[s] = a[0] * x + a[4] * y + a[8] * z + a[12], Y = w[s + 1] = a[1] * x + a[5] * y + a[9] * z + a[13], Z = w[s + 2] = a[2] * x + a[6] * y + a[10] * z + a[14];
       if (X < x0) x0 = X; if (X > x1) x1 = X; if (Y < y0) y0 = Y; if (Y > y1) y1 = Y; if (Z < z0) z0 = Z; if (Z > z1) z1 = Z;
     }
-    tris.push(w); total += n; spent += 10 * n;
+    tris.push(w); per9.push(o.isInstancedMesh ? per * 9 : Infinity); total += n; spent += 10 * n;
   }
   const R = Math.max(1e-6, Math.hypot(x1 - x0, y1 - y0, z1 - z0) / 2), minA = 1e-10 * R * R;
   // Faces fight when the depth buffer cannot tell them apart: a 24-bit buffer's step at their distance from the camera
@@ -48720,6 +48978,9 @@ var COPLANAR = `(() => {
   // each triangle keyed by its plane: unit normal to 1e-3 as one number (each part 0 to 2000), and offset to that step;
   // a plane's faces in one flat list of (offset, mesh, face): string keys and a Map per offset and mesh took half the time
   const planes = new Map(), cx = e[12], cy = e[13], cz = e[14], K = 2001;
+  // world to clip space, to tell a fight inside this camera's view from one outside it (a roof 230 units behind a camera in
+  // a ship's hold read as in view, dev #269)
+  const clipM = new camera.matrixWorld.constructor().copy(camera.matrixWorld).invert().premultiply(camera.projectionMatrix).elements;
   for (let mi = 0; mi < tris.length; mi++) {
     // each face keyed by the side it draws (BackSide draws the faces turned away, so its normal is flipped); whether the
     // camera sees a fight is decided per pair below, so one on a face turned away (the top of a wall looked at from below
@@ -48752,15 +49013,16 @@ var COPLANAR = `(() => {
       if (k - s > 1) {
         const by = new Map();
         for (let i = s; i < k; i++) { const mi = b[ix[i] + 1], l = by.get(mi); l ? l.push(b[ix[i] + 2]) : by.set(mi, [b[ix[i] + 2]]); }
-        work.push([kn, by]);
+        work.push([kn, by, k - s]); // k - s: its faces
       }
       s = k;
     }
   }
   // fights between meshes first: one mesh's own faces (most meshes have some in one plane) must not spend the budget first;
-  // then each mesh's own faces mesh by mesh, so a check out of budget has compared every face of the first meshes (by normal,
-  // every curved mesh had a face left: checked 0 of 103)
-  work.sort((a, b) => (b[1].size > 1) - (a[1].size > 1) || a[1].keys().next().value - b[1].keys().next().value);
+  // those cheapest first, so one big shared plane cannot spend the budget on its own (16 flat terrain chunks: not checked
+  // for 141 of 141 meshes, dev #315); then each mesh's own faces mesh by mesh, so a check out of budget has compared every
+  // face of the first meshes (by normal, every curved mesh had a face left: checked 0 of 103)
+  work.sort((a, b) => (b[1].size > 1) - (a[1].size > 1) || (a[1].size > 1 && a[2] - b[2]) || a[1].keys().next().value - b[1].keys().next().value);
   const owner = (o) => { for (let p = o.parent; p; p = p.parent) if (p.name) return ' in "' + p.name + '"'; return ""; };
   const label = (o) => o.name ? '"' + o.name + '"' : "an unnamed " + o.geometry.type + owner(o);
   const both = (a, b) => label(a) !== label(b) ? label(a) + " and " + label(b) : a.name ? "two meshes named " + label(a) : "two unnamed " + a.geometry.type + "s" + owner(a);
@@ -48792,25 +49054,38 @@ var COPLANAR = `(() => {
     const dOf = (mi, t) => tris[mi][t] * nx + tris[mi][t + 1] * ny + tris[mi][t + 2] * nz;
     const dist = (mu, mv, dn) => Math.max(1e-6, Math.hypot(mu * ux + mv * vx + dn * nx - cx, mu * uy + mv * vy + dn * ny - cy, mu * uz + mv * vz + dn * nz - cz));
     // a fight between meshes a and b (a === b: two faces of one mesh) over [u0, u1] × [v0, v1] of this plane
-    const report = (a, b, area, u0, v0, u1, v1, dA, dB, t) => {
+    const report = (a, b, area, u0, v0, u1, v1, dA, dB, t, which = "") => {
       // how big the overlap looks from the camera (its area over its distance squared, about the share of a steradian):
       // under 1e-4, some 150 pixels of a 1280 × 800 picture, a flicker no player notices
       const mu = (u0 + u1) / 2, mv = (v0 + v1) / 2, z = dist(mu, mv, dA), looks = area / (z * z), gap = 2 * step(z);
       if (looks < 1e-4 || Math.abs(dA - dB) > gap) return;
+      if ([a, b].every(mi => blank([meshes[mi].material].flat()[0]))) return; // neither draws a colour (dev #420)
       // the camera sees the fight when the faces' drawn side is turned to it, or when both draw both sides
       const double = (mi) => [meshes[mi].material].flat()[0].side === 2;
-      const seen = (double(a) && double(b)) || nx * (cx - mu * ux - mv * vx - dA * nx) + ny * (cy - mu * uy - mv * vy - dA * ny) + nz * (cz - mu * uz - mv * vz - dA * nz) > 0;
-      const key = a + "|" + b + "|" + seen;
-      if (found.has(key) && found.get(key).looks >= looks) return;
+      const facing = (double(a) && double(b)) || nx * (cx - mu * ux - mv * vx - dA * nx) + ny * (cy - mu * uy - mv * vy - dA * ny) + nz * (cz - mu * uz - mv * vz - dA * nz) > 0;
+      // outside the view when all four corners of the overlap lie past one clip plane
+      const out = new Array(6).fill(true);
+      for (const [cu, cv] of [[u0, v0], [u1, v0], [u0, v1], [u1, v1]]) {
+        const X = cu * ux + cv * vx + dA * nx, Y = cu * uy + cv * vy + dA * ny, Z = cu * uz + cv * vz + dA * nz, m = clipM;
+        const px = m[0] * X + m[4] * Y + m[8] * Z + m[12], py = m[1] * X + m[5] * Y + m[9] * Z + m[13], pz = m[2] * X + m[6] * Y + m[10] * Z + m[14], pw = m[3] * X + m[7] * Y + m[11] * Z + m[15];
+        [px > pw, px < -pw, py > pw, py < -pw, pz > pw, pz < -pw].forEach((o, i) => { if (!o) out[i] = false; });
+      }
+      const inView = !out.some(Boolean), seen = facing && inView;
+      const key = a + "|" + b + "|" + seen, places = (found.get(key)?.places ?? 0) + 1;
+      if (found.has(key) && found.get(key).looks >= looks) { found.get(key).places = places; return; }
       const axis = ["x", "y", "z"].find((_, k) => Math.abs([nx, ny, nz][k]) === 1), w = tris[a];
       const where = axis ? axis + " = " + w[t + "xyz".indexOf(axis)].toFixed(2) : "a plane facing (" + [nx, ny, nz].map(x => x.toFixed(2)).join(", ") + ")";
-      const pair = (a === b ? label(meshes[a]) + " has two faces in one plane" : both(meshes[a], meshes[b]) + " share a face plane") + " (" + where + ") over " + f(u1 - u0) + " × " + f(v1 - v0) + " units";
+      const pair = (a === b ? label(meshes[a]) + which + " has two faces in one plane" : both(meshes[a], meshes[b]) + " share a face plane") + " (" + where + ") over " + f(u1 - u0) + " × " + f(v1 - v0) + " units"
+        // a mesh fighting itself: where this place is, since its name alone does not find it in a merged mesh (dev #417)
+        + (a === b ? " around (" + [mu * ux + mv * vx + dA * nx, mu * uy + mv * vy + dA * ny, mu * uz + mv * vz + dA * nz].map(x => +x.toFixed(1) || 0).join(", ") + ")" : "");
       const k = [nx, ny, nz].map(Math.abs), big = k.indexOf(Math.max(...k)), toward = big === 1 ? (ny > 0 ? "above" : "below") : "the " + ([nx, ny, nz][big] > 0 ? "+" : "-") + "xyz"[big] + " side";
       // the gap the depth buffer can tell apart at this distance, so the agent knows how far is enough
       const off = "at least " + f(gap) + " units off the plane";
-      found.set(key, { looks, seen, text: seen
-        ? "Surfaces: " + pair + ": they flicker as the camera moves (z-fighting). Move one " + off + " (what the depth buffer can tell apart at " + f(z) + " units from this camera), give the top one material.polygonOffset = true with polygonOffsetFactor -1, or remove the hidden face."
-        : "Surfaces out of view: " + pair + ", on faces turned away from this camera: they flicker when seen from " + toward + ". Look from there; move one " + off + " or remove the hidden face, unless that side is never seen." });
+      const also = (n) => n > 1 ? " (" + (n - 1) + " more place" + (n > 2 ? "s" : "") + " like it in this mesh)" : "";
+      found.set(key, { looks, seen, places, text: (n) => seen
+        ? "Surfaces: " + pair + also(n) + ": they flicker as the camera moves (z-fighting). Move one " + off + " (what the depth buffer can tell apart at " + f(z) + " units from this camera, and more from farther away), give the top one material.polygonOffset = true with polygonOffsetFactor -1, or remove the hidden face."
+        : !inView ? "Surfaces out of view: " + pair + also(n) + ", outside this camera's view: they flicker when a camera looks there. Look there with look's camera; move one " + off + " or remove the hidden face, unless it is never seen."
+        : "Surfaces out of view: " + pair + also(n) + ", on faces turned away from this camera: they flicker when seen from " + toward + ". Look from there; move one " + off + " or remove the hidden face, unless that side is never seen." });
     };
     // faces of one mesh: neighbours share only an edge (no area in common), so an overlap past 1% of the smaller face is
     // a decal or marking merged into the mesh (a start line merged into the road's geometry); swept along u
@@ -48836,7 +49111,12 @@ var COPLANAR = `(() => {
       // two faces with exactly one edge in common (any triangulated surface) meet only along it: no clip needed
       const edge = (i, j) => { let c = 0; for (let a = 0; a < 6; a += 2) for (let b = 0; b < 6; b += 2) if (p[i * 6 + a] === p[j * 6 + b] && p[i * 6 + a + 1] === p[j * 6 + b + 1]) c++; return c >= 2; }; // 3: the same triangle twice (an instance pool left at one matrix) draws one colour, no flicker
       const order = [...Array(n).keys()].sort((i, j) => lo(i) - lo(j));
-      let area = 0, u0 = Infinity, v0 = Infinity, u1 = -Infinity, v1 = -Infinity, first;
+      // one region per instance (or pair of instances) of an InstancedMesh: one box around every copy's pairs spanned the
+      // island ("over 34 × 43 units" for 3 houses), where no copy has a fight that big
+      // and one per group of faces that overlap in a plain mesh: 100 houses merged into one geometry, two boards overlapping
+      // on each, read "over 8.3 × 240 units", the spread of the whole mesh (dev #417)
+      const many = per9[A.mi] < Infinity, inst = k => (A.l[k] / per9[A.mi]) | 0, regions = new Map(), pairs = [];
+      const up = new Int32Array(n).map((_, k) => k), root = k => { while (up[k] !== k) k = up[k] = up[up[k]]; return k; };
       for (let oi = 0; oi < n; oi++) {
         if (late()) { stop(); break groups; }
         const i = order[oi], ih = hi(i), ivl = vlo(i), ivh = vhi(i);
@@ -48855,11 +49135,37 @@ var COPLANAR = `(() => {
           if (a <= 0.01 * Math.min(A.ta[i], A.ta[j])) continue;
           const di = dOf(A.mi, A.l[i]), dj = dOf(A.mi, A.l[j]);
           if (Math.abs(di - dj) > 2 * step(dist((pu0 + pu1) / 2, (pv0 + pv1) / 2, di))) continue;
-          area += a; first ??= A.l[i];
-          if (pu0 < u0) u0 = pu0; if (pu1 > u1) u1 = pu1; if (pv0 < v0) v0 = pv0; if (pv1 > v1) v1 = pv1;
+          up[root(i)] = root(j);
+          pairs.push(i, j, a, pu0, pv0, pu1, pv1);
         }
       }
-      if (area) report(A.mi, A.mi, area, u0, v0, u1, v1, dOf(A.mi, first), dOf(A.mi, first), first);
+      for (let k = 0; k < pairs.length; k += 7) {
+        const i = pairs[k], j = pairs[k + 1], a = pairs[k + 2], pu0 = pairs[k + 3], pv0 = pairs[k + 4], pu1 = pairs[k + 5], pv1 = pairs[k + 6];
+        const ia = many ? Math.min(inst(i), inst(j)) : root(i), ib = many ? Math.max(inst(i), inst(j)) : 0, key = ia * 1e6 + ib, g = regions.get(key);
+        if (!g) { regions.set(key, { ia, ib, area: a, u0: pu0, v0: pv0, u1: pu1, v1: pv1, first: A.l[i] }); continue; }
+        g.area += a; if (pu0 < g.u0) g.u0 = pu0; if (pu1 > g.u1) g.u1 = pu1; if (pv0 < g.v0) g.v0 = pv0; if (pv1 > g.v1) g.v1 = pv1;
+      }
+      // groups whose boxes touch are one place: a rug whose diagonal lies on its floor's overlaps each half apart
+      let places = [...regions.values()];
+      if (!many) {
+        places.sort((a, b) => a.u0 - b.u0);
+        for (let i = 0; i < places.length; i++) {
+          const g = places[i];
+          if (!g) continue;
+          for (let j = i + 1; j < places.length && !late(); j++) {
+            const h = places[j];
+            spent += 1;
+            if (!h) continue;
+            if (h.u0 > g.u1) break;
+            if (h.v0 > g.v1 || h.v1 < g.v0) continue;
+            g.area += h.area; if (h.u1 > g.u1) g.u1 = h.u1; if (h.v0 < g.v0) g.v0 = h.v0; if (h.v1 > g.v1) g.v1 = h.v1;
+            places[j] = null; j = i; // its box grew: from its first neighbour again
+          }
+        }
+        places = places.filter(Boolean);
+      }
+      for (const g of places) report(A.mi, A.mi, g.area, g.u0, g.v0, g.u1, g.v1, dOf(A.mi, g.first), dOf(A.mi, g.first), g.first,
+        !many ? "" : g.ia === g.ib ? " instance " + g.ia : " instances " + g.ia + " and " + g.ib);
     }
     // which cells of a G × G grid over the rect a mesh's triangles cover (cell centres, edges excluded so touching tiles share none)
     const cover = (m, [r0, s0, r1, s1]) => {
@@ -48896,12 +49202,38 @@ var COPLANAR = `(() => {
   }
   // up to 3 lines for fights in view, then 1 for those on faces this camera cannot see, then what the budget left unchecked
   const sorted = [...found.values()].sort((a, b) => b.looks - a.looks), shown = sorted.filter(l => l.seen), away = sorted.filter(l => !l.seen);
-  const more = shown.length - 3, out = shown.slice(0, 3).map((l, i) => i === 2 && more > 0 ? l.text + " (" + more + " more pairs like it)" : l.text);
-  if (away.length) out.push(away[0].text + (away.length > 1 ? " (" + (away.length - 1) + " more pairs out of view)" : ""));
+  const more = shown.length - 3, out = shown.slice(0, 3).map((l, i) => i === 2 && more > 0 ? l.text(l.places) + " (" + more + " more pairs like it)" : l.text(l.places));
+  if (away.length) out.push(away[0].text(away[0].places) + (away.length > 1 ? " (" + (away.length - 1) + " more pairs out of view)" : ""));
   // meshes past the work or triangle limit were not all compared: say so rather than nothing, in a line that starts as a
   // Surfaces line does, so no Surfaces line never reads as a clean check (#161: 0 of 103 meshes read as clean)
   if (unchecked.size) out.push("Surfaces: not checked for " + unchecked.size + " of " + meshes.length + " meshes (the z-fighting check's work or triangle limit ran out first), so a fight on them is not named here.");
   return out;
+})()`;
+
+var SKINNED_SCALE = `(() => {
+  const scene = window.__harness.mainScene(), groups = new Map();
+  if (!scene) return [];
+  scene.updateMatrixWorld(true);
+  const axes = o => {
+    const e = o.matrixWorld.elements;
+    return [0, 4, 8].map(i => Math.hypot(e[i], e[i + 1], e[i + 2]));
+  };
+  const uneven = a => a.every(Number.isFinite) && Math.max(...a) > 1.05 * Math.min(...a);
+  scene.traverseVisible(mesh => {
+    if (!mesh.isSkinnedMesh || !mesh.skeleton?.bones.length) return;
+    const bones = new Set(mesh.skeleton.bones), parents = new Set();
+    for (const bone of bones) if (!bones.has(bone.parent) && bone.parent) parents.add(bone.parent);
+    const driver = [...parents, mesh].find(o => uneven(axes(o)));
+    if (!driver) return;
+    let holder = driver;
+    // The highest uneven ancestor names the holder, not an unnamed GLTF armature beneath it.
+    while (holder.parent && uneven(axes(holder.parent))) holder = holder.parent;
+    const scale = axes(holder), key = mesh.geometry;
+    const group = groups.get(key);
+    if (group) group.count++;
+    else groups.set(key, { count: 1, name: mesh.name || mesh.geometry?.name || 'unnamed', holder: holder.name || holder.type, scale });
+  });
+  return [...groups.values()].map(g => \`Skinned scale: \${g.count} SkinnedMesh (\${g.name}) under non-uniform world scale \${g.scale.map(n => +n.toPrecision(3)).join(' : ')} (holder '\${g.holder}'); this distorts limbs as they rotate; scale evenly.\`);
 })()`;
 
 import { copyFileSync, mkdirSync as mkdirSync6, readFileSync as readFileSync11, writeFileSync as writeFileSync5 } from "node:fs";
@@ -48914,13 +49246,28 @@ function coversText(covers) {
     return `Over the canvas: ${c.what} ${[shows, takes].filter(Boolean).join(" and ")}.`;
   });
 }
+function notDrawn(game, from2) {
+  let thrown = uniq2(game.errors.slice(from2).map((e) => e.split(`
+`)[0].slice(0, 300)), 3);
+  return Error(thrown.length ? `look: the game has not drawn a three.js scene after 5 s of stepping frames, and its frames threw:
+${thrown.join(`
+`)}
+Fix the error: a frame that throws before it renders draws nothing` : NOT_DRAWN);
+}
 async function threeUrl(game, revision, webgpu = !1) {
-  let build = webgpu ? "three.webgpu.js" : "three.module.js";
+  let build = webgpu ? "three.webgpu.js" : "three.module.js", own = await game.page.evaluate(`(async () => { for (const s of ${JSON.stringify(webgpu ? ["three/webgpu", "three"] : ["three"])}) {
+    const T = await import(s).catch(() => null);
+    if (T && T.REVISION === ${JSON.stringify(revision)} && (${webgpu} ? T.MeshBasicNodeMaterial && T.TSL : T.ShaderMaterial) && T.Raycaster) return s;
+  } return null; })()`).catch(() => null);
+  if (own)
+    return own;
   try {
     if (JSON.parse(readFileSync11(join11(game.root, "node_modules/three/package.json"), "utf8")).version.split(".")[1] === revision) {
-      let own = new URL(`node_modules/three/build/${build}`, game.files);
-      if (own.origin === new URL(game.page.url()).origin || await game.page.evaluate(`import(${JSON.stringify(own.href)}).then(() => true, () => false)`))
-        return own.href;
+      let own2 = new URL(`node_modules/three/build/${build}`, game.files);
+      if (own2.origin === new URL(game.page.url()).origin)
+        return own2.href;
+      if (harnessLoads2.add(own2.href), await game.page.evaluate(`import(${JSON.stringify(own2.href)}).then(() => true, () => false)`))
+        return own2.href;
     }
   } catch {}
   return `https://cdn.jsdelivr.net/npm/three@0.${revision}/build/${build}`;
@@ -48935,7 +49282,7 @@ async function keepSeed(game, fn) {
   }
 }
 async function pageFaults(page, known, fights = !0) {
-  let all = await page.evaluate(SETUP).catch(() => []), coplanar = fights ? await page.evaluate(COPLANAR).catch(() => []) : [], hidden = [], keep = (l) => {
+  let all = await page.evaluate(`([...${SETUP}, ...${SKINNED_SCALE}])`).catch(() => []), coplanar = fights ? await page.evaluate(COPLANAR).catch(() => []) : [], hidden = [], keep = (l) => {
     let k = known?.line(l);
     if (k)
       hidden.push(k);
@@ -48956,15 +49303,16 @@ async function knownOf(page) {
 }
 function look(game, { moved = !1, peek = !1, edited = !1, hint = !0, surfaces: fights = !0, probed } = {}) {
   return game.queue(() => keepSeed(game, async () => {
-    let { page } = game, resized = await resizeProbe(game, probed);
+    let { page } = game, resized = await resizeProbe(game, probed), from2 = game.errors.length;
     await page.evaluate(FIRST);
-    let { views, raw, revision, webgpu, offscreen, state } = await page.evaluate(`${REDRAW(moved)}
+    let { views, raw, revision, webgpu, offscreen, loading, state } = await page.evaluate(`${REDRAW(moved)}
       ({ views: __harness.views.size, raw: __harness.gl.size > 0 && !__harness.renderers.length, revision: String(__harness.revision),
         webgpu: !!__harness.main()?.[1].renderer.isWebGPURenderer,
-        offscreen: (f => f.length && __harness.firstFrameAt !== undefined && f.every(e => e.target) ? [...new Set(f.map(e => e.target.width + "×" + e.target.height))] : null)(__harness.frame),
+        offscreen: (f => f.length && (__harness.firstFrameAt !== undefined || !__harness.shown) && f.every(e => e.target) ? [...new Set(f.map(e => e.target.width + "×" + e.target.height))] : null)(__harness.frame),
+        loading: !__harness.shown,
         state: (() => { try { return JSON.stringify(window.__game?.observe?.() ?? null); } catch { return null; } })() })`);
     if (!views && !raw)
-      throw Error(NOT_DRAWN);
+      throw notDrawn(game, from2);
     let run2 = runs.get(game) ?? { n: 0, all: /* @__PURE__ */ new Set, seen: /* @__PURE__ */ new Set, where: /* @__PURE__ */ new Map };
     runs.set(game, run2);
     let n = ++run2.n, picture = join11(game.runDir, `look-${n}.png`), ids = join11(game.runDir, `look-${n}-ids.png`), png = Buffer.from(await screenshot(page, picture)).toString("base64"), st = await page.evaluate(PIXELS_FN, png).catch(() => null), c = await page.evaluate(CANVAS), canvas = c ? { buffer: c.buffer, css: c.css, dpr: c.dpr, ratio: c.ratio, resized, pixelated: c.pixelated } : void 0, known = await knownOf(page), ct = canvasText(canvas).join(""), flags = /stretches|did not run|nothing shows/.test(ct), canvasKnown = flags ? known.line(ct) : void 0, canvasSame = !!canvasKnown || ct === lastCanvas.get(game) && !flags;
@@ -48981,7 +49329,7 @@ function look(game, { moved = !1, peek = !1, edited = !1, hint = !0, surfaces: f
     } : void 0;
     if (st && !peek)
       lastGrid.set(game, { grid: st.grid, frame: c?.frame ?? 0 });
-    let was = lastState.get(game), keys = pixels?.changed === 0 && state !== null && was != null && was !== state ? keysChanged(JSON.parse(was), JSON.parse(state)) : [], stale = { ...offscreen ? { offscreen } : {}, ...keys.length ? { unchanged: keys } : {} };
+    let was = lastState.get(game), keys = pixels?.changed === 0 && state !== null && was != null && was !== state ? keysChanged(JSON.parse(was), JSON.parse(state)) : [], stale = { ...offscreen ? { offscreen } : {}, ...offscreen && loading ? { loading: !0 } : {}, ...keys.length ? { unchanged: keys } : {} };
     if (!peek)
       lastState.set(game, state);
     if (!views || c && !(c.buffer[0] && c.buffer[1]))
@@ -49052,12 +49400,12 @@ function look(game, { moved = !1, peek = !1, edited = !1, hint = !0, surfaces: f
 }
 function faultsNow(game) {
   return game.queue(() => keepSeed(game, async () => {
-    let { page } = game;
+    let { page } = game, from2 = game.errors.length;
     await page.evaluate(FIRST);
     let { views, raw } = await page.evaluate(`${REDRAW(!1)}
       ({ views: __harness.views.size, raw: __harness.gl.size > 0 && !__harness.renderers.length })`);
     if (!views && !raw)
-      throw Error(NOT_DRAWN);
+      throw notDrawn(game, from2);
     let c = await page.evaluate(CANVAS), frame = c?.frame ?? 0;
     if (!views || c && !(c.buffer[0] && c.buffer[1]))
       return { lines: [], frame, partial: !1 };
@@ -49125,19 +49473,23 @@ function keepCams(cwd, cams) {
 `), kept.map((c) => c.label);
 }
 async function placeCam(game, cam) {
+  let from2 = game.errors.length;
   if (await game.page.evaluate(FIRST), !await game.page.evaluate(`(() => {
     const c = __harness.main()?.[1].camera; if (!c) return false;
     const to = c.clone(false);
     to.position.fromArray(${JSON.stringify(cam.position)});
-    ${cam.lookAt ? `to.lookAt(...${JSON.stringify(cam.lookAt)});` : "c.getWorldQuaternion(to.quaternion);"}
+    ${cam.quaternion ? `to.quaternion.fromArray(${JSON.stringify(cam.quaternion)});` : cam.lookAt ? `to.lookAt(...${JSON.stringify(cam.lookAt)});` : "c.getWorldQuaternion(to.quaternion);"}
     to.updateMatrixWorld(); __harness.lookCam = { from: c, to }; return true; })()`))
-    throw Error(NOT_DRAWN);
+    throw notDrawn(game, from2);
   return () => game.page.evaluate("delete __harness.lookCam");
 }
 function views(game, name) {
   return game.queue(() => keepSeed(game, async () => {
+    let from2 = game.errors.length;
     await game.page.evaluate(FIRST);
-    let r = await game.page.evaluate(`__harness.views.size ? ${VIEWS}(${JSON.stringify(name)}) : { error: "${NOT_DRAWN.slice(6)}" }`);
+    let r = await game.page.evaluate(`__harness.views.size ? ${VIEWS}(${JSON.stringify(name)}) : { error: "not drawn" }`);
+    if (r.error === "not drawn")
+      throw notDrawn(game, from2);
     if (r.error)
       throw Error(`look: ${r.error}`);
     let run2 = runs.get(game) ?? { n: 0, all: /* @__PURE__ */ new Set, seen: /* @__PURE__ */ new Set, where: /* @__PURE__ */ new Map };
@@ -49224,7 +49576,7 @@ function surfaceText(s) {
   if (!s)
     return [];
   let pct = Math.round(s.share * 100);
-  if ((s.repeat ?? 0) >= 0.5)
+  if ((s.repeat ?? 0) >= 0.5 && !s.plain)
     return [`Surface: "${s.name}" covers ${pct}% and repeats every ${s.every} px ${s.across ? "across" : "down"}: the pattern shows. Unless the user asked for a pattern, vary the scale with distance or blend two scales.`];
   if (s.detail >= 35)
     return [`Surface: "${s.name}" covers ${pct}% with dense fine detail (${s.detail} of 255): it reads as noise and shimmers as it moves. Unless the user asked for it, soften the fine detail or fade it with distance.`];
@@ -49271,7 +49623,7 @@ function lookText(l) {
   }), ...keptBy.objects.map(({ name, all }) => {
     let names = group([...all.filter((o) => !o.own), ...all.filter((o) => o.own)]).map((g) => g.name), wheres = [...new Set(all.map((o) => o.where))], behind = [...all.some((o) => o.own) ? [`${name}'s own parts`] : [], ...new Set(all.flatMap((o) => !o.own && o.over || []))].slice(0, 3);
     return `${name}: ${all.length} parts (${names.slice(0, 4).join(", ")}${names.length > 4 ? ", …" : ""}), ${wheres.join(" or ")}${behind.length ? `, behind ${behind.join(" or ")}` : ""}`;
-  })], known = Object.values(l.known ?? {}).reduce((a2, b2) => a2 + b2, 0), faults = faultLines(l), kinds = [l.setup?.length && "Lighting", l.surfaces?.length && "Surfaces", surfaceText(l.surface).length && "Surface"].filter(Boolean), fault = [
+  })], known = Object.values(l.known ?? {}).reduce((a2, b2) => a2 + b2, 0), faults = faultLines(l), kinds = [...new Set(faults.map((line) => line.split(": ")[0]))], fault = [
     ...l.faultsSame ? [`${kinds.join(", ")}: the same ${faults.length > 1 ? `${faults.length} lines` : "line"} as the last look, still open.`] : faults,
     ...known ? [`Known, intentional (window.__game.intentional): ${known} line${known > 1 ? "s" : ""} left out (${Object.entries(l.known).map(([k, n]) => `"${k}" ${n}`).join(", ")}).`] : []
   ], DEPTH = 0.03, d = l.depth, p = (x2) => `${Math.round(x2 * 100)}%`, depth = d ? [`Depth: the nearest third of objects brightness ${p(d.near[0])}, colour ${p(d.near[1])}; the farthest third ${p(d.far[0])}, colour ${p(d.far[1])}.${d.far[0] - d.near[0] < DEPTH && d.near[1] - d.far[1] < DEPTH && !d.fog ? " Far objects are no lighter or paler than near ones, and there is no fog: depth does not read. Add scene.fog in the background's colour, or lighten distant colour." : ""}`] : [], folded = foldedText(l), leftBy = byObject(l.left ?? []), left = [...leftBy.rest.map((o) => `${o.name} (${o.where})`), ...leftBy.objects.map(({ name, all }) => `${name}: ${all.length} parts (${[...new Set(all.map((o) => o.where))].join(" or ")})`)];
@@ -49466,13 +49818,13 @@ function probe(game, points, cam) {
   if (!Array.isArray(points) || !points.length || points.length > 8)
     throw Error("look: at takes 1 to 8 points [x, y]");
   return inside("at", points, game.page.viewport() ?? { width: 1280, height: 800 }), game.queue(() => keepSeed(game, async () => {
-    let { page } = game, restore = cam && await placeCam(game, cam), drew = !1;
+    let { page } = game, from2 = game.errors.length, restore = cam && await placeCam(game, cam), drew = !1;
     try {
       if (!cam)
         await page.evaluate(FIRST);
       let { views: views2, revision, webgpu } = await page.evaluate("({ views: __harness.views.size, revision: String(__harness.revision), webgpu: !!__harness.main()?.[1].renderer.isWebGPURenderer })");
       if (!views2)
-        throw Error(NOT_DRAWN);
+        throw notDrawn(game, from2);
       let url2 = await threeUrl(game, revision, webgpu), lines = [], untested = !1;
       for (let p of points) {
         let r = await page.evaluate(PROBE_FN, p, url2);
@@ -49559,11 +49911,11 @@ function colours(points, view2, box2) {
     }).join(", ")}.`;
   };
 }
-function pictureDiff(a2, b2, out) {
+function pictureDiff(a2, b2, out, blocks) {
   let p = decodePng(a2), q2 = decodePng(b2);
   if (p.w !== q2.w || p.h !== q2.h)
     return 1;
-  let rgb = out ? new Uint8Array(p.w * p.h * 3) : null, n = 0;
+  let rgb = out ? new Uint8Array(p.w * p.h * 3) : null, cols = Math.ceil(p.w / 16), rows = Math.ceil(p.h / 16), cells = new Uint32Array(cols * rows), hits = new Uint8Array(p.w * p.h), n = 0;
   for (let i = 0;i < p.w * p.h; i++) {
     let hit = !1;
     for (let c = 0;c < 3; c++)
@@ -49571,22 +49923,61 @@ function pictureDiff(a2, b2, out) {
         hit = !0, n++;
         break;
       }
+    if (hit)
+      hits[i] = 1, cells[Math.floor(i / p.w / 16) * cols + Math.floor(i % p.w / 16)]++;
     if (rgb) {
       let j2 = i * q2.bpp, grey = (q2.px[j2] + q2.px[j2 + 1] + q2.px[j2 + 2]) / 9;
       rgb[i * 3] = hit ? 255 : grey, rgb[i * 3 + 1] = rgb[i * 3 + 2] = hit ? 0 : grey;
     }
   }
+  if (blocks) {
+    n = 0;
+    let seen = /* @__PURE__ */ new Set, regions = [];
+    for (let cell = 0;cell < cells.length; cell++) {
+      if (cells[cell] < 4 || seen.has(cell))
+        continue;
+      let stack = [cell], box2 = [p.w, p.h, 0, 0], size = 0;
+      seen.add(cell);
+      while (stack.length) {
+        let at = stack.pop(), x2 = at % cols, y = Math.floor(at / cols);
+        n += cells[at], size++, box2[0] = Math.min(box2[0], x2 * 16), box2[1] = Math.min(box2[1], y * 16), box2[2] = Math.max(box2[2], Math.min(p.w, (x2 + 1) * 16)), box2[3] = Math.max(box2[3], Math.min(p.h, (y + 1) * 16));
+        for (let [nx, ny] of [[x2 - 1, y], [x2 + 1, y], [x2, y - 1], [x2, y + 1]]) {
+          if (nx < 0 || nx >= cols || ny < 0 || ny >= rows)
+            continue;
+          let next = ny * cols + nx;
+          if (cells[next] >= 4 && !seen.has(next))
+            seen.add(next), stack.push(next);
+        }
+      }
+      regions.push({ box: box2, size });
+    }
+    if (blocks.regions = regions.sort((a3, b3) => b3.size - a3.size).slice(0, 3).map((r) => r.box), blocks.more = Math.max(0, regions.length - 3), rgb)
+      for (let i = 0;i < hits.length; i++) {
+        if (!hits[i] || cells[Math.floor(i / p.w / 16) * cols + Math.floor(i % p.w / 16)] >= 4)
+          continue;
+        let j2 = i * q2.bpp, grey = (q2.px[j2] + q2.px[j2 + 1] + q2.px[j2 + 2]) / 9;
+        rgb.fill(grey, i * 3, i * 3 + 3);
+      }
+  }
   if (out)
     writeFileSync5(out, encodePng(p.w, p.h, rgb));
   return n / (p.w * p.h);
 }
-function saveBaseline(game, cwd, name) {
+function saveBaseline(game, cwd, name, camera) {
   return game.queue(async () => {
-    let base = baselinePath(cwd, name), l = await look(game), at = { saved: (/* @__PURE__ */ new Date()).toISOString(), ...await game.page.evaluate(AT), fingerprint: fingerprint(cwd) };
+    if (camera && !camera.lookAt) {
+      let restore = await placeCam(game, camera);
+      try {
+        camera = await game.page.evaluate("({ position: __harness.lookCam.to.position.toArray(), quaternion: __harness.lookCam.to.quaternion.toArray() })");
+      } finally {
+        await restore();
+      }
+    }
+    let base = baselinePath(cwd, name), l = await (camera ? lookFrom(game, camera) : look(game)), at = { saved: (/* @__PURE__ */ new Date()).toISOString(), ...await game.page.evaluate(AT), fingerprint: fingerprint(cwd), renderer: gpuLine2(game), camera, ...game.played.length && { steps: [...game.played] } };
     return mkdirSync6(join11(base, ".."), { recursive: !0 }), copyFileSync(l.picture, `${base}.png`), writeFileSync5(`${base}.json`, JSON.stringify(at)), { look: l, file: `${base}.png` };
   });
 }
-function compareBaseline(game, cwd, name) {
+function compareBaseline(game, cwd, name, camera) {
   return game.queue(async () => {
     let base = baselinePath(cwd, name), b2;
     try {
@@ -49594,22 +49985,40 @@ function compareBaseline(game, cwd, name) {
     } catch {
       throw Error(`look: no baseline named ${name}; save one first with \`look\` { save: "${name}" }`);
     }
+    let note = "";
+    if (typeof camera === "string")
+      try {
+        camera = namedCam(cwd, camera);
+      } catch {
+        note = `
+camera ${JSON.stringify(camera)} is not defined; compared from the baseline's ${b2.camera ? "saved camera" : "page camera"}.`, camera = void 0;
+      }
     let now = await game.page.evaluate(AT);
-    if (now.frame !== b2.frame)
+    if (b2.steps?.length) {
+      await game.reload(), await play(game, b2.steps);
+      let at = (await game.page.evaluate(AT)).frame;
+      if (at < b2.frame)
+        await play(game, [{ wait: b2.frame - at }]);
+      game.played = [...b2.steps], note += `
+Replayed the baseline's ${b2.steps.length} interact steps from a reload before comparing.`;
+    } else if (now.frame !== b2.frame)
       await game.reload(), await play(game, [{ wait: b2.frame }]);
-    let l = await look(game), of2 = `${name} (saved ${b2.saved.slice(0, 10)}, frame ${b2.frame}, ${b2.width}x${b2.height}@${b2.dpr})`;
+    let view2 = !camera || JSON.stringify([camera.position, camera.lookAt]) === JSON.stringify([b2.camera?.position, b2.camera?.lookAt]) ? "" : `; using the baseline's ${b2.camera ? `saved camera ${JSON.stringify(b2.camera)}` : "page camera"}, not the requested camera`, l = await (b2.camera ? lookFrom(game, b2.camera) : look(game)), of2 = `${name} (saved ${b2.saved.slice(0, 10)}, frame ${b2.frame}, ${b2.width}x${b2.height}@${b2.dpr})${view2}`;
     if (now.width !== b2.width || now.height !== b2.height || now.dpr !== b2.dpr)
-      return { look: l, text: `Compare: the page is ${now.width}x${now.height}@${now.dpr} but ${of2} was taken at another size, so no pixel diff; open the page at size [${b2.width}, ${b2.height}]${b2.dpr === 1 ? "" : ` with dpr ${b2.dpr}`} to compare.` };
+      return { look: l, text: `Compare: the page is ${now.width}x${now.height}@${now.dpr} but ${of2} was taken at another size, so no pixel diff; open the page at size [${b2.width}, ${b2.height}]${b2.dpr === 1 ? "" : ` with dpr ${b2.dpr}`} to compare.${note}` };
     let diff2 = l.picture.replace(/\.png$/, "-diff.png");
-    return { look: l, text: `Compare: ${+(pictureDiff(`${base}.png`, l.picture, diff2) * 100).toPrecision(2)}% of pixels differ from ${of2}; diff at ${diff2}` };
+    if (b2.renderer && b2.renderer !== gpuLine2(game))
+      return { look: l, text: `Compare: ${of2}. Baseline ${b2.renderer} Page ${gpuLine2(game)} Pixels from another renderer do not compare; no pixel diff.${note}` };
+    let blocks = { regions: [], more: 0 }, share = pictureDiff(`${base}.png`, l.picture, diff2, blocks), result = share ? `${+(share * 100).toPrecision(2)}% of pixels differ from ${of2} in significant cells; regions [x0, y0, x1, y1] in the page's pixels: ${blocks.regions.map((box2) => `[${box2.join(", ")}]`).join(", ")}` : `the page is the same as ${of2} (byte-identical or noise only)`;
+    return { look: l, text: `Compare: ${result}${blocks.more ? ` (+${blocks.more} more)` : ""}; diff at ${diff2}${note}` };
   });
 }
 var edgeText = (e) => e ? [`World's edge: ${Math.round(e.share * 100)}% of the picture is background below the horizon, in [${e.bbox.join(", ")}], past the far end of the ground: extend the ground, keep the camera over it, or fade it out with scene.fog.`] : [], VIEW = "const h = window.__harness, [scene, { renderer: r, camera: c0 }] = h.main(), camera = c0 && h.lookCam?.from === c0 ? h.lookCam.to : c0; if (!camera) throw new Error('the page\\'s last render of its scene had no camera (renderer.render(scene, camera) was called with camera undefined): fix the camera, step a frame with `interact` { steps: [{ wait: 1 }] } and look again');", DRAW, PNG_BLOB = '(s => new Blob([Uint8Array.fromBase64?.(s) ?? Uint8Array.from(atob(s), c => c.charCodeAt(0))], { type: "image/png" }))', HUE = `const HUES = ["red", "orange", "yellow", "green", "cyan", "blue", "violet", "magenta", "grey"];
-  const bucket = (r, g, b, hi, lo, l, sa) => { if (sa < 0.25 || l < 0.1) return 8; const k = hi - lo, h = hi === r ? ((g - b) / k + 6) % 6 : hi === g ? (b - r) / k + 2 : (r - g) / k + 4; const d = h * 60; return d < 15 || d >= 345 ? 0 : d < 45 ? 1 : d < 70 ? 2 : d < 165 ? 3 : d < 200 ? 4 : d < 260 ? 5 : d < 290 ? 6 : 7; };`, PASS, VIEWS, FIRST = `(async () => { __clock.pause(); if (__harness.main()?.[1].screen) return;
+  const bucket = (r, g, b, hi, lo, l, sa) => { if (sa < 0.25 || l < 0.1) return 8; const k = hi - lo, h = hi === r ? ((g - b) / k + 6) % 6 : hi === g ? (b - r) / k + 2 : (r - g) / k + 4; const d = h * 60; return d < 15 || d >= 345 ? 0 : d < 45 ? 1 : d < 70 ? 2 : d < 165 ? 3 : d < 200 ? 4 : d < 260 ? 5 : d < 290 ? 6 : 7; };`, PASS, VIEWS, FIRST = `(async () => { __clock.pause(); const drawn = () => __harness.views.size && __harness.shown; if (drawn()) return;
   await __clock.step(1);
   const raw = () => __harness.gl.size && !__harness.renderers.length; // raw WebGL never fills views: don't wait for it
-  for (const end = __clock.realNow() + 5000; !__harness.views.size && !raw() && __clock.realNow() < end;) { await __clock.realSleep(50); await __clock.step(1); } })()`, NOT_DRAWN = "look: the game has not drawn a three.js scene after 5 s of stepping frames; if it is still loading or building, step it with `interact` { steps: [{ wait: frames }] } and look again", REDRAW = (moved) => `if (__harness.views.size && (${moved} || !__harness.frame.some(e => e.target))) ${DRAW};`, runs, PIECE_MIN = 6, PIXELS, PIXELS_FN, PASS_FN, SHRINK_FN, lastState, lastGrid, lastCanvas, lastHint, lastNumbers, lastFaults, FRAME = "Math.max(0, Math.round((__clock.now() - 60000) * 0.06))", CANVAS, blends = ({ bright: [b2, bo], sat: [c, co], edge }) => Math.abs(b2 - bo) < 0.1 && Math.abs(c - co) < 0.1 && edge < 0.08, MOVED = 0.05, topHues = (h = {}) => Object.entries(h).filter(([, v2]) => v2 >= 0.05).sort((a2, b2) => b2[1] - a2[1]).slice(0, 4).map(([k]) => k).join(), numbersOf = (p, c) => p ? { v: [p.brightness, p.saturation, p.black, p.blown, ...c ? [...c.bright, ...c.sat, c.edge] : []], hues: `${topHues(p.hues)}/${topHues(p.objects?.rest?.hues ?? p.objects?.hues)}` } : null, sameNumbers = (a2, b2) => !!a2 && !!b2 && a2.hues === b2.hues && a2.v.length === b2.v.length && a2.v.every((v2, i) => Math.abs(v2 - b2.v[i]) < MOVED), staleText = (l) => [
-  ...l.offscreen ? [`Last frame: every render call drew into a render target (${l.offscreen.join(", ")}), none to the screen, so the canvas still shows an earlier frame: a render target left bound after a pass (setRenderTarget(null) missing, or a saved renderer state restored out of order)?`] : [],
+  for (const end = __clock.realNow() + 5000; !drawn() && !raw() && __clock.realNow() < end;) { await __clock.realSleep(50); await __clock.step(1); } })()`, NOT_DRAWN = "look: the game has not drawn a three.js scene after 5 s of stepping frames; if it is still loading or building, step it with `interact` { steps: [{ wait: frames }] } and look again", REDRAW = (moved) => `if (__harness.views.size && (${moved} || !__harness.frame.some(e => e.target))) ${DRAW};`, runs, PIECE_MIN = 6, PIXELS, PIXELS_FN, PASS_FN, SHRINK_FN, lastState, lastGrid, lastCanvas, lastHint, lastNumbers, lastFaults, FRAME = "Math.max(0, Math.round((__clock.now() - 60000) * 0.06))", CANVAS, blends = ({ bright: [b2, bo], sat: [c, co], edge }) => Math.abs(b2 - bo) < 0.1 && Math.abs(c - co) < 0.1 && edge < 0.08, MOVED = 0.05, topHues = (h = {}) => Object.entries(h).filter(([, v2]) => v2 >= 0.05).sort((a2, b2) => b2[1] - a2[1]).slice(0, 4).map(([k]) => k).join(), numbersOf = (p, c) => p ? { v: [p.brightness, p.saturation, p.black, p.blown, ...c ? [...c.bright, ...c.sat, c.edge] : []], hues: `${topHues(p.hues)}/${topHues(p.objects?.rest?.hues ?? p.objects?.hues)}` } : null, sameNumbers = (a2, b2) => !!a2 && !!b2 && a2.hues === b2.hues && a2.v.length === b2.v.length && a2.v.every((v2, i) => Math.abs(v2 - b2.v[i]) < MOVED), staleText = (l) => [
+  ...l.offscreen && l.loading ? [`Not drawn yet: after 5 s of stepping frames the page has drawn only into a render target (${l.offscreen.join(", ")}), no scene to the screen, so this is the canvas before the game's first frame: still loading (an environment bake, then models or compileAsync)? Step it with \`interact\` { steps: [{ wait: frames }] } and look again.`] : l.offscreen ? [`Last frame: every render call drew into a render target (${l.offscreen.join(", ")}), none to the screen, so the canvas still shows an earlier frame: a render target left bound after a pass (setRenderTarget(null) missing, or a saved renderer state restored out of order)?`] : [],
   ...l.unchanged ? [`Nothing in the picture changed since the last look, while observe()'s ${l.unchanged.slice(0, 4).join(", ")}${l.unchanged.length > 4 ? ", …" : ""} changed.`] : []
 ], keysChanged = (a2, b2) => {
   if (!a2 || !b2 || typeof a2 !== "object" || typeof b2 !== "object")
@@ -49637,12 +50046,13 @@ var edgeText = (e) => e ? [`World's edge: ${Math.round(e.share * 100)}% of the p
   return join11(harnessDir(cwd), "baselines", name);
 };
 var init_look = __esm(() => {
+  init_browser2();
   init_contract();
   init_input();
   init_fingerprint();
   init_state();
   init_lighting();
-  DRAW = `(() => { const h = window.__harness, saved = new Map();
+  DRAW = `(() => { const h = window.__harness, saved = new Map(), nodes = new Map();
   let frame = h.frame;
   if (!frame.length) { ${VIEW} frame = [{ r, target: null, scene, camera, auto: [true, true, true, true] }]; }
   h.depth++;
@@ -49650,12 +50060,16 @@ var init_look = __esm(() => {
     for (const e of frame) {
       const r = e.r;
       if (!saved.has(r)) saved.set(r, [r.getRenderTarget(), r.autoClear, r.autoClearColor, r.autoClearDepth, r.autoClearStencil, { ...r.info.render }, r.toneMapping, r.outputColorSpace]);
+      // PassNode renders once per NodeFrame. Refresh its render-preparation cache, not the frame or node time.
+      const nf = r._nodes?.nodeFrame;
+      if (nf && !nodes.has(nf)) { nodes.set(nf, nf.updateBeforeMap); nf.updateBeforeMap = new WeakMap(); }
       r.setRenderTarget(e.target);
       if (e.clear) r.clear(...e.clear);
       else { [r.autoClear, r.autoClearColor, r.autoClearDepth, r.autoClearStencil] = e.auto; if (e.out) [r.toneMapping, r.outputColorSpace] = e.out; h.raw.get(r).call(r, e.scene, e.camera && h.lookCam?.from === e.camera ? h.lookCam.to : e.camera); }
     }
   } finally {
     h.depth--;
+    for (const [nf, before] of nodes) nf.updateBeforeMap = before;
     for (const [r, [target, a, c, d, s, info, tone, space]] of saved) {
       r.setRenderTarget(target); r.autoClear = a; r.autoClearColor = c; r.autoClearDepth = d; r.autoClearStencil = s; r.toneMapping = tone; r.outputColorSpace = space;
       Object.assign(r.info.render, info);
@@ -49663,9 +50077,8 @@ var init_look = __esm(() => {
   }
 })()`, PASS = `(async (url, shot, cell) => { ${HUE}
   ${VIEW} const L = window.__harnessLook ??= {};
-  // a mesh seen through: transparent below half opacity, or transparent without writing depth (an additive beam)
-  L.see = o => { const m = [o.material].flat()[0]; return !!(o.isMesh && m?.transparent && m.opacity < 0.5); };
-  // shortcut: the node material keeps FrontSide and solid draws for every object (no per-draw hook), so #60 and #91 stay on WebGPU; give it one if a WebGPU game hits them
+  // a mesh or sprite seen through: transparent below half opacity, or additive (an engine glow adds light over what is behind it, dev #330)
+  L.see = o => { const m = [o.material].flat()[0]; return !!((o.isMesh || o.isSprite) && m && (m.transparent && m.opacity < 0.5 || m.blending === 2)); };
   if (!L.mat && r.isWebGPURenderer) { // a node material: WebGPURenderer draws no GLSL, on either of its backends
     const R = window.__threeRuntime?.THREE, T = R?.MeshBasicNodeMaterial ? R : await import(url);
     L.from = T === R ? "runtime" : url;
@@ -49675,9 +50088,41 @@ var init_look = __esm(() => {
     const byte = (k) => float(n.shiftRight(k).bitAnd(255)).div(255);
     // the material's class is the game's own (its renderer's library): TSL's assign needs the stack of the copy of three that
     // builds the shader, so a second copy's (Vite prebundles the game's) dropped instancing (#137) and threw in setupFog (#134)
-    L.mat = new (r.library?.getMaterialNodeClass?.("MeshBasicMaterial") ?? T.MeshBasicNodeMaterial)();
+    L.Basic = r.library?.getMaterialNodeClass?.("MeshBasicMaterial") ?? T.MeshBasicNodeMaterial;
+    // each copy of three numbers its nodes from 0 and a shader build shares nodes by Node.getHash (that number), so beside
+    // the game's copy a pass node took the place of a game node of the same id: "i32(mat4x4<f32>)" in the id shader (dev #331)
+    if (T.Node && !(new L.Basic() instanceof T.NodeMaterial)) T.Node.prototype.getHash = function () { return "harness:" + this.id; };
+    L.mat = new L.Basic();
     L.mat.fog = false; // fog would mix the ids with its colour
-    L.mat.fragmentNode = vec4(byte(0), byte(8), byte(16), 1); // the whole output: no tone mapping or colour space
+    L.mat.fragmentNode = L.idColor = vec4(byte(0), byte(8), byte(16), 1); // the whole output: no tone mapping or colour space
+    const one = (k) => float(id.shiftRight(k).bitAnd(255)).div(255);
+    L.idOne = vec4(one(0), one(8), one(16), 1); // a Sprite drawn sprite.count times is one object, every copy its one id
+    L.Sprite = r.library?.getMaterialNodeClass?.("SpriteMaterial") ?? T.SpriteNodeMaterial;
+    L.Points = r.library?.getMaterialNodeClass?.("PointsMaterial") ?? T.PointsNodeMaterial;
+    // a cut-out card (alphaTest: grass, leaves), a mesh drawn from its back or both sides (a BackSide sky sphere, dev #280)
+    // and a Sprite (its own vertex code places it, and a SpriteNodeMaterial's positionNode each copy of it, dev #280) draw
+    // in a second pass in a material of their own that drops the texels their material drops (three's own map, alphaMap,
+    // opacity and alphaTest) and keeps its side, its output the id; one per source material
+    L.cuts = new WeakMap();
+    // an InstancedMesh in a SpriteNodeMaterial (a bullet batch, dev #307) is placed by the sprite's vertex code too: a mesh
+    // material takes its positionNode as every vertex's position, so each quad shrank to a point
+    L.sprite = o => !!(o.isSprite || o.material?.isSpriteNodeMaterial);
+    L.cut = (m, o) => {
+      let c = L.cuts.get(m);
+      // a Sprite in a PointsNodeMaterial is a point of its size in pixels (three's GPU particles): as a plain sprite each copy
+      // drew a unit quad, unattenuated the whole frame, and hid every object behind it (dev #436)
+      const spr = L.sprite(o), pts = spr && !o.isPoints && m.isPointsNodeMaterial;
+      if (!c) { c = pts ? new L.Points() : spr ? new L.Sprite() : new L.Basic(); c.fog = false; c.toneMapped = false; c.transparent = false; c.depthWrite = true; L.cuts.set(m, c); }
+      // a Sprite's copies, and a mesh's instances whose count its indirect buffer holds (a GPU-culled forest, dev #322), are one object: every copy its one id
+      const out = o.isSprite || o.geometry?.indirect ? L.idOne : L.idColor;
+      if (c.outputNode !== out) { c.outputNode = out; c.needsUpdate = true; }
+      if (c.map !== m.map || c.alphaMap !== m.alphaMap || c.positionNode !== (m.positionNode ?? null) || c.maskNode !== (m.maskNode ?? null) || (spr && (c.scaleNode !== m.scaleNode || c.rotationNode !== m.rotationNode))) c.needsUpdate = true;
+      // its positionNode and maskNode too: a clipmap terrain's levels drew flat at y = 0 and unmasked, covering the rider (dev #317)
+      Object.assign(c, { map: m.map ?? null, alphaMap: m.alphaMap ?? null, alphaTest: m.alphaTest, opacity: m.opacity, side: m.side ?? 0, positionNode: m.positionNode ?? null, maskNode: m.maskNode ?? null });
+      if (pts) { if (c.sizeNode !== (m.sizeNode ?? null)) c.needsUpdate = true; Object.assign(c, { size: m.size ?? 1, sizeNode: m.sizeNode ?? null }); }
+      if (spr) Object.assign(c, { scaleNode: m.scaleNode ?? null, rotationNode: m.rotationNode ?? null, rotation: m.rotation ?? 0, sizeAttenuation: m.sizeAttenuation ?? true });
+      return c;
+    };
   }
   if (!L.mat) {
     const T = window.__threeRuntime?.THREE ?? await import(url);
@@ -49685,8 +50130,9 @@ var init_look = __esm(() => {
     L.T = T;
     L.mat = new T.ShaderMaterial({
       glslVersion: "300 es",
-      uniforms: { objectId: { value: 0 }, pointSize: { value: 1 }, pointScale: { value: 0 } },
-      vertexShader: \`flat out int vInst; uniform float pointSize, pointScale;
+      uniforms: { objectId: { value: 0 }, pointSize: { value: 1 }, pointScale: { value: 0 }, alphaTest: { value: 0 }, opacity: { value: 1 }, hasMap: { value: false }, hasAlphaMap: { value: false },
+        cutMap: { value: null }, cutAlphaMap: { value: null }, mapTransform: { value: [1, 0, 0, 0, 1, 0, 0, 0, 1] }, alphaMapTransform: { value: [1, 0, 0, 0, 1, 0, 0, 0, 1] } },
+      vertexShader: \`flat out int vInst; out vec2 vMapUv, vAlphaMapUv; uniform float pointSize, pointScale; uniform mat3 mapTransform, alphaMapTransform;
         #include <common>
         #include <batching_pars_vertex>
         #include <morphtarget_pars_vertex>
@@ -49699,6 +50145,7 @@ var init_look = __esm(() => {
           #include <morphtarget_vertex>
           #include <skinning_vertex>
           #include <project_vertex>
+          vMapUv = (mapTransform * vec3(uv, 1)).xy; vAlphaMapUv = (alphaMapTransform * vec3(uv, 1)).xy;
           gl_PointSize = pointScale > 0.0 && isPerspectiveMatrix(projectionMatrix) ? pointSize * pointScale / -mvPosition.z : pointSize; // three's points_vert
           #ifdef USE_INSTANCING
             vInst = gl_InstanceID;
@@ -49706,14 +50153,25 @@ var init_look = __esm(() => {
             vInst = 0;
           #endif
         }\`.replace(/#include <([a-z_]+)>/g, (inc, name) => !T.ShaderChunk || name in T.ShaderChunk ? inc : ""), // an older three lacks newer chunks (r160 has no morphinstance_vertex)
-      fragmentShader: \`flat in int vInst; uniform int objectId; out vec4 outColor;
+      fragmentShader: \`flat in int vInst; in vec2 vMapUv, vAlphaMapUv; uniform int objectId; uniform float alphaTest, opacity; uniform bool hasMap, hasAlphaMap; uniform sampler2D cutMap, cutAlphaMap; out vec4 outColor;
         void main() { int id = objectId + vInst;
+          if (alphaTest > 0.0) { // a cut-out card (grass, leaves) drops the texels its own material drops, as three's alphatest does
+            float a = opacity;
+            if (hasMap) a *= texture(cutMap, vMapUv).a;
+            if (hasAlphaMap) a *= texture(cutAlphaMap, vAlphaMapUv).g;
+            if (a < alphaTest) discard;
+          }
           outColor = vec4(float(id & 255) / 255.0, float((id >> 8) & 255) / 255.0, float((id >> 16) & 255) / 255.0, 1.0); }\`,
     });
     L.mat.onBeforeRender = (r, _s, _c, _g, o, grp) => {
       const u = L.mat.uniforms, m0 = Array.isArray(o.material) ? o.material[grp?.materialIndex ?? 0] : o.material, m = o.isPoints ? m0 : null; // unset, gl_PointSize is undefined
       u.objectId.value = L.ids.get(o) ?? 0; u.pointSize.value = m?.size ?? 1;
-      u.pointScale.value = m?.sizeAttenuation ? (r.getRenderTarget()?.height ?? r.domElement.height) / 2 : 0; L.mat.uniformsNeedUpdate = true;
+      u.pointScale.value = m?.sizeAttenuation ? (r.getRenderTarget()?.height ?? r.domElement.height) / 2 : 0;
+      const cut = !o.isPoints && m0?.alphaTest > 0, tex = (t, k) => { if (t?.matrixAutoUpdate) t.updateMatrix(); u[k].value = t?.matrix.elements ?? [1, 0, 0, 0, 1, 0, 0, 0, 1]; return t ?? null; };
+      u.alphaTest.value = cut ? m0.alphaTest : 0; u.opacity.value = m0?.opacity ?? 1;
+      u.cutMap.value = cut ? tex(m0.map, "mapTransform") : null; u.cutAlphaMap.value = cut ? tex(m0.alphaMap, "alphaMapTransform") : null;
+      u.hasMap.value = !!u.cutMap.value; u.hasAlphaMap.value = !!u.cutAlphaMap.value;
+      L.mat.uniformsNeedUpdate = true;
       // each draw culls and writes depth as its own material does (three r186 reads side and depthWrite in state.setMaterial,
       // after this call, and neither recompiles): a BackSide sky was culled (blender-pilot-2, #60) and a see-through beam hid the
       // flag behind it (natural-1, #91); a see-through mesh draws nothing here
@@ -49744,18 +50202,34 @@ var init_look = __esm(() => {
 
   const w = r.domElement.width, ht = r.domElement.height, buf = new Uint8Array(w * ht * 4);
   const rt = new (r.isWebGPURenderer ? L.T.RenderTarget : L.T.WebGLRenderTarget)(w, ht); // no MSAA, so edges never blend two ids
-  const prev = { override: scene.overrideMaterial, bg: scene.background, target: r.getRenderTarget(),
+  const prev = { override: scene.overrideMaterial, bg: scene.background, bgNode: scene.backgroundNode, target: r.getRenderTarget(),
     clear: r.getClearColor(new L.T.Color()), alpha: r.getClearAlpha(), info: { ...r.info.render } };
+  // WebGPU's pass has no per-draw hook, so its cut-out cards, masked (maskNode, which the override material drops) back- and
+  // double-sided meshes, indirect-drawn meshes and sprites draw after the rest (see L.cut)
+  // WebGPU's node material has no per-draw hook either, so a see-through object is hidden for the pass there (dev #330)
+  const sees = r.isWebGPURenderer ? objs.filter(o => o.visible && L.see(o)) : [];
+  const cuts = r.isWebGPURenderer ? objs.filter(o => o.visible && !sees.includes(o) && !Array.isArray(o.material) && (L.sprite(o) || o.isMesh && (o.material?.alphaTest > 0 || o.material?.side || o.material?.maskNode || o.geometry?.indirect))) : [];
+  const swapped = new Map(), drawnFirst = cuts.length ? objs.filter(o => o.visible && !cuts.includes(o) && !sees.includes(o)) : [];
+  const draw = () => (window.__threeRuntime?.originals ?? (f => f()))(() => h.raw.get(r).call(r, scene, camera));
   h.depth++; // the pass's clear and render are not the game's frame
   try {
-    for (const o of hidden) o.visible = false;
+    for (const o of [...hidden, ...sees, ...cuts]) o.visible = false;
     scene.overrideMaterial = L.mat;
     scene.background = null;
+    // a WebGPU scene's backgroundNode (a TSL sky) draws a mesh with no depth test, and the cut pass below draws without the override material, so it painted over every id the first draw wrote (dev #323)
+    if (prev.bgNode) scene.backgroundNode = null;
     r.setRenderTarget(rt);
     r.setClearColor(0x000000, 1);
     r.clear();
     // The runtime's auto-instancing draws its grouped originals here instead of their instances, so ids name them.
-    (window.__threeRuntime?.originals ?? (f => f()))(() => h.raw.get(r).call(r, scene, camera));
+    draw();
+    if (cuts.length) {
+      for (const o of drawnFirst) o.visible = false;
+      for (const o of cuts) { o.visible = true; swapped.set(o, o.material); o.material = L.cut(o.material, o); }
+      scene.overrideMaterial = null;
+      const clear = r.autoClear; r.autoClear = false;
+      try { draw(); } finally { r.autoClear = clear; }
+    }
     if (!r.isWebGPURenderer) r.readRenderTargetPixels(rt, 0, 0, w, ht, buf);
     else if (!r.backend.isWebGPUBackend) { // WebGPURenderer's own read on its WebGL 2 backend waits on a fence it polls with rAF, which the paused clock never runs
       const gl = r.getContext(), { textureGPU } = r.backend.get(rt.texture), fb = gl.createFramebuffer(), was = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);
@@ -49770,19 +50244,21 @@ var init_look = __esm(() => {
     }
   } finally {
     h.depth--;
-    for (const o of hidden) o.visible = true;
+    for (const [o, m] of swapped) o.material = m;
+    for (const o of [...hidden, ...sees, ...cuts, ...drawnFirst]) o.visible = true;
     scene.overrideMaterial = prev.override;
     scene.background = prev.bg;
+    if (prev.bgNode) scene.backgroundNode = prev.bgNode;
     r.setRenderTarget(prev.target);
     r.setClearColor(prev.clear, prev.alpha);
     Object.assign(r.info.render, prev.info); // the pass is not one of the game's frames
     rt.dispose();
   }
 
-  // A material that places its own vertices (a ShaderMaterial, or a built-in one changed in onBeforeCompile: a sky dome at
+  // A material that places its own vertices (a ShaderMaterial, a node material's vertexNode, or a built-in one changed in onBeforeCompile: a sky dome at
   // gl_Position.xyww, wind-bent trees) draws elsewhere than the id pass, which uses three's own vertex code.
   // A see-through mesh draws nothing in the pass (L.see), so it is listed with them.
-  const own = o => L.see(o) || [o.material].flat().some(m => m?.isShaderMaterial || (m && Object.hasOwn(m, "onBeforeCompile")));
+  const own = o => L.see(o) || [o.material].flat().some(m => m?.isShaderMaterial || m?.vertexNode || (m && Object.hasOwn(m, "onBeforeCompile")));
 
   // where the canvas sits on the page, so boxes come back in the picture's pixels rather than the drawing buffer's
   const rect = r.domElement.getBoundingClientRect();
@@ -49833,12 +50309,25 @@ var init_look = __esm(() => {
   // down the road through 25 looks unflagged (a6f6e9cf). Geometry box times matrixWorld's column lengths, no vertex walk.
   const XM = camera.matrixWorld.clone(), XV = camera.position.clone(), UP = camera.up.clone().normalize(), GF = camera.getWorldDirection(camera.position.clone());
   GF.addScaledVector(UP, -GF.dot(UP));
+  // A skinned mesh's box in its own frame, as its skin draws it now: its geometry's box is the file's, not the drawn
+  // shape (a library horse 2.15 units tall read 0.09, dev #418). At most 4,096 vertices are posed, evenly spread.
+  const skins = new Map();
+  const skinned = o => {
+    if (!o.isSkinnedMesh || !o.skeleton || !o.getVertexPosition || !o.geometry?.attributes?.position) return null;
+    if (skins.has(o)) return skins.get(o);
+    const g = o.geometry, n = g.attributes.position.count, step = Math.max(1, Math.ceil(n / 4096)), v = camera.position.clone();
+    g.boundingBox ?? g.computeBoundingBox();
+    let box = g.boundingBox.clone().makeEmpty();
+    for (let i = 0; i < n; i += step) box.expandByPoint(o.getVertexPosition(i, v));
+    skins.set(o, box = box.isEmpty() || ![box.min.x, box.max.x, box.min.y, box.max.y, box.min.z, box.max.z].every(Number.isFinite) ? null : box);
+    return box;
+  };
   const extent = (o, i) => {
     const g = o.geometry;
     if (!g?.isBufferGeometry || o.isSprite || o.isPoints) return null;
     g.boundingBox ?? g.computeBoundingBox();
     if (o.isInstancedMesh) { o.getMatrixAt(i, XM); XM.premultiply(o.matrixWorld); } else XM.copy(o.matrixWorld);
-    const s = g.boundingBox.getSize(XV), e = XM.elements, len = [0, 1, 2].map(k => s.getComponent(k) * Math.hypot(e[4 * k], e[4 * k + 1], e[4 * k + 2]));
+    const s = (skinned(o) ?? g.boundingBox).getSize(XV), e = XM.elements, len = [0, 1, 2].map(k => s.getComponent(k) * Math.hypot(e[4 * k], e[4 * k + 1], e[4 * k + 2]));
     const [a, b, c] = [0, 1, 2].sort((p, q) => len[q] - len[p]);
     if (!len[a] || !(len[a] >= 3 * len[b] || len[c] < len[a] / 10)) return null;
     const L = XV.set(e[4 * a], e[4 * a + 1], e[4 * a + 2]), full = L.length(); L.addScaledVector(UP, -L.dot(UP)); // on the ground, by camera.up
@@ -49893,7 +50382,11 @@ var init_look = __esm(() => {
     let shown = true;
     for (let x = o; x; x = x.parent) if (!x.visible) { shown = false; break; }
     if (!shown || own(o)) { missing.set(o.name, [0, shown ? "own shader" : "hidden", null, g?.name]); continue; }
-    const box = new Box3().setFromObject(o);
+    // an InstancedMesh keeps the box it had when first asked (a forest at count 0, before its streamer filled it), so measure its instances now
+    // and a skinned mesh is measured as its skin draws it, whatever box the mesh or its geometry keeps (dev #418)
+    const kept = o.boundingBox, skin = skinned(o); if (o.isInstancedMesh) o.boundingBox = null;
+    const box = skin && !o.children.length ? skin.clone().applyMatrix4(o.matrixWorld) : new Box3().setFromObject(o);
+    if (o.isInstancedMesh) o.boundingBox = kept;
     // an empty particle pool (burst() before its first emit) is not missing: "sparks (0 units, no geometry)" on every look (opinion-3, opinion-4)
     if (box.isEmpty()) { if (o.isPoints) names.delete(o.name); else missing.set(o.name, [0, "no geometry", null, g?.name]); continue; }
     const size = box.getSize(camera.position.clone()), v = camera.position.clone();
@@ -49999,9 +50492,13 @@ var init_look = __esm(() => {
           for (let k = Math.max(1, dip + 1); dip >= 0 && k < c.length - 1; k++)
             if (c[k] >= c[k - 1] && c[k] >= c[k + 1] && c[k] > 0 && (!peak || c[k] > peak.corr + 0.05)) peak = { corr: c[k], px: 2 * (k + 3), across: !dy };
         }
-        const o = top.o;
+        // plain: no piece's material draws a pattern of its own (a texture, a node, a shader, vertex colours), so a repeat
+        // is the lights' or the layout's, which no texture scale changes (dev #319: a plaza under rows of point lights)
+        const patterned = m => !m || m.isShaderMaterial || m.vertexColors || Object.hasOwn(m, "onBeforeCompile")
+          || Object.entries(m).some(([k, v]) => v?.isTexture || (v && k.endsWith("Node")));
+        const o = top.o, plain = !top.ids.some(id => [objs[owner[id]]?.material].flat().some(patterned));
         surface = { name: o.name || o.geometry?.type || o.type, share: bn / (w * ht), detail: +(255 * lap / nl).toFixed(2),
-          ...peak ? { repeat: +peak.corr.toFixed(3), every: peak.px, across: peak.across } : {}, ms: Math.round(__clock.realNow() - t0) };
+          ...peak ? { repeat: +peak.corr.toFixed(3), every: peak.px, across: peak.across } : {}, ...plain ? { plain } : {}, ms: Math.round(__clock.realNow() - t0) };
       }
     }
   } catch {}
@@ -50123,7 +50620,8 @@ var init_look = __esm(() => {
   ${DRAW};
   const p = v => v.toArray().map(n => +n.toFixed(3));
   return { png: c.toDataURL("image/png").split(",")[1], size: p(size), center: p(center) };
-})`, runs = /* @__PURE__ */ new WeakMap;
+})`;
+  runs = /* @__PURE__ */ new WeakMap;
   PIXELS = `(async (b64) => {
   const b = await createImageBitmap(${PNG_BLOB}(b64)), W = 80, H = 50;
   window.__harnessShot?.close?.(); window.__harnessShot = b; // PASS draws from it instead of decoding the PNG again
@@ -50249,7 +50747,7 @@ var init_look = __esm(() => {
         // (one its own shader places). The shortest start of [hits, objects with a shader of their own, the rest] whose
         // hiding changes the pixel ends at one that draws there (hiding all of it leaves the background, which differs),
         // found by doubling, then halving
-        const own = o => [o.material].flat().some(m => m?.isShaderMaterial || (m && Object.hasOwn(m, "onBeforeCompile")));
+        const own = o => [o.material].flat().some(m => m?.isShaderMaterial || m?.vertexNode || (m && Object.hasOwn(m, "onBeforeCompile")));
         const order = [...open.map(x => x.object), ...all.filter(o => !H.includes(o) && !open.some(x => x.object === o)).sort((a, b) => own(b) - own(a))];
         if (!order.length) { end = "background beyond"; break; } // every object hidden and still not the background: a frame that draws differently each time
         let lo = 0, hi = 1;
@@ -50389,8 +50887,8 @@ The clock is paused again where the play ended.`;
 }
 function videoText(v2) {
   let kb = v2.bytes / 1024, size = kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.round(kb)} KB`;
-  return `Filmed ${v2.seconds} s of game time: ${v2.path} (MP4, H.264, ${size}, ${v2.width} × ${v2.height}, ${v2.frames} frames at 60 fps), footage for a person to watch; four moments of it: ${v2.strip}.
-The steps played on the paused clock, every frame drawn and pictured, so the video is smooth whatever the machine's speed. It has no sound, and real frame timing is not measured here (record: true plays in real time and measures it).` + (v2.unfilmed ? `
+  return `Filmed ${v2.seconds} s of game time: ${v2.path} (MP4, H.264, ${size}, ${v2.width} × ${v2.height}, ${v2.frames} frames at ${v2.fps} fps), footage for a person to watch; four moments of it: ${v2.strip}.
+The steps played on the paused clock, every frame drawn and ${v2.fps < 60 ? "every other one" : "each"} pictured, so the video is smooth whatever the machine's speed. It has no sound, and real frame timing is not measured here (record: true plays in real time and measures it).` + (v2.unfilmed ? `
 The video stops at ${VIDEO_MAX_S} s: the last ${v2.unfilmed} frames of the steps played without being filmed.` : "");
 }
 var import_gifenc, RECORD_MAX_S = 15, FPS = 15, SIZE = 480, PACE_MS = 16.666666666666668, TOL = 24, START, STOP = `(() => { const c = __clock, r = window.__harnessRec; c.pause(); c.pace(0); if (!r) return null;
@@ -50405,6 +50903,7 @@ var init_record = __esm(() => {
   requestAnimationFrame(tick); c.pace(${PACE_MS}); c.resume(); })()`;
 });
 
+import { rmSync as rmSync6 } from "node:fs";
 import { join as join13 } from "node:path";
 function realized(want, got) {
   if (typeof want === "number" && typeof got === "number")
@@ -50417,13 +50916,10 @@ function realized(want, got) {
 }
 function failure(p, state) {
   let got = pathValue(state, p.path);
-  return holds(p, got) ? null : `expected ${p.path} ${p.op === "exists" ? "to exist" : `${p.op} ${show(p.value)}`}, got ${show(got)}`;
+  return holds(p, got) ? null : `expected ${p.path} ${p.op === "exists" ? "to exist" : `${p.op} ${show2(p.value)}`}, got ${show2(got)}`;
 }
-async function runKeypoint(game, k, stepped, tests, wait) {
-  let { page } = game;
-  if (wait.on)
-    wait.on = await gameUp(game, ["setState", "observe"]);
-  let missing = "";
+async function realize(game, state) {
+  let { page } = game, missing = "";
   for (let i = 0;i < STATE_TRIES; i++) {
     if (i)
       await sleep3(50);
@@ -50434,38 +50930,50 @@ async function runKeypoint(game, k, stepped, tests, wait) {
         if (!g?.setState || !g?.observe)
           return "no game";
         return g.setState(s), g.observe();
-      }, k.state);
+      }, state);
     } catch (e) {
-      return { outcome: "state_not_realized", detail: `setState or observe() threw: ${firstLine(e)}` };
+      return `setState or observe() threw: ${firstLine(e)}`;
     }
     if (got === "no game")
-      return { outcome: "state_not_realized", detail: game.errors.length ? `the page threw before window.__game existed: ${game.errors.at(-1).split(`
-`)[0]}` : NO_GAME };
+      return game.errors.length ? `the page threw before window.__game existed: ${game.errors.at(-1).split(`
+`)[0]}` : NO_GAME;
     if (!got)
-      return { outcome: "state_not_realized", detail: "observe() returned nothing after setState" };
-    if (missing = Object.keys(k.state).filter((key2) => !realized(k.state[key2], got[key2])).map((key2) => `${key2} set to ${show(k.state[key2])}, observe() has ${show(got[key2])}`).join("; "), !missing)
+      return "observe() returned nothing after setState";
+    if (missing = Object.keys(state).filter((key2) => !realized(state[key2], got[key2])).map((key2) => `${key2} set to ${show2(state[key2])}, observe() has ${show2(got[key2])}`).join("; "), !missing)
       break;
   }
-  if (missing)
-    return { outcome: "state_not_realized", detail: missing };
+  return missing;
+}
+async function runKeypoint(game, k, stepped, tests, wait) {
+  let { page } = game;
+  if (wait.on)
+    wait.on = await gameUp(game, ["setState", "observe"]);
+  let unreal = await realize(game, k.state);
+  if (unreal && (unreal !== NO_GAME || Object.keys(k.state).length))
+    return { outcome: "state_not_realized", detail: unreal };
   try {
     await play(game, k.actions);
   } catch (e) {
     return { outcome: "actions_incomplete", detail: e.message };
   }
-  let frames = k.frames ?? DEFAULT_FRAMES, t = performance.now(), after;
+  let frames = k.frames ?? DEFAULT_FRAMES, last3 = frames > 10 ? (frames - 1) % 10 + 1 : frames, t = performance.now(), after;
   try {
-    after = await page.evaluate(`(async () => { ${frames ? `await __clock.step(${frames}); await __harness.sync();` : ""}
+    for (let left = frames - last3;left > 0; left -= 10)
+      await page.evaluate("__clock.step(10)");
+    after = await page.evaluate(`(async () => { ${last3 ? `await __clock.step(${last3}); await __harness.sync();` : ""}
+      if (!window.__game?.observe) return { none: true };
       try { return { state: __game.observe() }; } catch (e) { return { threw: String(e?.message ?? e) }; } })()`);
   } catch (e) {
     return { outcome: "outcome_mismatch", detail: `stepping or observe() failed: ${firstLine(e)}` };
   }
   if (frames)
     stepped.ms += performance.now() - t, stepped.frames += frames;
+  if (after.none)
+    return { outcome: "state_not_realized", detail: NO_GAME_PLAYED };
   if (after.threw !== void 0)
     return { outcome: "outcome_mismatch", detail: `observe() threw: ${after.threw.split(`
 `)[0]}` };
-  let state = after.state, wrong = tests ? verdicts(k.expect, state).filter((v2) => !v2.ok).map((v2) => `${v2.path} ${show(v2.got)}, expected ${v2.want}`) : k.expect.map((p) => failure(p, state)).filter(Boolean);
+  let state = after.state, wrong = tests ? verdicts(k.expect, state).filter((v2) => !v2.ok).map((v2) => `${v2.path} ${show2(v2.got)}, expected ${v2.want}`) : k.expect.map((p) => failure(p, state)).filter(Boolean);
   return wrong.length ? { outcome: "outcome_mismatch", detail: wrong.join("; ") } : { outcome: "passed", detail: "" };
 }
 function frameLine({ ms, frames }, budget, software) {
@@ -50475,35 +50983,55 @@ function frameLine({ ms, frames }, budget, software) {
   return `
 Frames: ${frames} stepped at ${each.toFixed(2)} ms each (budget ${budget} ms)${each <= budget ? "" : software ? `; ${SOFTWARE_NOTE}` : "; over budget (`perf` with optimize: true tries the runtime switches)"}`;
 }
-function check(game, contract, { cwd = game.root, print = "", tests = !1 } = {}) {
+function backendNote(k, game) {
+  let now = drawnOn(game.info);
+  if (!now)
+    return "";
+  if (k.drawn)
+    return k.drawn === now ? "" : ` (saved while the page drew on ${BACKEND[k.drawn]}; it now draws on ${BACKEND[now]}, which the harness or the machine chose, not the game: if only the backend differs, save the check again)`;
+  return now === "webgpu" && game.software && process.platform === "linux" ? " (the page draws on WebGPU here; paprika3d 0.4.2 and earlier drew a WebGPURenderer page on WebGL 2 on a Linux machine with no GPU, so a check saved then that reads the backend fails by the harness's change, not the game's: save it again)" : "";
+}
+function queryLine(failing, page) {
+  let at = [...new Set(failing.map((k) => k.page).filter((p) => !!p && p !== page && !p.includes("?") && page.startsWith(`${p}?`)))];
+  if (!at.length)
+    return [];
+  let n = failing.filter((k) => at.includes(k.page)).length;
+  return [`${n === 1 ? "1 failing check was" : `${n} failing checks were`} saved on ${at.join(", ")} and ran here on ${page}, the open page: if that query changes what the page loads, open ${at.join(", ")} and run test again.`];
+}
+function check(game, contract, { cwd = game.root, print = "", tests = !1, yieldTo, resume, restart = !0 } = {}) {
   return game.queue(async () => {
     let start = Date.now();
-    print ||= fingerprint(cwd);
-    let outcomes = [], launch2 = "", stepped = { ms: 0, frames: 0 }, wait = { on: !0 };
-    for (let k of contract.keypoints) {
-      let base = { id: k.id, title: k.title };
+    if (print ||= fingerprint(cwd), resume?.print !== print)
+      resume = void 0;
+    let outcomes = [...resume?.outcomes ?? []], launch2 = "", stepped = resume?.stepped ?? { ms: 0, frames: 0 }, wait = resume?.wait ?? { on: !0 };
+    for (let k of contract.keypoints.slice(outcomes.length)) {
+      let base = { id: k.id, title: k.title }, edited = !!yieldTo && restart && !launch2 && fingerprint(cwd) !== print;
+      if (!launch2 && (edited || yieldTo?.())) {
+        let paused = { print, outcomes, stepped, wait, ms: (resume?.ms ?? 0) + Date.now() - start, edited };
+        return { passed: 0, failed: 0, outcomes, durationMs: paused.ms, fingerprint: print, text: "", paused };
+      }
       if (!launch2)
         try {
           await game.reload();
         } catch (e) {
-          launch2 = firstLine(e);
+          launch2 = launchLine(e);
         }
       if (launch2) {
         outcomes.push({ ...base, outcome: "launch_failed", detail: launch2 });
         continue;
       }
-      let r = await runKeypoint(game, k, stepped, tests, wait);
+      let r = await runKeypoint(game, k, stepped, tests, wait), picture = join13(game.runDir, `kp-${k.id}.png`);
       if (r.outcome === "passed") {
-        outcomes.push({ ...base, ...r });
+        rmSync6(picture, { force: !0 }), outcomes.push({ ...base, ...r });
         continue;
       }
-      let picture = join13(game.runDir, `kp-${k.id}.png`), saved = await game.page.screenshot({ path: picture }).then(() => !0, () => !1);
-      outcomes.push({ ...base, ...r, ...saved ? { picture } : {} });
+      let saved = await game.page.screenshot({ path: picture }).then(() => !0, () => !1);
+      outcomes.push({ ...base, ...r, detail: r.detail + backendNote(k, game), ...saved ? { picture } : {} });
     }
-    let passed = outcomes.filter((o) => o.outcome === "passed").length, failed = outcomes.length - passed, durationMs = Date.now() - start, setup = (k) => {
+    let passed = outcomes.filter((o) => o.outcome === "passed").length, failed = outcomes.length - passed, durationMs = (resume?.ms ?? 0) + Date.now() - start, setup = (k) => {
       let s = `state ${JSON.stringify(k.state)}; actions ${JSON.stringify(k.actions)}; frames ${k.frames ?? 60}`;
       return s.length > 700 ? `${s.slice(0, 700)}…` : s;
-    }, pageWide = (o) => o.outcome === "launch_failed" || o.detail === NO_GAME, lines = [], grouped = /* @__PURE__ */ new Set;
+    }, pageWide = (o) => o.outcome === "launch_failed" || o.detail === NO_GAME || o.detail === NO_GAME_PLAYED, lines = [], grouped = /* @__PURE__ */ new Set;
     outcomes.forEach((o, i) => {
       if (o.outcome === "passed")
         return;
@@ -50519,20 +51047,26 @@ function check(game, contract, { cwd = game.root, print = "", tests = !1 } = {})
     });
     let why = (o) => `${o.outcome === "outcome_mismatch" ? "" : `${o.outcome}: `}${o.detail}`, text = [
       ...tests ? outcomes.map((o) => o.outcome === "passed" ? `✓ ${o.id}` : `✗ ${o.id}: ${why(o)}`) : lines,
-      `${passed} of ${outcomes.length} ${tests ? "saved checks" : "keypoints"} passed in ${(durationMs / 1000).toFixed(1)} s`
+      `${passed} of ${outcomes.length} ${tests ? "saved checks" : "keypoints"} passed in ${(durationMs / 1000).toFixed(1)} s`,
+      ...tests ? queryLine(contract.keypoints.filter((_3, i) => outcomes[i] && outcomes[i].outcome !== "passed"), pageOf(game.url)) : []
     ].join(`
 `) + frameLine(stepped, Number(contract.budget?.frameMs ?? BUDGETS.desktop.frameMs), game.software);
     return { passed, failed, outcomes, durationMs, fingerprint: print, text };
   });
 }
-var DEFAULT_FRAMES = 60, NO_GAME, STATE_TRIES = 3, sleep3 = (ms) => new Promise((r) => setTimeout(r, ms)), firstLine = (e) => e.message.split(`
-`)[0];
+var DEFAULT_FRAMES = 60, NO_GAME, NO_GAME_PLAYED = "no window.__game.observe after the check's actions and frames", STATE_TRIES = 3, sleep3 = (ms) => new Promise((r) => setTimeout(r, ms)), firstLine = (e) => e.message.split(`
+`)[0], launchLine = (e) => {
+  let [head = "", ...rest] = e.message.split(`
+`), said = rest.map((l) => l.trim()).filter(Boolean).slice(0, 2);
+  return said.length ? `${head}; the page said: ${said.join(" | ").slice(0, 400)}` : head;
+}, BACKEND;
 var init_check = __esm(() => {
   init_contract();
   init_input();
   init_fingerprint();
   init_budgets();
   NO_GAME = `no window.__game.setState and observe ${GAME_LATE}`;
+  BACKEND = { webgpu: "WebGPU", webgl2: "WebGL 2" };
 });
 
 import { isDeepStrictEqual as isDeepStrictEqual2 } from "node:util";
@@ -50602,7 +51136,8 @@ function observe(game) {
     let o = await game.page.evaluate(OBSERVE), now = structuredClone(o);
     delete now.harness.frame;
     let prev = previous.get(game);
-    return previous.set(game, { state: now, errors: game.errors.length }), o.harness.errors = uniq2(game.errors.slice(prev?.errors ?? 0), 10, !0), o.harness.changed = prev ? diffPairs(prev.state, now) : null, cap(o), o;
+    return previous.set(game, { state: now, errors: game.errors.length }), o.harness.errors = uniq2(game.errors.slice(prev?.errors ?? 0).map((e) => e.split(`
+`)[0].slice(0, 300)), 5, !0), o.harness.changed = prev ? diffPairs(prev.state, now) : null, cap(o), o;
   });
 }
 function diffPairs(a2, b2) {
@@ -50699,7 +51234,7 @@ var init_scene = __esm(() => {
   return { ...state, harness: {
     frame: ${FRAME},
     renderer: i ? { calls: h.frameInfo?.calls ?? i.render.drawCalls ?? i.render.calls, triangles: h.frameInfo?.triangles ?? i.render.triangles, textures: i.memory.textures,
-      geometries: i.memory.geometries, programs: i.programs?.length ?? 0 } : null,
+      geometries: i.memory.geometries, programs: h.programs(r) } : null,
     scene,
   } };
 })()`, previous = /* @__PURE__ */ new WeakMap;
@@ -50714,9 +51249,9 @@ function evaluate(game, code, save, cwd = game.root) {
   return game.queue(async () => {
     let before = game.errors.length, logs = printedLines2(game.page), out, stepped, mime = "", r;
     try {
-      let three = /\bTHREE\b/.test(code) && await game.page.evaluate('import("three").then(() => true, () => false)');
       if (!await game.page.evaluate("!!__harness.main()?.[1].screen"))
         await game.page.evaluate(FIRST);
+      let three = /\bTHREE\b/.test(code) && await game.page.evaluate(`${PAGE_THREE}.then(T => !!(__harness.evalThree = T), () => false)`);
       r = await game.page.evaluate(`(() => {
   let stopped = false;
   const stop = new Promise(ok => { window.__harness.stopEval = () => { stopped = true; ok(null); }; });
@@ -50724,7 +51259,7 @@ function evaluate(game, code, save, cwd = game.root) {
   const h = window.__harness, scene = h.mainScene(),
     view = h.views.get(scene), camera = view?.camera, renderer = view?.renderer ?? h.renderers[0], // a renderer before any frame drew (AA-3D colosseum: getPixelRatio of undefined)
     find = n => scene?.getObjectByName(n), stats = (t, o) => h.stats(t, o), c = window.__clock, realNow = c.realNow;
-  ${three ? 'const THREE = await import("three");' : ""}
+  ${three ? "const THREE = h.evalThree;" : ""}
   const from = c.scheduled(), start = realNow();
   let done = false, value, error, stepped = 0;
   const [, self, mark] = /^\\s*at (?:async )?(.*):(\\d+):\\d+$/.exec(String(new Error().stack).split("\\n")[1]) ?? []; // this script's url, and this line: the code starts two lines down
@@ -50743,7 +51278,7 @@ ${code}
     // puppeteer reports a thrown plain object as "Object" and a cyclic one as nothing: show its JSON, or its keys
     if (typeof error === "object" && !(error instanceof Error)) { let j; try { j = JSON.stringify(error); } catch { j = "{" + Object.keys(error).join(", ") + "} (cyclic)"; } throw new Error("threw object: " + j); }
     if (!view && error instanceof TypeError) error.message += " (camera and renderer are undefined: the page drew no three.js frame in 5 s of stepping)";
-    if (error instanceof ReferenceError && /THREE is not defined/.test(error.message)) error.message += " (this page bundles three, so it has no bare \\"three\\" to import: use the constructors of objects in the scene, e.g. new (find(\\"player\\").geometry.constructor)())";
+    if (error instanceof ReferenceError && /THREE is not defined/.test(error.message)) error.message += " (the page has no three the harness can reach: no bare \\"three\\" to import and no three.js scene drawn)";
     // find(name) returns undefined for a name not in the scene, and agents read .parent off it (AA-3D 2026-10-15)
     else if (error instanceof TypeError && /reading '(parent|position|children|material|geometry)'/.test(error.message)) error.message += " (find(name) returns undefined for a name not in the scene; list names with scene.children.map(c => c.name))";
     // where it threw, as an agent opens it: up to three frames in the code's lines or the page's own files (#167: one
@@ -50825,7 +51360,35 @@ var EVAL_CHARS = 2048, HEAD = 1500, FORMAT = `(v) => {
     return x;
   });
   return s ?? String(v);
-}`, SAVE_MAX = 67108864, SAVE, spills = 0, STEP_MAX = 3600, STEP_MS = 120000, INSTEAD = "The code keeps running in the page. To let the game run, use `interact` { steps: [{ wait: N }] } and then `look`; for frame cost use `perf`; to time a piece of code use realNow().", AFTER_STOP = "window.__harness?.stopEval?.(), window.__clock.paused()";
+}`, SAVE_MAX = 67108864, SAVE, spills = 0, PAGE_THREE = `(async () => {
+  const h = window.__harness, scene = h.mainScene(), own = T => T && scene && scene instanceof T.Object3D ? T : null;
+  const bare = await import("three").catch(() => null);
+  if (bare) return bare;
+  if (!scene) return null;
+  const gpu = h.renderers.some(r => r.isWebGPURenderer), re = /\\/(?:three(?:\\.module|\\.webgpu)?(?:\\.min)?|\\.vite\\/deps\\/three(?:_webgpu)?)\\.js(?:\\?|$)/;
+  const urls = performance.getEntriesByType("resource").map(e => e.name).filter(u => re.test(u)).sort((a, b) => gpu ? /webgpu/.test(b) - /webgpu/.test(a) : /webgpu/.test(a) - /webgpu/.test(b));
+  for (const u of urls) { const T = own(await import(u).catch(() => null)); if (T) return T; }
+  const ns = {}, seen = new Set(), done = new Set(), flag = /(?:\\bthis|[\\w$]+\\.prototype)\\.is([A-Z][\\w$]*)\\s*=\\s*(?:true|!0)/, type = /\\bthis\\.type\\s*=\\s*(["'\`])([A-Z]\\w*)\\1/;
+  const name = C => { let src = ""; try { src = Function.prototype.toString.call(C); } catch {} if (!src.startsWith("class")) return null; return flag.exec(src)?.[1] ?? type.exec(src)?.[2] ?? null; };
+  const add = C => { for (; typeof C === "function" && C !== Object && !seen.has(C); C = Object.getPrototypeOf(C)) { seen.add(C); const n = name(C); if (n && !(n in ns)) ns[n] = C; } };
+  const R = window.__threeRuntime?.THREE;
+  if (R?.Vector3 && scene.position instanceof R.Vector3) for (const C of Object.values(R)) add(C);
+  const queue = [...h.scenes, ...h.renderers, ...[...h.views.values()].map(v => v.camera)];
+  for (const s of h.scenes) s.traverse(o => queue.push(o));
+  for (let i = 0; i < queue.length && i < 50000; i++) {
+    const o = queue[i], C = o?.constructor;
+    if (!o || typeof o !== "object" || o instanceof Node || ArrayBuffer.isView(o) || done.has(C)) continue;
+    done.add(C); add(C);
+    for (const k of Object.keys(o)) { const v = Array.isArray(o[k]) ? o[k][0] : o[k]; if (v && typeof v === "object") queue.push(v); }
+  }
+  if (!Object.keys(ns).length) return null;
+  ns.REVISION ??= window.__THREE__;
+  const names = Object.keys(ns).length;
+  return new Proxy(ns, { get(t, k) {
+    if (k in t || typeof k !== "string" || !/^[A-Z]/.test(k)) return t[k];
+    throw new TypeError("THREE." + k + " is not in this page's three: the page bundles three, so THREE holds the " + names + " classes its scene, camera and renderer are made of (Object.keys(THREE)) and no second copy, so instanceof holds. Import " + k + " in the game's source, or build from a class it has");
+  } });
+})()`, STEP_MAX = 3600, STEP_MS = 120000, INSTEAD = "The code keeps running in the page. To let the game run, use `interact` { steps: [{ wait: N }] } and then `look`; for frame cost use `perf`; to time a piece of code use realNow().", AFTER_STOP = "window.__harness?.stopEval?.(), window.__clock.paused()";
 var init_eval = __esm(() => {
   init_browser2();
   init_look();
@@ -50908,13 +51471,13 @@ function measure(snaps, frames, before = null, after = null, during = 0, pre, se
   let moved = [...visible[Math.max(1, during)]].flatMap(([id, o]) => {
     let b2 = visible[0].get(id), d = b2 ? dist(b2.p, o.p) : 0;
     return d > 0.05 ? [{ name: o.name, units: round(d) }] : [];
-  }), particles = [];
+  }), particles = [], instances2 = [];
   for (let [id, rs] of series) {
     if (!rs[0].o.pool)
       continue;
     let start = visible[0].get(id)?.n ?? 0, top2 = rs.reduce((t, r2) => r2.o.n > t.o.n ? r2 : t), end = visible.at(-1).get(id)?.n ?? 0;
     if (top2.o.n !== start || end !== start)
-      particles.push({ name: top2.o.name, start, peak: top2.o.n, at: top2.f, end });
+      (rs[0].o.pool === "particles" ? particles : instances2).push({ name: top2.o.name, start, peak: top2.o.n, at: top2.f, end });
   }
   let ever = /* @__PURE__ */ new Map, peak = 0;
   for (let m of visible.slice(1)) {
@@ -50952,6 +51515,7 @@ function measure(snaps, frames, before = null, after = null, during = 0, pre, se
     flashes: named(flashes),
     moved,
     particles,
+    instances: instances2,
     spawned: { peak, gone: gone2, names: [...new Set([...ever.values()].map((o) => o.name))].slice(0, 5) },
     removed,
     hud,
@@ -50968,6 +51532,7 @@ function measure(snaps, frames, before = null, after = null, during = 0, pre, se
     ...held.length ? [`Colour changes held to the end: ${held.slice(0, 5).map((h) => `${h.name} at frame ${h.frame}, ${h.over ? `blended over ${h.over} frames` : "in one frame"}`).join("; ")}${held.length > 5 ? "; …" : ""}.`] : [],
     ...r.flashes.count ? [`Colour flashes (colour, emissive or a page overlay's opacity changed and came back): ${list(r.flashes)}.`] : [],
     ...particles.length ? [`Particles: ${particles.slice(0, 5).map((p) => `${p.name} ${p.start} → ${p.peak} at frame ${p.at}, ${p.end} left at the end`).join("; ")}.`] : [],
+    ...instances2.length ? [`Instance counts: ${instances2.slice(0, 5).map((p) => `${p.name} ${p.start} → ${p.peak} at frame ${p.at}, ${p.end} at the end`).join("; ")}.`] : [],
     ...ever.size ? [`Spawned: up to ${peak} new objects at once, ${gone2} of ${ever.size} gone by the end (${r.spawned.names.join(", ")}).`] : [],
     ...removed ? [`Removed: ${removed} objects there before the steps are gone.`] : [],
     ...((none) => none.length ? [`No change in: ${none.join(", ")}.`] : [])([
@@ -51005,13 +51570,13 @@ function measure(snaps, frames, before = null, after = null, during = 0, pre, se
 function stateLine(before, after, pre, set = []) {
   if (!after || typeof after !== "object")
     return [];
-  let at = (o, path14) => path14.reduce((x2, k) => x2?.[k], o), show2 = (v2) => typeof v2 === "number" ? String(round(v2)) : JSON.stringify(v2)?.slice(0, 40), changed = (a2, b2) => {
+  let at = (o, path14) => path14.reduce((x2, k) => x2?.[k], o), show3 = (v2) => typeof v2 === "number" ? String(round(v2)) : JSON.stringify(v2)?.slice(0, 40), changed = (a2, b2) => {
     let paths = [], walk = (d, p) => {
       for (let [k, v2] of Object.entries(d))
         v2 && typeof v2 === "object" && !Array.isArray(v2) ? walk(v2, [...p, k]) : paths.push([...p, k]);
     };
     return walk(diff(a2, b2), []), paths;
-  }, text = (a2, b2, paths, n) => `${paths.slice(0, n).map((p) => `${p.join(".")} ${show2(at(a2, p))} → ${show2(at(b2, p))}`).join(", ")}${paths.length > n ? ", …" : ""}`, watched = changed(before, after), lines = [watched.length ? `State: ${text(before, after, watched, 5)}.` : "State unchanged by the steps and watched frames: did the event happen?"], seen = new Set(watched.map((p) => p.join("."))), early = pre == null || !set.length ? [] : changed(pre, before).filter((p) => !seen.has(p.join(".")) && !set.some((s) => at(s, p) !== void 0));
+  }, text = (a2, b2, paths, n) => `${paths.slice(0, n).map((p) => `${p.join(".")} ${show3(at(a2, p))} → ${show3(at(b2, p))}`).join(", ")}${paths.length > n ? ", …" : ""}`, watched = changed(before, after), lines = [watched.length ? `State: ${text(before, after, watched, 5)}.` : "State unchanged by the steps and watched frames: did the event happen?"], seen = new Set(watched.map((p) => p.join("."))), early = pre == null || !set.length ? [] : changed(pre, before).filter((p) => !seen.has(p.join(".")) && !set.some((s) => at(s, p) !== void 0));
   if (early.length)
     lines.push(`State changed during setup (${text(pre, before, early, 3)}): the event may have fired before the watched frames.`);
   return lines;
@@ -51034,11 +51599,11 @@ var init_feel = __esm(() => {
     if (objs.length >= ${CAP}) { capped = true; return; }
     let v = o.visible; for (let a = o.parent; v && a; a = a.parent) v = a.visible;
     const p = o.getWorldPosition(o.position.clone()), s = o.getWorldScale(o.scale.clone()), m = Array.isArray(o.material) ? o.material[0] : o.material;
-    const d = o.geometry.drawRange, n = o.isInstancedMesh ? o.count : o.isPoints ? (d.count === Infinity ? o.geometry.attributes.position?.count ?? 0 : d.count) : 1;
+    const d = o.geometry.drawRange, n = o.isInstancedMesh || o.isSprite ? o.count ?? 1 : o.isPoints ? (d.count === Infinity ? o.geometry.attributes.position?.count ?? 0 : d.count) : 1;
     // an unnamed mesh goes by its nearest named parent: a 12-mesh player read as 12 "Mesh" teleports (natural-1, #92)
     let name = ""; for (let a = o; a && !a.isScene && !name; a = a.parent) name = a.name;
     objs.push({ id: o.uuid, name: name || o.type, p: [r(p.x), r(p.y), r(p.z)], s: [r(s.x), r(s.y), r(s.z)], v,
-      c: (m?.color?.getHexString?.() ?? "") + "/" + (m?.emissive?.getHexString?.() ?? "") + "/" + (m?.emissiveIntensity ?? ""), o: m?.opacity ?? 1, sh: !!m?.isShaderMaterial, n, pool: !!(o.isInstancedMesh || o.isPoints) });
+      c: (m?.color?.getHexString?.() ?? "") + "/" + (m?.emissive?.getHexString?.() ?? "") + "/" + (m?.emissiveIntensity ?? ""), o: m?.opacity ?? 1, sh: !!m?.isShaderMaterial, n, pool: o.isPoints || o.isSprite ? "particles" : o.isInstancedMesh ? "instances" : "" });
   });
   const cam = h.main()?.[1].camera, cp = cam?.getWorldPosition(cam.position.clone()), cd = cam?.getWorldDirection(cam.position.clone()), s0f = window.__game?.subject, s0 = typeof s0f === "function" ? (() => { try { return s0f(); } catch {} })() : s0f;
   const so = s0?.isObject3D ? s0 : typeof s0 === "string" ? h.mainScene()?.getObjectByName(s0) : null, sp = so?.getWorldPosition(so.position.clone());
@@ -52391,11 +52956,14 @@ function passesText(passes) {
   ].join(`
 `);
 }
+function fillText(p) {
+  return `Render targets and canvas: ${p.targetMB} MB on the GPU (${p.msaa ? "MSAA canvas" : "canvas without MSAA"}). Fill: ${p.fillMpx} Mpx a frame over ${p.fillPasses} passes${p.shadowPasses ? ` (${p.shadowPasses} of them shadow maps)` : ""}; a count to compare variants by, not a phone's timing: pixel ratio, MSAA and render-target size cost a phone's GPU in proportion where a desktop GPU's times read as noise.`;
+}
 function costsText(rows, frame) {
   if (!rows?.length)
     return "Costs: the main scene draws no visible object.";
   let sum = (name, l) => l.reduce((s, c) => ({ name, triangles: s.triangles + c.triangles, shadow: s.shadow + c.shadow, calls: s.calls + c.calls, bytes: s.bytes + c.bytes }), { name, triangles: 0, shadow: 0, calls: 0, bytes: 0 }), what = (c) => `${c.triangles} triangles, ${c.shadow} casting shadows, ${c.calls} draw calls, ${round2(c.bytes / 1048576)} MB of textures`, by = [...rows].sort((a2, b2) => b2.triangles - a2.triangles || b2.calls - a2.calls), rest = by.slice(12), all = sum("", rows), differs = [
-    frame && (frame.triangles !== all.triangles || frame.calls !== all.calls) && `the first line's ${frame.triangles} triangles and ${frame.calls} draw calls are the frame as drawn, the camera's view plus the shadow pass`,
+    frame && (frame.triangles !== all.triangles || frame.calls !== all.calls) && `the first line's ${frame.triangles} triangles and ${frame.calls} draw calls are the frame as drawn, the camera's view${[frame.shadows && "the shadow pass", frame.post && "post-processing and render-target passes"].filter(Boolean).map((x2, i) => (i ? " and " : " plus ") + x2).join("")}`,
     frame && round2(frame.textureMB) !== round2(all.bytes / 1048576) && `the ${round2(frame.textureMB)} MB on the GPU adds the background and environment`
   ].filter(Boolean);
   return [
@@ -52626,6 +53194,13 @@ function assetFiles(dir) {
   };
   return walk(dir), out;
 }
+function networkText(n) {
+  let c = conditions(n), rate = (bytes3) => {
+    let k = Math.round(bytes3 * 8 / 1000);
+    return k >= 1000 ? `${round2(k / 1000)} Mbps` : `${k} kbps`;
+  }, nums = `${rate(c.download)} down, ${rate(c.upload)} up, ${round2(c.latency)} ms latency`;
+  return typeof n === "string" ? `${n} (${nums})` : nums;
+}
 async function overlayOf(page, from2, limitMs) {
   let over = async () => (await page.evaluate(FIRST_POLL))?.covers ?? [], what = await over();
   if (!what.length)
@@ -52637,7 +53212,7 @@ async function overlayOf(page, from2, limitMs) {
 }
 function firstFrame(game, network) {
   return game.queue(async () => {
-    let cdp2 = await game.page.createCDPSession(), n = NETWORKS[network], reqs = /* @__PURE__ */ new Map, got = [], t0, first2 = null, now = 0, start = Date.now(), loadMs = game.loadMs, covered = /* @__PURE__ */ new Map;
+    let cdp2 = await game.page.createCDPSession(), n = conditions(network), reqs = /* @__PURE__ */ new Map, got = [], t0, first2 = null, now = 0, start = Date.now(), loadMs = game.loadMs, covered = /* @__PURE__ */ new Map;
     cdp2.on("Network.requestWillBeSent", (e) => {
       if (reqs.set(e.requestId, { url: e.request.url, type: e.type ?? "" }), e.type === "Document")
         t0 ??= e.timestamp;
@@ -52675,14 +53250,14 @@ function firstFrame(game, network) {
       ms: first2,
       scriptMB: round2((kinds.get("scripts") ?? []).reduce((a2, g) => a2 + g.bytes, 0) / 1048576),
       scripts: [...kinds.get("scripts") ?? []].sort((a2, b2) => b2.bytes - a2.bytes).slice(0, 3).map((g) => ({ name: decodeURIComponent(g.url.split(/[?#]/)[0].split("/").pop()), MB: round2(g.bytes / 1048576) })),
-      line: `${head} on ${network}, a first visit with no cache${bytes3.length ? ` (${bytes3.join(", ")})` : ""}${covers.length ? `; ${covers.join("; ")}` : ""}.`
+      line: `${head} on ${networkText(network)}, a first visit with no cache ${game.software ? "on a software renderer (no GPU: its shader compiles and first frame take far longer than a GPU's)" : "on a GPU"}${bytes3.length ? ` (${bytes3.join(", ")})` : ""}${covers.length ? `; ${covers.join("; ")}` : ""}.`
     };
   });
 }
 function lightsText(l, cost) {
   if (!manyLights(l))
     return "";
-  let head = `Lights: ${[l.point && `${l.point} point`, l.spot && `${l.spot} spot`, l.directional && `${l.directional} directional`].filter(Boolean).join(", ")} lights${l.shadows ? `, ${l.shadows} casting shadows (${l.map} maps)` : ""}`;
+  let kinds = [l.point && `${l.point} point`, l.spot && `${l.spot} spot`, l.directional && `${l.directional} directional`].filter(Boolean).join(", "), clustered = l.clustered ? `; ${l.clustered} more point lights are clustered by renderer.lighting (each pixel pays only for those near it), not counted here` : "", head = `Lights: ${kinds} lights${l.shadows ? `, ${l.shadows} casting shadows (${l.map} maps)` : ""}${clustered}`;
   if (!cost)
     return `${head}: every lit material pays for each one; \`perf\` measures what they cost.`;
   if (cost.ms <= cost.noise)
@@ -52749,6 +53324,8 @@ function perf(game, budget, { seconds = 2, warmMs = 1000, state, clock, setup, u
       triangles: info.triangles,
       textureMB: round2(info.textureMB),
       programs: info.programs,
+      shadows: info.shadows,
+      post: info.post,
       longTasks: long,
       gcPauses: all.filter((x2) => x2 > Math.max(3 * median, budget.frameMs)).length,
       heapMB: info.heapMB === null ? null : round2(info.heapMB),
@@ -52759,6 +53336,11 @@ function perf(game, budget, { seconds = 2, warmMs = 1000, state, clock, setup, u
       textureMax,
       ...w2 && { work: { ...w2, paced: tick } },
       pixelRatio: info.pixelRatio,
+      targetMB: round2(info.targetMB),
+      msaa: info.msaa,
+      fillMpx: round2(info.fillMpx),
+      fillPasses: info.fillPasses,
+      shadowPasses: info.shadowPasses,
       ...paced,
       ...timed ? { passes: timed } : {},
       ...first2 && { firstFrame: first2 },
@@ -52787,13 +53369,13 @@ var PASSES = `(async () => {
     };
     scene.traverseVisible(o => {
       if (!(o.isMesh || o.isLine || o.isPoints || o.isSprite)) return;
-      const m = o.material, geo = o.geometry, n = o.isInstancedMesh ? o.count : 1;
+      const m = o.material, geo = o.geometry, n = o.isInstancedMesh || r?.isWebGPURenderer ? o.count ?? 1 : 1;
       const calls = !n ? 0 : Array.isArray(m) ? (geo?.groups ?? []).filter(x => m[x.materialIndex]?.visible).length : m?.visible ? 1 : 0;
       if (!calls) return; // three draws nothing for it
       let name = o.type;
       for (let a = o; a && a !== scene; a = a.parent) if (a.name) { name = a.name; break; }
       const g = groups.get(name) ?? groups.set(name, { name, triangles: 0, shadow: 0, calls: 0, bytes: 0 }).get(name);
-      const tri = o.isSprite ? 2 : o.isMesh && geo?.attributes ? Math.max(0, Math.floor(Math.min(h.tris(geo) * 3 - geo.drawRange.start, geo.drawRange.count) / 3)) * n : 0;
+      const tri = o.isSprite ? 2 * n : o.isMesh && geo?.attributes ? Math.max(0, Math.floor(Math.min(h.tris(geo) * 3 - geo.drawRange.start, geo.drawRange.count) / 3)) * n : 0;
       g.triangles += tri; g.calls += calls;
       if (shadows && o.castShadow) g.shadow += tri;
       for (const x of [m].flat()) if (x) { for (const v of Object.values(x)) add(v, g); for (const u of Object.values(x.uniforms ?? {})) add(u?.value, g); }
@@ -52814,7 +53396,7 @@ var PASSES = `(async () => {
     return behind;
   };
   // each frame's stamp and its work (draw calls and triangles, shader programs), which SETTLED compares
-  const tick = t => { if (p.on) { if (own && late()) h.sync(); p.t.push(t); p.c.push((h.frameInfo?.calls ?? 0) * 1e9 + (h.frameInfo?.triangles ?? 0)); p.g.push(h.renderers[0]?.info.programs?.length ?? 0); requestAnimationFrame(tick); } };
+  const tick = t => { if (p.on) { if (own && late()) h.sync(); p.t.push(t); p.c.push((h.frameInfo?.calls ?? 0) * 1e9 + (h.frameInfo?.triangles ?? 0)); p.g.push(h.programs(h.renderers[0])); requestAnimationFrame(tick); } };
   requestAnimationFrame(tick);
   __clock.timescale(1);
   __clock.resume();
@@ -52833,17 +53415,42 @@ var PASSES = `(async () => {
       dim = Math.max(dim, Math.round(Math.sqrt(w * h))); // a square's side of the same area: a 4096 × 1 lookup table is 64
     }
   };
+  // dev #302: a node material reads its textures through TSL nodes (texture(), a uniform's value), not material.map
+  const nodes = new Set(), node = n => {
+    if (!n?.isNode || nodes.has(n)) return;
+    nodes.add(n); add(n.value);
+    try { for (const c of n.getChildren()) node(c); } catch {}
+  };
   for (const s of __harness.scenes) {
-    add(s.background); add(s.environment);
+    add(s.background); add(s.environment); node(s.backgroundNode); node(s.environmentNode);
     s.traverse(o => {
       for (const m of [o.material].flat()) if (m) {
-        for (const v of Object.values(m)) add(v);
+        for (const v of Object.values(m)) { add(v); node(v); }
         for (const u of Object.values(m.uniforms ?? {})) add(u?.value); // ShaderMaterial / RawShaderMaterial
       }
     });
   }
+  // dev #178: every pass's target pixels and every buffer's bytes, colour and depth per sample plus an MSAA resolve
+  const gl = r?.getContext?.(), attr = gl?.getContextAttributes?.() ?? null, cw = attr ? gl.drawingBufferWidth : 0, ch = attr ? gl.drawingBufferHeight : 0;
+  const cs = attr?.antialias ? gl.getParameter(gl.SAMPLES) || 4 : 1, bpp = t => ({ 1015: 16, 1016: 8 })[t?.type] ?? 4;
+  let target = cw * ch * ((4 + (attr?.depth === false ? 0 : 4)) * cs + (cs > 1 ? 4 : 0)), fill = 0, passes = 0, shadowPasses = 0;
+  const targets = new Set();
+  for (const e of __harness.frame ?? []) if (e.scene) { passes++; fill += e.target ? e.target.width * e.target.height : cw * ch; if (e.target) targets.add(e.target); }
+  if (r?.shadowMap?.enabled) for (const s of __harness.scenes) s.traverse(o => {
+    if (!o.isLight || !o.castShadow || !o.visible || !o.shadow) return;
+    const faces = o.isPointLight ? 6 : 1;
+    shadowPasses += faces; fill += o.shadow.mapSize.x * o.shadow.mapSize.y * faces;
+    if (o.shadow.map) targets.add(o.shadow.map);
+  });
+  for (const t of targets) {
+    const px = t.width * t.height * (t.depth ?? 1) * (t.isWebGLCubeRenderTarget ? 6 : 1), colour = [t.textures ?? t.texture].flat().reduce((n, x) => n + bpp(x), 0), depth = t.depthBuffer ? 4 : 0;
+    target += t.samples ? px * (t.samples * (colour + depth) + colour) : px * (colour + depth);
+  }
   return {
-    calls: __harness.frameInfo?.calls ?? r?.info.render.drawCalls ?? r?.info.render.calls ?? 0, triangles: __harness.frameInfo?.triangles ?? r?.info.render.triangles ?? 0, programs: r?.info.programs?.length ?? 0,
+    targetMB: target / 2 ** 20, msaa: cs > 1, fillMpx: fill / 1e6, fillPasses: passes + shadowPasses, shadowPasses,
+    calls: __harness.frameInfo?.calls ?? r?.info.render.drawCalls ?? r?.info.render.calls ?? 0, triangles: __harness.frameInfo?.triangles ?? r?.info.render.triangles ?? 0, programs: __harness.programs(r),
+    shadows: !!r?.shadowMap?.enabled && !!__harness.mainScene()?.getObjectsByProperty?.("castShadow", true).some(o => o.isLight && o.visible),
+    post: (__harness.frame ?? []).some(e => e.target || e.scene !== __harness.mainScene()),
     pixelRatio: r?.getPixelRatio?.() ?? devicePixelRatio, textureMB: bytes / 2 ** 20, textureDim: dim,
     heapMB: performance.memory ? performance.memory.usedJSHeapSize / 2 ** 20 : null,
   };
@@ -52855,11 +53462,14 @@ var PASSES = `(async () => {
   return { all, cpu, drew }; })()`, pacingBound = (median, workMs) => median > 12 && workMs < median / 2, round2 = (n) => Math.round(n * 100) / 100, pick = (sorted, q2) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q2))] ?? 0, sortNum = (a2) => [...a2].sort((x2, y) => x2 - y), T95, decided = (r, { width, floor }) => (r.hi - r.lo) / 2 / r.ratio * 100 <= width || r.lo > 1 + floor / 100 || r.hi < 1 - floor / 100, RUN_S = 0.25, RUN_WARM_MS = 300, RUNS_FLOOR = 3, RUNS_CAP = 5, CALL_CAP_S = 45, DECIDED_WIDTH = 10, DECIDED_FLOOR = 5, STEP_MS2 = 0.1, SETTLE_FRAMES = 100, SETTLED, NO_FRAMES = `(() => { const c = __clock; return "clock " + (c.paused() ? "paused" : "running") + " at " + Math.round(c.now()) + " ms, "
   + c.scheduled() + " timers and frames ever scheduled, " + __perf.t.length + " stamps, page " + (document.hidden ? "hidden" : "visible")
   + ", " + __harness.renderers.length + " renderers"; })()`, PACE = `(() => { const raf = requestAnimationFrame.bind(window); let last = -1e9; __perf.paced = 0;
-  window.requestAnimationFrame = cb => raf(function f(t) { if (t === last || t - last >= 16.6) { if (t !== last) __perf.paced++; last = t; cb(t); } else raf(f); }); })()`, MIME, side = (w2, h) => Math.round(Math.sqrt(w2 * h)), NETWORKS, FIRST_POLL = `(() => { const h = window.__harness; return h ? { now: Performance.prototype.now.call(performance), first: h.firstFrameAt ?? null,
-  covers: h.covers().filter(c => c.over).map(c => c.what) } : null; })()`, OVERLAY_MS = 5000, overlayText = (o) => !o ? "" : o.cleared ? ` Waited ${(o.ms / 1000).toFixed(1)} s for the loading overlay (${o.what}) to clear before sampling.` : ` Sampled under an overlay: ${o.what} (still up after ${(o.ms / 1000).toFixed(1)} s).`, KINDS2, CDP_KIND, LIGHTS = `(() => {
-  const n = { point: 0, spot: 0, directional: 0, shadows: 0, map: 0 };
+  window.requestAnimationFrame = cb => raf(function f(t) { if (t === last || t - last >= 16.6) { if (t !== last) __perf.paced++; last = t; cb(t); } else raf(f); }); })()`, MIME, side = (w2, h) => Math.round(Math.sqrt(w2 * h)), NETWORKS, conditions = (n) => typeof n === "string" ? NETWORKS[n] : { download: n.downKbps * 1000 / 8, upload: (n.upKbps ?? n.downKbps) * 1000 / 8, latency: n.latencyMs }, FIRST_POLL = `(() => { const h = window.__harness; return h ? { now: Performance.prototype.now.call(performance), first: h.firstFrameAt ?? null,
+  covers: h.covers().filter(c => c.over).map(c => c.what) } : null; })()`, OVERLAY_MS = 15000, overlayText = (o) => !o ? "" : o.cleared ? ` Waited ${(o.ms / 1000).toFixed(1)} s for the loading overlay (${o.what}) to clear before sampling.` : ` Sampled under an overlay: ${o.what} (still up after ${(o.ms / 1000).toFixed(1)} s).`, KINDS2, CDP_KIND, LIGHTS = `(() => {
+  const n = { point: 0, spot: 0, directional: 0, shadows: 0, map: 0, clustered: 0 };
+  const g = (window.__harness.main()?.[1].renderer ?? window.__harness.renderers[0])?.lighting;
+  const clustered = !!g && ["tileSize", "zSlices", "maxLightsPerCluster"].every(k => typeof g[k] === "number");
   window.__harness.mainScene()?.traverseVisible(o => {
     if (!o.isLight || !(o.isPointLight || o.isSpotLight || o.isDirectionalLight || o.isRectAreaLight)) return; // ambient, hemisphere and probes cost next to nothing
+    if (clustered && o.isPointLight && !o.castShadow) { n.clustered++; return; }
     n[o.isPointLight ? "point" : o.isSpotLight || o.isRectAreaLight ? "spot" : "directional"]++;
     if (o.castShadow) { n.shadows++; n.map = Math.max(n.map, o.shadow?.mapSize?.x ?? 0); }
   });
@@ -52944,7 +53554,8 @@ var init_perf = __esm(() => {
   NETWORKS = {
     "3g": { download: 50000, upload: 50000, latency: 2000 },
     "slow-4g": { download: 180000, upload: 84375, latency: 562.5 },
-    "fast-4g": { download: 1012500, upload: 168750, latency: 165 }
+    "fast-4g": { download: 1012500, upload: 168750, latency: 165 },
+    broadband: { download: 2500000, upload: 2500000, latency: 40 }
   };
   KINDS2 = [["scripts", /\.m?js$/], ["models", /\.(glb|gltf|bin|fbx|obj|drc|usd[acz]?)$/], ["textures", /\.(png|jpe?g|webp|avif|gif|ktx2|basis|hdr|exr|dds)$/], ["fonts", /\.(woff2?|ttf|otf)$/]], CDP_KIND = { Script: "scripts", Image: "textures", Font: "fonts" };
 });
@@ -61513,6 +62124,266 @@ var init_meshopt_encoder = __esm(() => {
   }();
 });
 
+var exports_meshopt_simplifier = {};
+__export(exports_meshopt_simplifier, {
+  MeshoptSimplifier: () => MeshoptSimplifier
+});
+var MeshoptSimplifier;
+var init_meshopt_simplifier = __esm(() => {
+  MeshoptSimplifier = function() {
+    var wasm = "b9H79Tebbbe:6eO9Geueu9Geub9Gbb9Gsuuuuuuuuuuuu99uueu9Gvuuuuub9Gruuuuuuub9Gouuuuuue999Gvuuuuueu9Gzuuuuuuuuuuu99uuuub9Gquuuuuuu99uueu9GPuuuuuuuuuuu99uueu9Gquuuuuuuu99ueu9Gruuuuuu99eu9Gwuuuuuu99ueu9Giuuue999Gluuuueu9Gluuuub9GiuuueuiLQdilvorlwDiqkxmPszbHHbelve9Weiiviebeoweuecj:Gdkr:Bdxo9TW9T9VV95dbH9F9F939H79T9F9J9H229F9Jt9VV7bbz9TW79O9V9Wt9F79P9T9W29P9M95bw8E9TW79O9V9Wt9F79P9T9W29P9M959x9Pt9OcttV9P9I91tW7bD8A9TW79O9V9Wt9F79P9T9W29P9M959x9Pt9O9v9W9K9HtWbqQ9TW79O9V9Wt9F79P9T9W29P9M959t29V9W9W95bkX9TW79O9V9Wt9F79P9T9W29P9M959qV919UWbxQ9TW79O9V9Wt9F79P9T9W29P9M959q9V9P9Ut7bmX9TW79O9V9Wt9F79P9T9W29P9M959t9J9H2WbPa9TW79O9V9Wt9F9V9Wt9P9T9P96W9wWVtW94SWt9J9O9sW9T9H9Wbs59TW79O9V9Wt9F9NW9UWV9HtW9q9V79Pt9P9V9U9sW9T9H9Wbzl79IV9RbHDwebcekdCXq;y;WeQdbk;r:herYue99iuY99Xue9:D998Jjjjjbcj;sb9Rgs8Kjjjjbcbhzasc:Cefcbc;Kbz:tjjjb8AdnabaeSmbabaeadcdtzMjjjb8AkdnamcdGTmbalcrfci4cbyd1:H:cjbHjjjjbbhHasc:Cefasyd;8egecdtfaHBdbasaecefBd;8ecbhlcbhednadTmbabheadhOinaHaeydbci4fcb86bbaeclfheaOcufgOmbkcbhlabheadhOinaHaeydbgAci4fgCaCRbbgCceaAcrGgAtV86bbaCcu7aA4ceGalfhlaeclfheaOcufgOmbkcualcdtalcFFFFi0Ehekaecbyd1:H:cjbHjjjjbbhzasc:Cefasyd;8egecdtfazBdbasaecefBd;8ealcd4alfhOcehHinaHgecethHaeaO6mbkcbhXcuaecdtgOaecFFFFi0Ecbyd1:H:cjbHjjjjbbhHasc:Cefasyd;8egAcdtfaHBdbasaAcefBd;8eaHcFeaOz:tjjjbhQdnadTmbaecufhLcbhKindndnaQabaKcdtfgYydbgAc:v;t;h;Ev2aLGgOcdtfgCydbgHcuSmbceheinazaHcdtfydbaASmdaOaefhHaecefheaQaHaLGgOcdtfgCydbgHcu9hmbkkazaXcdtfaABdbaCaXBdbaXhHaXcefhXkaYaHBdbaKcefgKad9hmbkkaQcbyd:m:H:cjbH:bjjjbbasasyd;8ecufBd;8ekcbh8AcualcefgecdtaecFFFFi0Ecbyd1:H:cjbHjjjjbbhLasc:Cefasyd;8egecdtfaLBdbasaLBdNeasaecefBd;8ecuadcitadcFFFFe0Ecbyd1:H:cjbHjjjjbbhEasc:Cefasyd;8egecdtfaEBdbasaEBd:yeasaecefBd;8eascNefabadalcbz:cjjjbcualcdtgealcFFFFi0Eg3cbyd1:H:cjbHjjjjbbhOasc:Cefasyd;8egHcdtfaOBdbasaHcefBd;8ea3cbyd1:H:cjbHjjjjbbhQasc:Cefasyd;8egHcdtfaQBdbasaHcefBd;8eaOaQaialavazasc:Cefz:djjjbalcbyd1:H:cjbHjjjjbbhYasc:Cefasyd;8egHcdtfaYBdbasaHcefBd;8ea3cbyd1:H:cjbHjjjjbbhHasc:Cefasyd;8egAcdtfaHBdbasaAcefBd;8ea3cbyd1:H:cjbHjjjjbbhAasc:Cefasyd;8egCcdtfaABdbasaCcefBd;8eaHcFeaez:tjjjbh5aAcFeaez:tjjjbh8EdnalTmbindnaLa8AgAcefg8AcdtfydbgCaLaAcdtgefydbgHSmbaCaH9Rh8FaEaHcitfhaa8Eaefhha5aefhKcbhCindndnaaaCcitfydbgXaA9hmbaKaABdbahaABdbxekdnaLaXcdtggfgeclfydbgHaeydbgeSmbaHae9RhHaEaecitfheinaeydbaASmdaecwfheaHcufgHmbkka8EagfgeaAaXaeydbcuSEBdbaKaXaAaKydbcuSEBdbkaCcefgCa8F9hmbkka8Aal9hmbkaOhHaQhAa5hXa8EhCcbheindndnaeaHydbgK9hmbdnaeaAydbgK9hmbaXydbhKdnaCydbg8Fcu9hmbaKcu9hmbaYaefcb86bbxikdna8FcuSmbaKcuSmbaea8FSmbaOa8FcdtfydbaOaKcdtfydb9hmbaYaefcd86bbxikaYaefhadnaea8FSmbaeaKSmbaace86bbxikaacl86bbxdkdnaeaQaKcdtg8Ffydb9hmbdnaCydbgacuSmbaeaaSmbaXydbggcuSmbaeagSmba8Ea8FfydbghcuSmbahaKSmba5a8Ffydbg8FcuSmba8FaKSmbdnaOaacdtfydbgKaOa8Fcdtfydb9hmbaKaOagcdtfydbg8FSmba8FaOahcdtfydb9hmbaYaefcd86bbxlkaYaefcl86bbxikaYaefcl86bbxdkaYaefcl86bbxekaYaefaYaKfRbb86bbkaHclfhHaAclfhAaXclfhXaCclfhCalaecefge9hmbkdnamcaGTmbcbh8JindndnaYa8Jfg8KRbbg8Lc9:fPibebekdndndnaOa8Jcdtfydbgea8J9hmbdnaqmbcbh8FxdkdnazTmbcbh8Fa8JheinaqazaecdtgefydbfRbbce4a8FVceGh8FaQaefydbgea8J9hmbxikkcbh8Fa8JheinaqaefRbbce4a8FVceGh8FaQaecdtfydbgea8J9hmbxdkkaYaefRbbhexeka8JheindnaLaecdtg8AfgeclfydbgHaeydbgeSmbaHae9RhgaEaecitfhhaOa8AfhacbhKinahaKcitfydbgXhednindnaLaecdtgCfgeclfydbgHaeydbgeSmbaHae9RhHaEaecitfheaaydbhAdninaOaeydbcdtfydbaASmeaecwfheaHcufgHTmdxbkkcbhexdkaQaCfydbgeaX9hmbkceheka8FaeVh8FaKcefgKag9hmbkkaQa8Afydbgea8J9hmbka8Lcia8FceGEheka8Kae86bbka8Jcefg8Jal9hmbkkdnaqTmbdndnazTmbazheaOhHalhAindnaqaeydbfRbbceGTmbaYaHydbfcl86bbkaeclfheaHclfhHaAcufgAmbxdkkaqheaOhHalhAindnaeRbbceGTmbaYaHydbfcl86bbkaecefheaHclfhHaAcufgAmbkkaOhealhAaYhHindnaYaeydbfRbbcl9hmbaHcl86bbkaeclfheaHcefhHaAcufgAmbkkamceGTmbaYhealhHindnaeRbbce9hmbaecl86bbkaecefheaHcufgHmbkkcbh8Mcualcx2alc;v:Q;v:Qe0Ecbyd1:H:cjbHjjjjbbh8Nasc:Cefasyd;8egecdtfa8NBdbasaecefBd;8eascbBd:qeas9cb83i1ea8Naialavazasc1efz:ejjjbhydndnaDmbcbh8PcbhCxekcbhCawhecbhHindnaeIdbJbbbb9ETmbasaCcdtfaHBdbaCcefhCkaeclfheaDaHcefgH9hmbkcuaCal2gecdtaecFFFFi0Ecbyd1:H:cjbHjjjjbbh8Pasc:Cefasyd;8egecdtfa8PBdbasaecefBd;8ealTmbdnaCmbcbhCxekarcd4hgdnazTmbaCcdthhcbh8Fa8Phainaoaza8Fcdtfydbag2cdtfhKasheaahHaChAinaHaKaeydbcdtgXfIdbawaXfIdbNUdbaeclfheaHclfhHaAcufgAmbkaaahfhaa8Fcefg8Fal9hmbxdkkaCcdthhcbh8Fa8Phainaoa8Fag2cdtfhKasheaahHaChAinaHaKaeydbcdtgXfIdbawaXfIdbNUdbaeclfheaHclfhHaAcufgAmbkaaahfhaa8Fcefg8Fal9hmbkkcualc8S2gHalc;D;O;f8U0EgXcbyd1:H:cjbHjjjjbbheasc:Cefasyd;8egAcdtfaeBdbasaAcefBd;8eaecbaHz:tjjjbhIcbh8RcbhgdnaCTmbcbh8MaXcbyd1:H:cjbHjjjjbbhgasc:Cefasyd;8egecdtfagBdbasaecefBd;8eagcbaHz:tjjjb8AcuaCal2gecltgHaecFFFFb0Ecbyd1:H:cjbHjjjjbbh8Rasc:Cefasyd;8egecdtfa8RBdbasaecefBd;8ea8RcbaHz:tjjjb8AamcjjjjdGTmbcualcltgealcFFFFb0Ecbyd1:H:cjbHjjjjbbh8Masc:Cefasyd;8egHcdtfa8MBdbasaHcefBd;8ea8Mcbaez:tjjjb8AkdnadTmbcbhKabhHina8NaHclfydbg8Fcx2fgeIdba8NaHydbgacx2fgAIdbg8S:tgRa8NaHcwfydbghcx2fgXIdlaAIdlg8U:tg8VNaeIdla8U:tg8WaXIdba8S:tg8XN:tg8Ya8YNa8WaXIdwaAIdwg8Z:tg80NaeIdwa8Z:tg8Wa8VN:tg81a81Na8Wa8XNaRa80N:tg80a80NMMg8V:rhBa8Yh8Xa80h8Wa81hRdna8VJbbbb9EgATmba8YaB:vh8Xa80aB:vh8Wa81aB:vhRkaIaOaacdtfydbgXc8S2fgeaRaB:rg8VaRNNg83aeIdbMUdbaea8Wa8Va8WNgUNg85aeIdlMUdlaea8Xa8Va8XNg86Ng87aeIdwMUdwaeaRaUNgUaeIdxMUdxaea86aRNg88aeIdzMUdzaea8Wa86Ng89aeIdCMUdCaeaRa8Va8Xa8ZNaRa8SNa8Ua8WNMM:mg8:Ng86NgRaeIdKMUdKaea8Wa86Ng8WaeId3MUd3aea8Xa86Ng8XaeIdaMUdaaea86a8:Ng86aeId8KMUd8Kaea8VaeIdyMUdyaIaOa8Fcdtfydbg8Fc8S2fgea83aeIdbMUdbaea85aeIdlMUdlaea87aeIdwMUdwaeaUaeIdxMUdxaea88aeIdzMUdzaea89aeIdCMUdCaeaRaeIdKMUdKaea8WaeId3MUd3aea8XaeIdaMUdaaea86aeId8KMUd8Kaea8VaeIdyMUdyaIaOahcdtfydbgac8S2fgea83aeIdbMUdbaea85aeIdlMUdlaea87aeIdwMUdwaeaUaeIdxMUdxaea88aeIdzMUdzaea89aeIdCMUdCaeaRaeIdKMUdKaea8WaeId3MUd3aea8XaeIdaMUdaaea86aeId8KMUd8Kaea8VaeIdyMUdydna8MTmbdnaATmba8YaB:vh8Ya80aB:vh80a81aB:vh81ka8MaXcltfgeaBJbbbZNgRa80Ng8VaeIdlMUdlaeaRa8YNg8WaeIdwMUdwaeaRa81Ng8XaeIdbMUdbaeaRa8S:ma81Na8Ua80N:ta8Za8YN:tNgRaeIdxMUdxa8Ma8Fcltfgea8VaeIdlMUdlaea8WaeIdwMUdwaea8XaeIdbMUdbaeaRaeIdxMUdxa8Maacltfgea8VaeIdlMUdlaea8WaeIdwMUdwaea8XaeIdbMUdbaeaRaeIdxMUdxkaHcxfhHaKcifgKad6mbkkdnalTmbJq;x8J88J;n;m;m89J:v:;;w8ZamczGEamc;abGEh80cbhHaOhXazhKaIhea8NhAindnaHaXydb9hmbaHh8FdnazTmbaKydbh8Fka80hRdnaqTmbJbbjZa80aqa8FfRbbclGEhRkaecxfg8Fa8FIdbJbbbbMUdbaeczfg8Fa8FIdbJbbbbMUdbaecCfg8Fa8FIdbJbbbbMUdbaeaRaecyfg8FIdbg8YNgRaeIdbMUdbaeclfgaaRaaIdbMUdbaecwfgaaRaaIdbMUdbaecKfgaaaIdbaAIdbg8WaRN:tUdbaAcwfIdbh8Vaec3fgaaaIdbaRaAclfIdbg8XN:tUdbaecafgaaaIdbaRa8VN:tUdbaec8KfgaIdbh81a8Fa8YaRMUdbaaa81aRa8Va8VNa8Wa8WNa8Xa8XNMMNMUdbkaXclfhXaKclfhKaec8SfheaAcxfhAalaHcefgH9hmbkkdnadTmbcbh8Aabhainaba8Acdtfh8FcbhHinaYa8FaHc:G:G:cjbfydbcdtfydbgAfRbbhedndnaYaaaHfydbgXfRbbgKc99fcFeGcpe0mbaec99fcFeGc;:e6mekdnaKcufcFeGce0mba5aXcdtfydbaA9hmekdnaecufcFeGce0mba8EaAcdtfydbaX9hmekJbbacJbbacJbbbZaecFeGceSEaKcFeGceSEhUdna8Na8FaHc:K:G:cjbfydbcdtfydbcx2fgeIdwa8NaXcx2fgKIdwg86:tg8Sa8NaAcx2fghIdwa86:tg8Xa8XNahIdbaKIdbg8U:tg80a80NahIdlaKIdlg8Z:tg8Va8VNMMg81Na8Xa8Sa8XNaeIdba8U:tg83a80Na8VaeIdla8Z:tg85NMMg8WN:tg8Ya8YNa83a81Na80a8WN:tgRaRNa85a81Na8Va8WN:tg8Wa8WNMMgBJbbbb9ETmba8YaB:rgB:vh8Ya8WaB:vh8WaRaB:vhRkaUa81:rNgBa8Ya86NaRa8UNa8Za8WNMM:mg81Ng87a81Nh88a80a85Na8Va83N:tg81a81Na8Va8SNa8Xa85N:tg8Va8VNa8Xa83Na80a8SN:tg8Xa8XNMMg83:rh80a8Ya87Nh85a8Wa87Nh89aRa87Nh87a8WaBa8YNg8SNh8:a8SaRNhZaRaBa8WNgnNhca8Ya8SNh8Ya8WanNh8WaRaBaRNNh8Sdna83Jbbbb9ETmba81a80:vh81a8Xa80:vh8Xa8Va80:vh8VkaIaOaXcdtfydbc8S2fgeaeIdba8Sa8VaUa80:rNgRa8VNNMg80MUdbaea8Wa8XaRa8XNg8SNMg83aeIdlMUdlaea8Ya81aRa81Ng8WNMg8YaeIdwMUdwaeaca8Va8SNMg8SaeIdxMUdxaeaZa8Wa8VNMgUaeIdzMUdzaea8:a8Xa8WNMg8WaeIdCMUdCaea87a8VaRa81a86Na8Va8UNa8Za8XNMMg86:mNgRNMg8VaeIdKMUdKaea89a8XaRNMg8XaeId3MUd3aea85a81aRNMg81aeIdaMUdaaea88a86aRN:tgRaeId8KMUd8KaeaBaeIdyMUdyaIaOaAcdtfydbc8S2fgea80aeIdbMUdbaea83aeIdlMUdlaea8YaeIdwMUdwaea8SaeIdxMUdxaeaUaeIdzMUdzaea8WaeIdCMUdCaea8VaeIdKMUdKaea8XaeId3MUd3aea81aeIdaMUdaaeaRaeId8KMUd8KaeaBaeIdyMUdykaHclfgHcx9hmbkaacxfhaa8Acifg8Aad6mbkaCTmbcbhainJbbbbh80a8Nabaacdtfgeclfydbg8Fcx2fgHIdwa8Naeydbghcx2fgAIdwg8Z:tg8Va8VNaHIdbaAIdbg83:tg8Wa8WNaHIdlaAIdlg85:tg8Xa8XNMMg8Sa8Naecwfydbg8Acx2fgeIdwa8Z:tg8YNa8Va8YNa8WaeIdba83:tg81Na8XaeIdla85:tgBNMMgRa8VN:tJbbbbJbbjZa8Sa8Ya8YNa81a81NaBaBNMMg8UNaRaRN:tg86:va86Jbbbb9BEg86Nh88a8Ua8VNaRa8YN:ta86Nh89a8SaBNaRa8XN:ta86Nh8:a8Ua8XNaRaBN:ta86NhZa8Sa81NaRa8WN:ta86Nhna8Ua8WNaRa81N:ta86Nhca8WaBNa8Xa81N:tgRaRNa8Xa8YNa8VaBN:tgRaRNa8Va81Na8Wa8YN:tgRaRNMM:rJbbbZNhRa8PahaC2g8JcdtfhHa8Pa8AaC2gDcdtfhAa8Pa8FaC2g8KcdtfhXa8Z:mh9ca85:mhJa83:mh9eascjdfheaChKJbbbbhBJbbbbh86Jbbbbh8SJbbbbh8UJbbbbh8ZJbbbbh83Jbbbbh85Jbbbbh87JbbbbhUinaecwfaRa89aXIdbaHIdbg8Y:tg8XNa88aAIdba8Y:tg81NMg8VNUdbaeclfaRaZa8XNa8:a81NMg8WNUdbaeaRaca8XNana81NMg8XNUdbaecxfaRa9ca8VNaJa8WNa8Ya9ea8XNMMMg8YNUdbaRa8Va8WNNa8ZMh8ZaRa8Va8XNNa8UMh8UaRa8Wa8XNNa8SMh8SaRa8Ya8YNNaUMhUaRa8Va8YNNa87Mh87aRa8Wa8YNNa85Mh85aRa8Xa8YNNa83Mh83aRa8Va8VNNa86Mh86aRa8Wa8WNNaBMhBaRa8Xa8XNNa80Mh80aHclfhHaXclfhXaAclfhAaeczfheaKcufgKmbkagahc8S2fgea80aeIdbMUdbaeaBaeIdlMUdlaea86aeIdwMUdwaea8SaeIdxMUdxaea8UaeIdzMUdzaea8ZaeIdCMUdCaea83aeIdKMUdKaea85aeId3MUd3aea87aeIdaMUdaaeaUaeId8KMUd8KaeaRaeIdyMUdyaga8Fc8S2fgea80aeIdbMUdbaeaBaeIdlMUdlaea86aeIdwMUdwaea8SaeIdxMUdxaea8UaeIdzMUdzaea8ZaeIdCMUdCaea83aeIdKMUdKaea85aeId3MUd3aea87aeIdaMUdaaeaUaeId8KMUd8KaeaRaeIdyMUdyaga8Ac8S2fgea80aeIdbMUdbaeaBaeIdlMUdlaea86aeIdwMUdwaea8SaeIdxMUdxaea8UaeIdzMUdzaea8ZaeIdCMUdCaea83aeIdKMUdKaea85aeId3MUd3aea87aeIdaMUdaaeaUaeId8KMUd8KaeaRaeIdyMUdya8Ra8Jcltfh8FcbhHaChXina8FaHfgeascjdfaHfgAIdbaeIdbMUdbaeclfgKaAclfIdbaKIdbMUdbaecwfgKaAcwfIdbaKIdbMUdbaecxfgeaAcxfIdbaeIdbMUdbaHczfhHaXcufgXmbka8Ra8Kcltfh8FcbhHaChXina8FaHfgeascjdfaHfgAIdbaeIdbMUdbaeclfgKaAclfIdbaKIdbMUdbaecwfgKaAcwfIdbaKIdbMUdbaecxfgeaAcxfIdbaeIdbMUdbaHczfhHaXcufgXmbka8RaDcltfh8FcbhHaChXina8FaHfgeascjdfaHfgAIdbaeIdbMUdbaeclfgKaAclfIdbaKIdbMUdbaecwfgKaAcwfIdbaKIdbMUdbaecxfgeaAcxfIdbaeIdbMUdbaHczfhHaXcufgXmbkaacifgaad6mbkkcbhAdndnamcwGgTmbJbbbbh8ScbhScbh9hcbh9ixekcbhSa3cbyd1:H:cjbHjjjjbbh9iasc:Cefasyd;8egecdtfa9iBdbasaecefBd;8ecua9ialabadaOz:fjjjbgXcltaXcjjjjiGEcbyd1:H:cjbHjjjjbbh9hasc:Cefasyd;8egecdtfa9hBdbasaecefBd;8ea9haXa9ia8Nalz:gjjjbJFFuuh8SaXTmba9hheaXhHinaeIdbgRa8Sa8SaR9EEh8SaeclfheaHcufgHmbkaXhSkdnalTmbaLclfheaLydbhXaYhHalhKcbhAincbaeydbg8FaX9RaHRbbcpeGEaAfhAaHcefhHaeclfhea8FhXaKcufgKmbkaAce4hAkcuadaA9Rcifg6cx2a6c;v:Q;v:Qe0Ecbyd1:H:cjbHjjjjbbh9kasc:Cefasyd;8egecdtfa9kBdbasaecefBd;8ecua6cdta6cFFFFi0Ecbyd1:H:cjbHjjjjbbh0asc:Cefasyd;8egecdtfa0BdbasaecefBd;8ea3cbyd1:H:cjbHjjjjbbh9masc:Cefasyd;8egecdtfa9mBdbasaecefBd;8ealcbyd1:H:cjbHjjjjbbh9nasc:Cefasyd;8egecdtfa9nBdbasaecefBd;8eaxaxNayJbbjZamclGEgZaZN:vh87JbbbbhUdnadak9nmbdna6ci6mbaCclth9oa9kcwfh9pJbbbbh85JbbbbhUinascNefabadalaOz:cjjjbabh8Acbh9qcbh9rinaba9rcdtfhDcbheindnaOa8AaefydbgAcdtghfydbgXaOaDaec:W:G:cjbfydbcdtfydbgHcdtg8JfydbgKSmbaYaHfRbbgacv2aYaAfRbbg8FfRb;a:G:cjbg8La8Fcv2aafg8KRb;a:G:cjbg3VcFeGTmbdnaKaX9nmba8KRb;G:G:cjbcFeGmekdna8FcufcFeGce0mbaaTmba5ahfydbaH9hmekdna8FTmbaacufcFeGce0mba8Ea8JfydbaA9hmeka9ka9qcx2fgXaHaAa3cFeGgKEBdlaXaAaHaKEBdbaXaKa8LGcb9hBdwa9qcefh9qkaeclfgecx9hmbkdna9rcifg9rad9pmba8Acxfh8Aa9qcifa69nmekka9qTmdcbh8KinaIaOa9ka8Kcx2fghydbgKcdtgXfydbg8Ac8S2fgeIdwa8Nahydlg8Fcx2fgHIdwg8WNaeIdzaHIdbg8XNaeIdaMgRaRMMa8WNaeIdlaHIdlg8YNaeIdCa8WNaeId3MgRaRMMa8YNaeIdba8XNaeIdxa8YNaeIdKMgRaRMMa8XNaeId8KMMM:lhRJbbbbJbbjZaeIdyg8V:va8VJbbbb9BEh8VdndnahydwgDmbJFFuuh86xekJbbbbJbbjZaIaOa8Fcdtfydbc8S2fgeIdyg81:va81Jbbbb9BEaeIdwa8NaKcx2fgHIdwg81NaeIdzaHIdbg80NaeIdaMgBaBMMa81NaeIdlaHIdlgBNaeIdCa81NaeId3Mg81a81MMaBNaeIdba80NaeIdxaBNaeIdKMg81a81MMa80NaeId8KMMM:lNh86ka8VaRNhBdnaCTmbagaKc8S2fgAIdwa8WNaAIdza8XNaAIdaMgRaRMMa8WNaAIdla8YNaAIdCa8WNaAId3MgRaRMMa8YNaAIdba8XNaAIdxa8YNaAIdKMgRaRMMa8XNaAId8KMMMhRa8Pa8FaC2gacdtfhHa8RaKaC2g8JcltfheaAIdyh81aChAinaHIdbg8Va8Va81NaecxfIdba8WaecwfIdbNa8XaeIdbNa8YaeclfIdbNMMMg8Va8VM:tNaRMhRaHclfhHaeczfheaAcufgAmbkdndnaDmbJbbbbh8Vxekaga8Fc8S2fgAIdwa8NaKcx2fgeIdwg8XNaAIdzaeIdbg8YNaAIdaMg8Va8VMMa8XNaAIdlaeIdlg81NaAIdCa8XNaAId3Mg8Va8VMMa81NaAIdba8YNaAIdxa81NaAIdKMg8Va8VMMa8YNaAId8KMMMh8Va8Pa8JcdtfhHa8RaacltfheaAIdyh80aChAinaHIdbg8Wa8Wa80NaecxfIdba8XaecwfIdbNa8YaeIdbNa81aeclfIdbNMMMg8Wa8WM:tNa8VMh8VaHclfhHaeczfheaAcufgAmbka8V:lh8VkaBaR:lMhBa86a8VMh86dndndnaYaKfRbbc9:fPddbekaQaXfydbgXaKSmbaOa8Fcdtfydbh8Jindndna5aXcdtgafydbgecuSmbaOaecdtfydba8JSmekdna8EaafydbgecuSmbaOaecdtfydba8JSmeka8FhekagaXc8S2fgAIdwa8Naecx2fgHIdwg8WNaAIdzaHIdbg8XNaAIdaMgRaRMMa8WNaAIdlaHIdlg8YNaAIdCa8WNaAId3MgRaRMMa8YNaAIdba8XNaAIdxa8YNaAIdKMgRaRMMa8XNaAId8KMMMhRa8PaeaC2cdtfhHa8RaXaC2cltfheaAIdyh81aChAinaHIdbg8Va8Va81NaecxfIdba8WaecwfIdbNa8XaeIdbNa8YaeclfIdbNMMMg8Va8VM:tNaRMhRaHclfhHaeczfheaAcufgAmbkaBaR:lMhBaQaafydbgXaK9hmbkkaYa8FfRbbci9hmeaDTmeaQa8FcdtfydbgXa8FSmeindndna5aXcdtgafydbgecuSmbaOaecdtfydba8ASmekdna8EaafydbgecuSmbaOaecdtfydba8ASmekaKhekagaXc8S2fgAIdwa8Naecx2fgHIdwg8WNaAIdzaHIdbg8XNaAIdaMgRaRMMa8WNaAIdlaHIdlg8YNaAIdCa8WNaAId3MgRaRMMa8YNaAIdba8XNaAIdxa8YNaAIdKMgRaRMMa8XNaAId8KMMMhRa8PaeaC2cdtfhHa8RaXaC2cltfheaAIdyh81aChAinaHIdbg8Va8Va81NaecxfIdba8WaecwfIdbNa8XaeIdbNa8YaeclfIdbNMMMg8Va8VM:tNaRMhRaHclfhHaeczfheaAcufgAmbka86aR:lMh86aQaafydbgXa8F9hmbxdkkdna8Ea5a5aXfydba8FSEaQaXfydbgacdtfydbgXcu9hmbaQa8FcdtfydbhXkagaac8S2fgAIdwa8NaXcx2fgeIdwg8WNaAIdzaeIdbg8XNaAIdaMgRaRMMa8WNaAIdlaeIdlg8YNaAIdCa8WNaAId3MgRaRMMa8YNaAIdba8XNaAIdxa8YNaAIdKMgRaRMMa8XNaAId8KMMMhRa8PaXaC2g8AcdtfhHa8RaaaC2g8JcltfheaAIdyh81aChAinaHIdbg8Va8Va81NaecxfIdba8WaecwfIdbNa8XaeIdbNa8YaeclfIdbNMMMg8Va8VM:tNaRMhRaHclfhHaeczfheaAcufgAmbkdndnaDmbJbbbbh8VxekagaXc8S2fgAIdwa8Naacx2fgeIdwg8XNaAIdzaeIdbg8YNaAIdaMg8Va8VMMa8XNaAIdlaeIdlg81NaAIdCa8XNaAId3Mg8Va8VMMa81NaAIdba8YNaAIdxa81NaAIdKMg8Va8VMMa8YNaAId8KMMMh8Va8Pa8JcdtfhHa8Ra8AcltfheaAIdyh80aChAinaHIdbg8Wa8Wa80NaecxfIdba8XaecwfIdbNa8YaeIdbNa81aeclfIdbNMMMg8Wa8WM:tNa8VMh8VaHclfhHaeczfheaAcufgAmbka8V:lh8VkaBaR:lMhBa86a8VMh86kaha86aBa86aB9DgeEUdwahaKa8FaeaDcb9hGgeEBdlaha8FaKaeEBdba8Kcefg8Ka9q9hmbkascjdfcbcj;qbz:tjjjb8Aa9phea9qhHinascjdfaeydbcA4cF8FGgAcFAaAcFA6EcdtfgAaAydbcefBdbaecxfheaHcufgHmbkcbhecbhHinascjdfaefgAydbhXaAaHBdbaXaHfhHaeclfgecj;qb9hmbkcbhea9phHinascjdfaHydbcA4cF8FGgAcFAaAcFA6EcdtfgAaAydbgAcefBdba0aAcdtfaeBdbaHcxfhHa9qaecefge9hmbkadak9RgAci9Uh9sdnalTmbcbhea9mhHinaHaeBdbaHclfhHalaecefge9hmbkkcbh9ta9ncbalz:tjjjbh3aAcO9Uh9ua9sce4h9rcbh8Lcbh8Kdnina9ka0a8Kcdtfydbcx2fg8JIdwgRa879Emea8La9s9pmeJFFuuh8Vdna9ra9q9pmba9ka0a9rcdtfydbcx2fIdwJbb;aZNh8VkdnaRa8V9ETmbaRaU9ETmba8La9u0mdkdna3aOa8JydlgDcdtg9vfg8AydbgAfg9wRbba3aOa8Jydbghcdtg9xfydbgefg9yRbbVmbaYahfRbbh9zdndnaLaecdtfgHclfydbgXaHydbgHSmbaXaH9RhXa8NaAcx2fh8Fa8Naecx2fhaaEaHcitfheindna9maeydbcdtfydbgHaASmba9maeclfydbcdtfydbgKaASmbaHaKSmba8NaKcx2fgKIdba8NaHcx2fgHIdbg8W:tgRaaIdlaHIdlg8X:tg80NaKIdla8X:tg8VaaIdba8W:tgBN:tg8YaRa8FIdla8X:tg86Na8Va8FIdba8W:tg8UN:tg8XNa8VaaIdwaHIdwg81:tg8ZNaKIdwa81:tg8Wa80N:tg80a8Va8FIdwa81:tg83Na8Wa86N:tg8VNa8WaBNaRa8ZN:tg81a8Wa8UNaRa83N:tgRNMMa8Ya8YNa80a80Na81a81NMMa8Xa8XNa8Va8VNaRaRNMMN:rJbbj8:N9FmikaecwfheaXcufgXmbkkdndndndna9zc9:fPdebdkahheina8AydbhAdndna5aecdtgHfydbgecuSmbaOaecdtfydbaASmekdna8EaHfydbgecuSmbaOaecdtfydbaASmekaDheka9maHfaeBdbaQaHfydbgeah9hmbxikkdna8Ea5a5a9xfydbaDSEaQa9xfydbghcdtfydbgecu9hmbaQa9vfydbheka9ma9xfaDBdbaehDka9mahcdtfaDBdbka9yce86bba9wce86bba8JIdwgRaUaUaR9DEhUa9tcefh9tcecda9zceSEa8Lfh8Lxeka9rcefh9rka8Kcefg8Ka9q9hmbkka9tTmddnalTmbcbh8Fcbhhindna9mahcdtgefydbgAahSmbaOaAcdtfydbh8AdnahaOaefydb9hg8JmbaIa8Ac8S2fgeaIahc8S2fgHIdbaeIdbMUdbaeaHIdlaeIdlMUdlaeaHIdwaeIdwMUdwaeaHIdxaeIdxMUdxaeaHIdzaeIdzMUdzaeaHIdCaeIdCMUdCaeaHIdKaeIdKMUdKaeaHId3aeId3MUd3aeaHIdaaeIdaMUdaaeaHId8KaeId8KMUd8KaeaHIdyaeIdyMUdya8MTmba8Ma8Acltfgea8MahcltfgHIdbaeIdbMUdbaeaHIdlaeIdlMUdlaeaHIdwaeIdwMUdwaeaHIdxaeIdxMUdxkaCTmbagaAc8S2fgeagahc8S2gDfgHIdbaeIdbMUdbaeaHIdlaeIdlMUdlaeaHIdwaeIdwMUdwaeaHIdxaeIdxMUdxaeaHIdzaeIdzMUdzaeaHIdCaeIdCMUdCaeaHIdKaeIdKMUdKaeaHId3aeId3MUd3aeaHIdaaeIdaMUdaaeaHId8KaeId8KMUd8KaeaHIdyaeIdyMUdya9oaA2haa8RhHaChXinaHaafgeaHa8FfgAIdbaeIdbMUdbaeclfgKaAclfIdbaKIdbMUdbaecwfgKaAcwfIdbaKIdbMUdbaecxfgeaAcxfIdbaeIdbMUdbaHczfhHaXcufgXmbka8JmbJbbbbJbbjZaIaDfgeIdygR:vaRJbbbb9BEaeIdwa8Na8Acx2fgHIdwgRNaeIdzaHIdbg8VNaeIdaMg8Wa8WMMaRNaeIdlaHIdlg8WNaeIdCaRNaeId3MgRaRMMa8WNaeIdba8VNaeIdxa8WNaeIdKMgRaRMMa8VNaeId8KMMM:lNgRa85a85aR9DEh85ka8Fa9ofh8Fahcefghal9hmbkcbhHa5heindnaeydbgAcuSmbdnaHa9maAcdtgXfydbgA9hmbcuhAa5aXfydbgXcuSmba9maXcdtfydbhAkaeaABdbkaeclfhealaHcefgH9hmbkcbhHa8EheindnaeydbgAcuSmbdnaHa9maAcdtgXfydbgA9hmbcuhAa8EaXfydbgXcuSmba9maXcdtfydbhAkaeaABdbkaeclfhealaHcefgH9hmbkka85aUaCEh85cbhHabhecbhAindnaOa9maeydbcdtfydbg8FcdtfydbgXaOa9maeclfydbcdtfydbgacdtfydbgKSmbaXaOa9maecwfydbcdtfydbg8AcdtfydbghSmbaKahSmbabaHcdtfgXa8FBdbaXcwfa8ABdbaXclfaaBdbaHcifhHkaecxfheaAcifgAad6mbkdndnaTmbaHhdxekdnaHak0mbaHhdxekdna8Sa859FmbaHhdxekJFFuuh8ScbhdabhecbhAindna9ha9iaeydbgXcdtfydbcdtfIdbgRa859ETmbaeclf8Pdbh9AabadcdtfgKaXBdbaKclfa9A83dbaRa8Sa8SaR9EEh8SadcifhdkaecxfheaAcifgAaH6mbkkadak0mbxdkkascNefabadalaOz:cjjjbkdndnadak0mbadhaxekdnaTmbadhaxekdna8Sa879FmbadhaxekcehKina8SJbb;aZNgRa87aRa879DEh8WJbbbbhRdnaSTmba9hheaShHinaeIdbg8VaRa8Va8W9FEaRa8VaR9EEhRaeclfheaHcufgHmbkkJFFuuh8ScbhaabhecbhHindna9ha9iaeydbgAcdtfydbcdtfIdbg8Va8W9ETmbaeclf8Pdbh9AabaacdtfgXaABdbaXclfa9A83dba8Va8Sa8Sa8V9EEh8SaacifhakaecxfheaHcifgHad6mbkdnaKaaad9hVceGmbadhaxdkaRaUaUaR9DEhUaaak9nmecbhKaahda8Sa879FmbkkdnamcjjjjdGTmba9ncbalz:tjjjbh8AdnaaTmbabheaahHina8AaeydbgAfce86bba8AaOaAcdtfydbfce86bbaeclfheaHcufgHmbkkascNefabaaalaOz:cjjjbdndnalTmbcbhXindna8AaXfRbbTmbdnaYaXfRbbgecl0mbceaetcQGmekdnaOaXcdtg8FfydbgeaXSmba8NaXcx2fgHa8Naecx2fgeydwBdwaHae8Pdb83dbxekaIaXc8S2fgKIdygcacJL:3;rUNgRMh87aKIdwg9BaRMh8SaKIdlg9CaRMh8UaKIdbg9DaRMh81aKIdag9EaRa8NaXcx2fg8JIdwg88N:th8ZaKId3g9FaRa8JIdlg89N:th83aKIdKg9Ga8JIdbg8:aRN:th80JbbbbhnaKIdCg9HJbbbbMh85aKIdzg9IJbbbbMhBaKIdxg9JJbbbbMh86dndnaCTmbaXhAinJbbbba87agaAc8S2fgHIdygR:vaRJbbbb9BEhRa8RaAaC2cltfheaHIdaa87Na8ZMh8ZaHId3a87Na83Mh83aHIdKa87Na80Mh80aHIdCa87Na85Mh85aHIdza87NaBMhBaHIdxa87Na86Mh86aHIdwa87Na8SMh8SaHIdla87Na8UMh8UaHIdba87Na81Mh81aChHina8ZaecwfIdbg8VaecxfIdbg8YNaRN:th8Za83aeclfIdbg8Wa8YNaRN:th83a85a8Wa8VNaRN:th85a81aeIdbg8Xa8XNaRN:th81a80a8Xa8YNaRN:th80aBa8Xa8VNaRN:thBa86a8Xa8WNaRN:th86a8Sa8Va8VNaRN:th8Sa8Ua8Wa8WNaRN:th8UaeczfheaHcufgHmbkaQaAcdtfydbgAaX9hmbka8MTmba8MaXcltfgeIdxhxaeIdwh9caeIdlhJaeIdbhRxekJbbbbhxJbbbbh9cJbbbbhJJbbbbhRkaBa81:vg8Wa80Na8Z:ta85aBa86a81:vg8VN:tg8Za8Ua86a8VN:tg8Y:vg8Xa8Va80Na83:tg8UN:th83a9caRa8WN:taJaRa8VN:tg86a8XN:tg85a8SaBa8WN:ta8Za8XN:tgB:vg8S:mh8Za86a8Y:vg9c:mhJdnJbbbbaRaRa81:vg9eN:ta86a9cN:ta85a8SN:tg86:la87J:983:g81NgR9ETmba8Za83NaJa8UNa9ea80Nax:tMMa86:vhnka81:laR9ETmba8Y:laR9ETmbaB:laR9ETmba9e:manNa8W:ma8ZanNa83aB:vMgBNa8V:maJanNa8X:maBNa8Ua8Y:vMMg85Na80:ma81:vMMMh87aLa8FfgeclfydbgHaeydbge9RhhaEaecitfh8FJbbbbhRdnaHaeSgDmbJbbbbhRa8FheahhAina8Naeclfydbcx2fgHIdwa88:tg8Va8VNaHIdba8::tg8Va8VNaHIdla89:tg8Va8VNMMg8Va8Naeydbcx2fgHIdwa88:tg8Wa8WNaHIdba8::tg8Wa8WNaHIdla89:tg8Wa8WNMMg8WaRaRa8W9DEgRaRa8V9DEhRaecwfheaAcufgAmbkaR:rgRaRNhRkaBa88:tg8Va8VNa87a8::tg8Va8VNa85a89:tg8Va8VNMMaR9EmbaKId8KhndnaDmbina8Na8Fclfydbcx2fgeIdba8Na8Fydbcx2fgHIdbg8W:tgRa89aHIdlg8X:tg80NaeIdla8X:tg8Va8:a8W:tg86N:tg8YaRa85a8X:tg8SNa8Va87a8W:tg8UN:tg8XNa8Va88aHIdwg81:tg8ZNaeIdwa81:tg8Wa80N:tg80a8VaBa81:tg83Na8Wa8SN:tg8VNa8Wa86NaRa8ZN:tg81a8Wa8UNaRa83N:tgRNMMa8Ya8YNa80a80Na81a81NMMa8Xa8XNa8Va8VNaRaRNMMN:rJbbj8:N9Fmda8Fcwfh8FahcufghmbkkJbbbbJbbjZac:vacJbbbb9BEgRa9BaBNa9Ia87Na9EMg8Va8VMMaBNa9Ca85Na9HaBNa9FMg8Va8VMMa85Na9Da87Na9Ja85Na9GMg8Va8VMMa87NanMMM:lNaRa9Ba88Na9Ia8:Na9EMg8Va8VMMa88Na9Ca89Na9Ha88Na9FMg8Va8VMMa89Na9Da8:Na9Ja89Na9GMg8Va8VMMa8:NanMMM:lNJbb;aZNJ:983:g81M9Emba8JaBUdwa8Ja85Udla8Ja87UdbkaXcefgXal9hmbkdnaCmbcbhCxdkcbhXindna8AaXfRbbTmbaOaXcdtgefydbaX9hmbaYaXfhhaQaefh8Ja8NaXcx2fhAa8PaXaC2cdtfhDcbhEincuhLdnahRbbci9hmbaXhLa8JydbgeaXSmba8PaEcdtgHfhKaDaHfIdbhRaXhLinaLhHcuhLdnaKaeaC2cdtfIdbaR9CmbaHcuSmbaHhLagaec8S2fIdyagaHc8S2fIdy9ETmbaehLkaQaecdtfydbgeaX9hmbkka8PaEcdtfhKa8RaEcltfh8FaXheinaKaeaC2cdtfJbbbbJbbjZagaeaLaLcuSEgHc8S2fIdygR:vaRJbbbb9BEa8FaHaC2cltfgHIdwaAIdwNaHIdbaAIdbNaHIdlaAIdlNMMaHIdxMNUdbaQaecdtfydbgeaX9hmbkaEcefgEaC9hmbkkaXcefgXal9hmbxdkkaCmbcbhCkaiavaoarawaCala8Na8Pazasayasc1efaYa8Aaqz:hjjjbkdnamcjjjjlGTmbazmbaaTmbabhecbhLinaYaeydbgAfRbbc3thQaecwfgXydbhHcjjjj94hCdna5aAcdtgEfydbaeclfgKydbgOSmbcjjjj94cba8EaOcdtfydbaASEhCkaeaQaCVaAVBdbaYaOfRbbc3th8Fcjjjj94hCcjjjj94hQdna5aOcdtfydbaHSmbcjjjj94cba8EaHcdtfydbaOSEhQkaKa8FaQVaOVBdbaYaHfRbbc3thOdna5aHcdtfydbaASmbcjjjj94cba8EaEfydbaHSEhCkaXaOaCVaHVBdbaecxfheaLcifgLaa6mbkkdnazTmbaaTmbaaheinabazabydbcdtfydbBdbabclfhbaecufgembkkdnaPTmbaPaZaU:rNUdbkdnasyd;8egHTmbaHcdtasc:Ceffc98fheinaeydbcbyd:m:H:cjbH:bjjjbbaec98fheaHcufgHmbkkascj;sbf8Kjjjjbaak;Yieouabydlhvabydbclfcbaicdtz:tjjjbhoadci9UhrdnadTmbdnalTmbaehwadhDinaoalawydbcdtfydbcdtfgqaqydbcefBdbawclfhwaDcufgDmbxdkkaehwadhDinaoawydbcdtfgqaqydbcefBdbawclfhwaDcufgDmbkkdnaiTmbcbhDaohwinawydbhqawaDBdbawclfhwaqaDfhDaicufgimbkkdnadci6mbinaecwfydbhwaeclfydbhDaeydbhidnalTmbalawcdtfydbhwalaDcdtfydbhDalaicdtfydbhikavaoaicdtfgqydbcitfaDBdbavaqydbcitfawBdlaqaqydbcefBdbavaoaDcdtfgqydbcitfawBdbavaqydbcitfaiBdlaqaqydbcefBdbavaoawcdtfgwydbcitfaiBdbavawydbcitfaDBdlawawydbcefBdbaecxfhearcufgrmbkkabydbcbBdbk:todDue99aicd4aifhrcehwinawgDcethwaDar6mbkcuaDcdtgraDcFFFFi0Ecbyd1:H:cjbHjjjjbbhwaoaoyd9GgqcefBd9GaoaqcdtfawBdbawcFearz:tjjjbhkdnaiTmbalcd4hlaDcufhxcbhminamhDdnavTmbavamcdtfydbhDkcbadaDal2cdtfgDydlgwawcjjjj94SEgwcH4aw7c:F:b:DD2cbaDydbgwawcjjjj94SEgwcH4aw7c;D;O:B8J27cbaDydwgDaDcjjjj94SEgDcH4aD7c:3F;N8N27axGhwamcdthPdndndnavTmbakawcdtfgrydbgDcuSmeadavaPfydbal2cdtfgsIdbhzcehqinaqhrdnadavaDcdtfydbal2cdtfgqIdbaz9CmbaqIdlasIdl9CmbaqIdwasIdw9BmlkarcefhqakawarfaxGgwcdtfgrydbgDcu9hmbxdkkakawcdtfgrydbgDcuSmbadamal2cdtfgsIdbhzcehqinaqhrdnadaDal2cdtfgqIdbaz9CmbaqIdlasIdl9CmbaqIdwasIdw9BmikarcefhqakawarfaxGgwcdtfgrydbgDcu9hmbkkaramBdbamhDkabaPfaDBdbamcefgmai9hmbkkakcbyd:m:H:cjbH:bjjjbbaoaoyd9GcufBd9GdnaeTmbaiTmbcbhDaehwinawaDBdbawclfhwaiaDcefgD9hmbkcbhDaehwindnaDabydbgrSmbawaearcdtfgrydbBdbaraDBdbkabclfhbawclfhwaiaDcefgD9hmbkkk;:odvuv998Jjjjjbca9Rgocbyd1:G:cjbBdKaocb8Pdj:G:cjb83izaocbydN:G:cjbBdwaocb8Pd:m:G:cjb83ibdnadTmbaicd4hrdnabmbdnalTmbcbhwinaealawcdtfydbar2cdtfhDcbhiinaoczfaifgqaDaifIdbgkaqIdbgxaxak9EEUdbaoaifgqakaqIdbgxaxak9DEUdbaiclfgicx9hmbkawcefgwad9hmbxikkarcdthwcbhDincbhiinaoczfaifgqaeaifIdbgkaqIdbgxaxak9EEUdbaoaifgqakaqIdbgxaxak9DEUdbaiclfgicx9hmbkaeawfheaDcefgDad9hmbxdkkdnalTmbcbhwinabawcx2fgiaealawcdtfydbar2cdtfgDIdbUdbaiaDIdlUdlaiaDIdwUdwcbhiinaoczfaifgqaDaifIdbgkaqIdbgxaxak9EEUdbaoaifgqakaqIdbgxaxak9DEUdbaiclfgicx9hmbkawcefgwad9hmbxdkkarcdthlcbhwaehDinabawcx2fgiaeawar2cdtfgqIdbUdbaiaqIdlUdlaiaqIdwUdwcbhiinaoczfaifgqaDaifIdbgkaqIdbgxaxak9EEUdbaoaifgqakaqIdbgxaxak9DEUdbaiclfgicx9hmbkaDalfhDawcefgwad9hmbkkJbbbbaoIdbaoIdzgx:tgkakJbbbb9DEgkaoIdlaoIdCgm:tgPaPak9DEgkaoIdwaoIdKgP:tgsasak9DEhsdnabTmbadTmbJbbbbJbbjZas:vasJbbbb9BEhkinabakabIdbax:tNUdbabclfgoakaoIdbam:tNUdbabcwfgoakaoIdbaP:tNUdbabcxfhbadcufgdmbkkdnavTmbavaPUdwavamUdlavaxUdbkask:WlewudnaeTmbcbhvabhoinaoavBdbaoclfhoaeavcefgv9hmbkkdnaiTmbcbhrinadarcdtfhwcbhDinalawaDcdtgvyd:G:G:cjbcdtfydbcdtfydbhodnalawavfydbcdtfydbgqabaqcdtfgkydbgvSmbinakabavgqcdtfgxydbgvBdbaxhkaqav9hmbkkdnaoabaocdtfgkydbgvSmbinakabavgocdtfgxydbgvBdbaxhkaoav9hmbkkdnaqaoSmbabaqaoaqao0Ecdtfaqaoaqao6EBdbkaDcefgDci9hmbkarcifgrai6mbkkdnaembcbskcbhxindnalaxcdtgvfydbax9hmbaxhodnaxabavfgDydbgvSmbaDhqinaqabavgocdtfgkydbgvBdbakhqaoav9hmbkkaDaoBdbkaxcefgxae9hmbkcbhkabhvcbhoindndnaoalydbgq9hmbdnaoavydbgq9hmbavakBdbakcefhkxdkavabaqcdtfydbBdbxekavabaqcdtfydbBdbkalclfhlavclfhvaeaocefgo9hmbkakk;jiilud99euabcbaecltz:tjjjbhvdnalTmbadhoaihralhwinarcwfIdbhDarclfIdbhqavaoydbcltfgkarIdbakIdbMUdbakaqakIdlMUdlakaDakIdwMUdwakakIdxJbbjZMUdxaoclfhoarcxfhrawcufgwmbkkdnaeTmbavhkaehrinakcxfgoIdbhDaocbBdbakakIdbJbbbbJbbjZaD:vaDJbbbb9BEgDNUdbakclfgoaDaoIdbNUdbakcwfgoaDaoIdbNUdbakczfhkarcufgrmbkkdnalTmbinavadydbcltfgkaicwfIdbakIdw:tgDaDNaiIdbakIdb:tgDaDNaiclfIdbakIdl:tgDaDNMMgDakIdxgqaqaD9DEUdxadclfhdaicxfhialcufglmbkkdnaeTmbavcxfhkinabakIdbUdbakczfhkabclfhbaecufgembkkk:moerudnaoTmbaecd4hzdnavTmbaicd4hHavcdthOcbhAindnaPaAfRbbTmbaAhednaDTmbaDaAcdtfydbhekdnasTmbasaefRbbceGmekdnamaAfRbbclSmbabaeaz2cdtfgiaraAcx2fgCIdbakNaxIdbMUdbaiaCIdlakNaxIdlMUdlaiaCIdwakNaxIdwMUdwkadaeaH2cdtfhXaqheawhiavhCinaXaeydbcdtgQfaiIdbalaQfIdb:vUdbaeclfheaiclfhiaCcufgCmbkkawaOfhwaAcefgAao9hmbxdkkdnasmbcbheaDhiindnaPaefRbbTmbaehCdnaDTmbaiydbhCkamaefRbbclSmbabaCaz2cdtfgCarIdbakNaxIdbMUdbaCarclfIdbakNaxIdlMUdlaCarcwfIdbakNaxIdwMUdwkaiclfhiarcxfhraoaecefge9hmbxdkkdnaDTmbindnaPRbbTmbasaDydbgefRbbceGmbamRbbclSmbabaeaz2cdtfgearIdbakNaxIdbMUdbaearclfIdbakNaxIdlMUdlaearcwfIdbakNaxIdwMUdwkaPcefhPaDclfhDamcefhmarcxfhraocufgombxdkkazcdthicbheindnaPaefRbbTmbasaefRbbceGmbamaefRbbclSmbabarIdbakNaxIdbMUdbabclfarclfIdbakNaxIdlMUdbabcwfarcwfIdbakNaxIdwMUdbkarcxfhrabaifhbaoaecefge9hmbkkk8MbabaeadaialavcbcbcbcbcbaoarawaDz:bjjjbk8MbabaeadaialavaoarawaDaqakaxamaPz:bjjjbkRbababaeadaialavaoarawaDaqakaxcjjjjdVamz:bjjjbk:g8Koque99due99duq998Jjjjjbc;Wb9Rgq8Kjjjjbcbhkaqcxfcbc;Kbz:tjjjb8Aaqcualcx2alc;v:Q;v:Qe0Ecbyd1:H:cjbHjjjjbbgxBdxaqceBd2axaialavcbcbz:ejjjb8AaqcualcdtalcFFFFi0Egmcbyd1:H:cjbHjjjjbbgiBdzaqcdBd2dndnJFF959eJbbjZawJbbjZawJbbjZ9DE:vawJ9VO:d869DEgw:lJbbb9p9DTmbaw:OhPxekcjjjj94hPkadci9Uhsarco9UhzdndnaombaPcd9imekdnalTmbaPcuf:YhwdnaoTmbcbhvaihHaxhOindndnaoavfRbbceGTmbavcjjjjlVhAxekdndnaOclfIdbawNJbbbZMgC:lJbbb9p9DTmbaC:OhAxekcjjjj94hAkaAcqthAdndnaOcwfIdbawNJbbbZMgC:lJbbb9p9DTmbaC:OhXxekcjjjj94hXkaAaXVhAdndnaOIdbawNJbbbZMgC:lJbbb9p9DTmbaC:OhXxekcjjjj94hXkaAaXcCtVhAkaHaABdbaHclfhHaOcxfhOalavcefgv9hmbxdkkaxhvaihOalhHindndnavIdbawNJbbbZMgC:lJbbb9p9DTmbaC:OhAxekcjjjj94hAkaAcCthAdndnavclfIdbawNJbbbZMgC:lJbbb9p9DTmbaC:OhXxekcjjjj94hXkaXcqtaAVhAdndnavcwfIdbawNJbbbZMgC:lJbbb9p9DTmbaC:OhXxekcjjjj94hXkaOaAaXVBdbavcxfhvaOclfhOaHcufgHmbkkadTmbcbhkaehvcbhOinakaiavclfydbcdtfydbgHaiavcwfydbcdtfydbgA9haiavydbcdtfydbgXaH9haXaA9hGGfhkavcxfhvaOcifgOad6mbkkarci9UhQdndnaz:Z:rJbbbZMgw:lJbbb9p9DTmbaw:Ohvxekcjjjj94hvkaQ:ZhLcbhKc:bwhzdninakaQ9pmeazaP9Rcd9imeavazcufgOavaO9iEaPcefavaP9kEhYdnalTmbaYcuf:YhwdnaoTmbcbhOaihHaxhvindndnaoaOfRbbceGTmbaOcjjjjlVhAxekdndnavclfIdbawNJbbbZMgC:lJbbb9p9DTmbaC:OhAxekcjjjj94hAkaAcqthAdndnavcwfIdbawNJbbbZMgC:lJbbb9p9DTmbaC:OhXxekcjjjj94hXkaAaXVhAdndnavIdbawNJbbbZMgC:lJbbb9p9DTmbaC:OhXxekcjjjj94hXkaAaXcCtVhAkaHaABdbaHclfhHavcxfhvalaOcefgO9hmbxdkkaxhvaihOalhHindndnavIdbawNJbbbZMgC:lJbbb9p9DTmbaC:OhAxekcjjjj94hAkaAcCthAdndnavclfIdbawNJbbbZMgC:lJbbb9p9DTmbaC:OhXxekcjjjj94hXkaXcqtaAVhAdndnavcwfIdbawNJbbbZMgC:lJbbb9p9DTmbaC:OhXxekcjjjj94hXkaOaAaXVBdbavcxfhvaOclfhOaHcufgHmbkkcbhOdnadTmbaehvcbhHinaOaiavclfydbcdtfydbgAaiavcwfydbcdtfydbgX9haiavydbcdtfydbgraA9haraX9hGGfhOavcxfhvaHcifgHad6mbkkdnas:ZgCaL:taY:Ygwaz:Y:tg8ANak:ZgEaO:Zg3:tNaEaL:tawaP:Y:tg5Na3aC:tNMg8EJbbbb9BmbaCaE:ta5a8Aa3aL:tNNNa8E:vawMhwkdndnaOaQ0mbaOhkaYhPxekaOhsaYhzkdndnaKcl0mbdnawJbbbZMgw:lJbbb9p9DTmbaw:Ohvxdkcjjjj94hvxekaPazfcd9ThvkaKcefgKcs9hmbkkdndndnakmbJbbjZhwcbhOcdhvaDmexdkalcd4alfhHcehOinaOgvcethOavaH6mbkcbhOaqcuavcdtgYavcFFFFi0Ecbyd1:H:cjbHjjjjbbgKBdCaqciBd2aqamcbyd1:H:cjbHjjjjbbgzBdKaqclBd2dndndndnalTmbaPcuf:YhwaoTmecbhOaihAaxhHindndnaoaOfRbbceGTmbaOcjjjjlVhXxekdndnaHclfIdbawNJbbbZMgC:lJbbb9p9DTmbaC:OhXxekcjjjj94hXkaXcqthXdndnaHcwfIdbawNJbbbZMgC:lJbbb9p9DTmbaC:Ohrxekcjjjj94hrkaXarVhXdndnaHIdbawNJbbbZMgC:lJbbb9p9DTmbaC:Ohrxekcjjjj94hrkaXarcCtVhXkaAaXBdbaAclfhAaHcxfhHalaOcefgO9hmbxikkaKcFeaYz:tjjjb8AcbhPcbhvxdkaxhOaihHalhAindndnaOIdbawNJbbbZMgC:lJbbb9p9DTmbaC:OhXxekcjjjj94hXkaXcCthXdndnaOclfIdbawNJbbbZMgC:lJbbb9p9DTmbaC:Ohrxekcjjjj94hrkarcqtaXVhXdndnaOcwfIdbawNJbbbZMgC:lJbbb9p9DTmbaC:Ohrxekcjjjj94hrkaHaXarVBdbaOcxfhOaHclfhHaAcufgAmbkkaKcFeaYz:tjjjbhravcufhocbhPcbhYindndndnaraiaYcdtgKfydbgAcm4aA7c:v;t;h;Ev2gvcs4av7aoGgHcdtfgXydbgOcuSmbcehvinaiaOcdtgOfydbaASmdaHavfhOavcefhvaraOaoGgHcdtfgXydbgOcu9hmbkkaXaYBdbaPhvaPcefhPxekazaOfydbhvkazaKfavBdbaYcefgYal9hmbkcuaPc8S2gOaPc;D;O;f8U0EhvkcbhXaqavcbyd1:H:cjbHjjjjbbgvBd3aqcvBd2avcbaOz:tjjjbhOdnadTmbaehiinaxaiclfydbgrcx2fgvIdbaxaiydbgocx2fgHIdbg3:tgCaxaicwfydbgYcx2fgAIdlaHIdlg8A:tgwNavIdla8A:tgEaAIdba3:tg8EN:tgLaLNaEaAIdwaHIdwg5:tg8FNavIdwa5:tgEawN:tgwawNaEa8ENaCa8FN:tgCaCNMMg8E:rhEJbbnnJbbjZazaocdtfydbgvazarcdtfydbgASavazaYcdtfydbgrSGgHEh8Fdna8EJbbbb9ETmbaLaE:vhLaCaE:vhCawaE:vhwkaOavc8S2fgvavIdbawa8FaE:rNgEawNNg8FMUdbavaCaEaCNgaNghavIdlMUdlavaLaEaLNg8ENggavIdwMUdwavawaaNgaavIdxMUdxava8EawNg8JavIdzMUdzavaCa8ENg8EavIdCMUdCavawaEaLa5Nawa3Na8AaCNMM:mg8ANg3NgwavIdKMUdKavaCa3NgCavId3MUd3avaLa3NgLavIdaMUdaava3a8ANg3avId8KMUd8KavaEavIdyMUdydnaHmbaOaAc8S2fgva8FavIdbMUdbavahavIdlMUdlavagavIdwMUdwavaaavIdxMUdxava8JavIdzMUdzava8EavIdCMUdCavawavIdKMUdKavaCavId3MUd3avaLavIdaMUdaava3avId8KMUd8KavaEavIdyMUdyaOarc8S2fgva8FavIdbMUdbavahavIdlMUdlavagavIdwMUdwavaaavIdxMUdxava8JavIdzMUdzava8EavIdCMUdCavawavIdKMUdKavaCavId3MUd3avaLavIdaMUdaava3avId8KMUd8KavaEavIdyMUdykaicxfhiaXcifgXad6mbkkcbhAaqcuaPcdtgvaPcFFFFi0Egicbyd1:H:cjbHjjjjbbgHBdaaqcoBd2aqaicbyd1:H:cjbHjjjjbbgiBd8KaqcrBd2aHcFeavz:tjjjbhYdnalTmbazhHinJbbbbJbbjZaOaHydbgXc8S2fgvIdygw:vawJbbbb9BEavIdwaxcwfIdbgwNavIdzaxIdbgCNavIdaMgLaLMMawNavIdlaxclfIdbgLNavIdCawNavId3MgwawMMaLNavIdbaCNavIdxaLNavIdKMgwawMMaCNavId8KMMM:lNhwdndnaYaXcdtgvfgXydbcuSmbaiavfIdbaw9ETmekaXaABdbaiavfawUdbkaHclfhHaxcxfhxalaAcefgA9hmbkkdndnaPmbJbbbbhwxekJbbbbhwinaiIdbgCawawaC9DEhwaiclfhiaPcufgPmbkaw:rhwkakcd4akfhOcehiinaigvcethiavaO6mbkcbhOaqcuavcdtgiavcFFFFi0Ecbyd1:H:cjbHjjjjbbgHBdyaHcFeaiz:tjjjbhXdnadTmbavcufhrcbhPcbhxindnazaeaxcdtfgvydbcdtfydbgiazavclfydbcdtfydbgOSmbaiazavcwfydbcdtfydbgvSmbaOavSmbaYavcdtfydbhAdndnaYaOcdtfydbgvaYaicdtfydbgi9pmbavaA9pmbaAhlaihoavhAxekdnaAai9pmbaAav9pmbaihlavhoxekavhlaAhoaihAkabaPcx2fgvaABdbavcwfaoBdbavclfalBdbdnaXaoc:3F;N8N2alc:F:b:DD27aAc;D;O:B8J27arGgOcdtfgvydbgicuSmbcehHinaHhvdnabaicx2fgiydbaA9hmbaiydlal9hmbaiydwaoSmikavcefhHaXaOavfarGgOcdtfgvydbgicu9hmbkkavaPBdbaPcefhPkaxcifgxad6mbkaPci2hOkcwhvaDTmekaDawUdbkavcdthvaqcxfc98fhiinaiavfydbcbyd:m:H:cjbH:bjjjbbavc98fgvmbkaqc;Wbf8KjjjjbaOk:3ldrue9:8Jjjjjbc;Wb9Rgr8Kjjjjbcbhwarcxfcbc;Kbz:tjjjb8AdnabaeSmbabaeadcdtzMjjjb8AkarcualcdtalcFFFFi0EgDcbyd1:H:cjbHjjjjbbgqBdxarceBd2aqcbaialavcbarcxfz:djjjbcualcx2alc;v:Q;v:Qe0Ecbyd1:H:cjbHjjjjbbhkarcxfaryd2gxcdtfakBdbaraxcefgmBd2akaialavcbcbz:ejjjb8AarcxfamcdtfaDcbyd1:H:cjbHjjjjbbgiBdbaraxcdfgvBd2arcxfavcdtfcuaialaeadaqz:fjjjbgecltaecjjjjiGEcbyd1:H:cjbHjjjjbbgqBdbaqaeaiakalz:gjjjbaxcifhkdnadTmbaoaoNhocbhwabhlcbheindnaqaialydbgvcdtfydbcdtfIdbao9ETmbalclf8PdbhPabawcdtfgDavBdbaDclfaP83dbawcifhwkalcxfhlaecifgead6mbkkdnakTmbaxcdtarcxffcwfhlinalydbcbyd:m:H:cjbH:bjjjbbalc98fhlakcufgkmbkkarc;Wbf8Kjjjjbawk:WCoDud99vue99vuv998Jjjjjbc;Wb9Rgw8KjjjjbdndnarmbcbhDxekawcxfcbc;Kbz:tjjjb8Aawcuadcx2adc;v:Q;v:Qe0Ecbyd1:H:cjbHjjjjbbgqBdxawceBd2aqaeadaicbcbz:ejjjb8AawcuadcdtadcFFFFi0Egkcbyd1:H:cjbHjjjjbbgxBdzawcdBd2adcd4adfhmceheinaegicetheaiam6mbkcbhPawcuaicdtgsaicFFFFi0Ecbyd1:H:cjbHjjjjbbgzBdCawciBd2dndnar:ZgH:rJbbbZMgO:lJbbb9p9DTmbaO:Ohexekcjjjj94hekaicufhAc:bwhCcbhXadhQcbhLinaeaCcufgiaeai9iEaPcefaeaP9kEhDdndnadTmbaDcuf:YhOaqhiaxheadhmindndnaiIdbaONJbbbZMgK:lJbbb9p9DTmbaK:OhYxekcjjjj94hYkaYcCthYdndnaiclfIdbaONJbbbZMgK:lJbbb9p9DTmbaK:Oh8Axekcjjjj94h8Aka8AcqtaYVhYdndnaicwfIdbaONJbbbZMgK:lJbbb9p9DTmbaK:Oh8Axekcjjjj94h8AkaeaYa8AVBdbaicxfhiaeclfheamcufgmmbkazcFeasz:tjjjbhEcbh3cbh5indnaEaxa5cdtfydbgYcm4aY7c:v;t;h;Ev2gics4ai7aAGgmcdtfg8AydbgecuSmbaeaYSmbcehiinaEamaifaAGgmcdtfg8AydbgecuSmeaicefhiaeaY9hmbkka8AaYBdba3aecuSfh3a5cefg5ad9hmbxdkkazcFeasz:tjjjb8Acbh3kdnaQ:ZgKaH:taD:YgOaC:Y:tg8ENaX:Zg8Fa3:Zga:tNa8FaH:taOaP:Y:tghNaaaK:tNMggJbbbb9BmbaKa8F:taha8EaaaH:tNNNag:vaOMhOkaPaDa3ar0giEhPaXa3aiEhXdna3arSmbaDaCaiEgCaP9Rcd9imbdndnaLcl0mbdnaOJbbbZMgO:lJbbb9p9DTmbaO:Ohexdkcjjjj94hexekaPaCfcd9Theka3aQaiEhQaLcefgLcs9hmekkdndnaXmbcihicbhDxekcbhiawakcbyd1:H:cjbHjjjjbbg5BdKawclBd2aPcuf:YhKdndnadTmbaqhiaxheadhmindndnaiIdbaKNJbbbZMgO:lJbbb9p9DTmbaO:OhYxekcjjjj94hYkaYcCthYdndnaiclfIdbaKNJbbbZMgO:lJbbb9p9DTmbaO:Oh8Axekcjjjj94h8Aka8AcqtaYVhYdndnaicwfIdbaKNJbbbZMgO:lJbbb9p9DTmbaO:Oh8Axekcjjjj94h8AkaeaYa8AVBdbaicxfhiaeclfheamcufgmmbkazcFeasz:tjjjbhEcbhDcbh3indndndnaEaxa3cdtgCfydbgYcm4aY7c:v;t;h;Ev2gics4ai7aAGgmcdtfg8AydbgecuSmbcehiinaxaecdtgefydbaYSmdamaifheaicefhiaEaeaAGgmcdtfg8Aydbgecu9hmbkka8Aa3BdbaDhiaDcefhDxeka5aefydbhika5aCfaiBdba3cefg3ad9hmbkcuaDc32giaDc;j:KM;jb0EhexekazcFeasz:tjjjb8AcbhDcbhekawaecbyd1:H:cjbHjjjjbbgeBd3awcvBd2aecbaiz:tjjjbh8Aavcd4hxdnadTmbdnalTmbaxcdthEa5hYaqhealhmadhAina8AaYydbc32fgiaeIdbaiIdbMUdbaiaeclfIdbaiIdlMUdlaiaecwfIdbaiIdwMUdwaiamIdbaiIdxMUdxaiamclfIdbaiIdzMUdzaiamcwfIdbaiIdCMUdCaiaiIdKJbbjZMUdKaYclfhYaecxfheamaEfhmaAcufgAmbxdkka5hmaqheadhYina8Aamydbc32fgiaeIdbaiIdbMUdbaiaeclfIdbaiIdlMUdlaiaecwfIdbaiIdwMUdwaiaiIdxJbbbbMUdxaiaiIdzJbbbbMUdzaiaiIdCJbbbbMUdCaiaiIdKJbbjZMUdKamclfhmaecxfheaYcufgYmbkkdnaDTmba8AhiaDheinaiaiIdbJbbbbJbbjZaicKfIdbgO:vaOJbbbb9BEgONUdbaiclfgmaOamIdbNUdbaicwfgmaOamIdbNUdbaicxfgmaOamIdbNUdbaiczfgmaOamIdbNUdbaicCfgmaOamIdbNUdbaic3fhiaecufgembkkcbhYawcuaDcdtgCaDcFFFFi0Egicbyd1:H:cjbHjjjjbbgeBdaawcoBd2awaicbyd1:H:cjbHjjjjbbgEBd8KaecFeaCz:tjjjbh3dnadTmbaoJbbjZJbbjZaK:vaPceSENgOaONhKaxcdthxalheinaKaec;8:G:cjbalEgmIdwa8Aa5ydbgAc32fgiIdC:tgOaONamIdbaiIdx:tgOaONamIdlaiIdz:tgOaONMMNaqcwfIdbaiIdw:tgOaONaqIdbaiIdb:tgOaONaqclfIdbaiIdl:tgOaONMMMhOdndna3aAcdtgifgmydbcuSmbaEaifIdbaO9ETmekamaYBdbaEaifaOUdbka5clfh5aqcxfhqaeaxfheadaYcefgY9hmbkkaba3aCzMjjjb8Acrhikaicdthiawcxfc98fheinaeaifydbcbyd:m:H:cjbH:bjjjbbaic98fgimbkkawc;Wbf8KjjjjbaDk:Pdidui99ducbhi8Jjjjjbca9Rglcbyd1:G:cjbBdKalcb8Pdj:G:cjb83izalcbydN:G:cjbBdwalcb8Pd:m:G:cjb83ibdndnaembJbbjFhvJbbjFhoJbbjFhrxekadcd4cdthwincbhdinalczfadfgDabadfIdbgvaDIdbgoaoav9EEUdbaladfgDavaDIdbgoaoav9DEUdbadclfgdcx9hmbkabawfhbaicefgiae9hmbkalIdwalIdK:thralIdlalIdC:thoalIdbalIdz:thvkJbbbbavavJbbbb9DEgvaoaoav9DEgvararav9DEk9DeeuabcFeaicdtz:tjjjbhlcbhbdnadTmbindnalaeydbcdtfgiydbcu9hmbaiabBdbabcefhbkaeclfheadcufgdmbkkabk;Bidqui998Jjjjjbc;Wb9Rgl8Kjjjjbalcxfcbc;Kbz:tjjjb8Aadcd4adfhvcehoinaogrcethoarav6mbkalcuarcdtgoarcFFFFi0Ecbyd1:H:cjbHjjjjbbgvBdxavcFeaoz:tjjjbhwdnadTmbaicd4hDarcufhqcbhkindndnawcbaeakaD2cdtfgrydlgiaicjjjj94SEgocH4ao7c:F:b:DD2cbarydbgxaxcjjjj94SEgocH4ao7c;D;O:B8J27cbarydwgmamcjjjj94SEgrcH4ar7c:3F;N8N27aqGgvcdtfgrydbgocuSmbam::hPai::hsax::hzcehiinaihrdnaeaoaD2cdtfgiIdbaz9CmbaiIdlas9CmbaiIdwaP9BmikarcefhiawavarfaqGgvcdtfgrydbgocu9hmbkkarakBdbakhokabakcdtfaoBdbakcefgkad9hmbkkalydxcbyd:m:H:cjbH:bjjjbbalc;Wbf8Kjjjjbk9teiucbcbyd:q:H:cjbgeabcifc98GfgbBd:q:H:cjbdndnabZbcztgd9nmbcuhiabad9RcFFifcz4nbcuSmekaehikaik;LeeeudndnaeabVciGTmbabhixekdndnadcz9pmbabhixekabhiinaiaeydbBdbaiclfaeclfydbBdbaicwfaecwfydbBdbaicxfaecxfydbBdbaeczfheaiczfhiadc9Wfgdcs0mbkkadcl6mbinaiaeydbBdbaeclfheaiclfhiadc98fgdci0mbkkdnadTmbinaiaeRbb86bbaicefhiaecefheadcufgdmbkkabk;aeedudndnabciGTmbabhixekaecFeGc:b:c:ew2hldndnadcz9pmbabhixekabhiinaialBdbaicxfalBdbaicwfalBdbaiclfalBdbaiczfhiadc9Wfgdcs0mbkkadcl6mbinaialBdbaiclfhiadc98fgdci0mbkkdnadTmbinaiae86bbaicefhiadcufgdmbkkabk9teiucbcbyd:q:H:cjbgeabcrfc94GfgbBd:q:H:cjbdndnabZbcztgd9nmbcuhiabad9RcFFifcz4nbcuSmekaehikaikTeeucbabcbyd:q:H:cjbge9Rcifc98GaefgbBd:q:H:cjbdnabZbcztge9nmbabae9RcFFifcz4nb8Akkk:Kedbcj:Gdk1eFFuuFFuuFFuuFFuFFFuFFFuFbbbbbbbbebbbdbbbbbbbebbbebbbdbbbbbbbbbbbeeeeebebbebbebebbbeebbbbbbbbbbbbeeeeeebebbeeebeebbbbebebbbbbbbbbbbbbbbbbbc1:Hdkxebbbdbbb:G:qbb", wasmpack = new Uint8Array([
+      32,
+      0,
+      65,
+      2,
+      1,
+      106,
+      34,
+      33,
+      3,
+      128,
+      11,
+      4,
+      13,
+      64,
+      6,
+      253,
+      10,
+      7,
+      15,
+      116,
+      127,
+      5,
+      8,
+      12,
+      40,
+      16,
+      19,
+      54,
+      20,
+      9,
+      27,
+      255,
+      113,
+      17,
+      42,
+      67,
+      24,
+      23,
+      146,
+      148,
+      18,
+      14,
+      22,
+      45,
+      70,
+      69,
+      56,
+      114,
+      101,
+      21,
+      25,
+      63,
+      75,
+      136,
+      108,
+      28,
+      118,
+      29,
+      73,
+      115
+    ]);
+    if (typeof WebAssembly !== "object")
+      return {
+        supported: !1
+      };
+    var instance, ready3 = WebAssembly.instantiate(unpack(wasm), {}).then(function(result) {
+      instance = result.instance, instance.exports.__wasm_call_ctors();
+    });
+    function unpack(data) {
+      var result = new Uint8Array(data.length);
+      for (var i = 0;i < data.length; ++i) {
+        var ch = data.charCodeAt(i);
+        result[i] = ch > 96 ? ch - 97 : ch > 64 ? ch - 39 : ch + 4;
+      }
+      var write2 = 0;
+      for (var i = 0;i < data.length; ++i)
+        result[write2++] = result[i] < 60 ? wasmpack[result[i]] : (result[i] - 60) * 64 + result[++i];
+      return result.buffer.slice(0, write2);
+    }
+    function assert5(cond) {
+      if (!cond)
+        throw Error("Assertion failed");
+    }
+    function bytes3(view2) {
+      return new Uint8Array(view2.buffer, view2.byteOffset, view2.byteLength);
+    }
+    function genremap(fun, positions, vertices, stride) {
+      var sbrk = instance.exports.sbrk, rp = sbrk(vertices * 4), sp = sbrk(vertices * stride * 4), heap = new Uint8Array(instance.exports.memory.buffer);
+      heap.set(bytes3(positions), sp), fun(rp, sp, vertices, stride * 4), heap = new Uint8Array(instance.exports.memory.buffer);
+      var remap = new Uint32Array(vertices);
+      return new Uint8Array(remap.buffer).set(heap.subarray(rp, rp + vertices * 4)), sbrk(rp - sbrk(0)), remap;
+    }
+    function reorder(fun, indices, vertices) {
+      var sbrk = instance.exports.sbrk, ip = sbrk(indices.length * 4), rp = sbrk(vertices * 4), heap = new Uint8Array(instance.exports.memory.buffer), indices8 = bytes3(indices);
+      heap.set(indices8, ip);
+      var unique = fun(rp, ip, indices.length, vertices);
+      heap = new Uint8Array(instance.exports.memory.buffer);
+      var remap = new Uint32Array(vertices);
+      new Uint8Array(remap.buffer).set(heap.subarray(rp, rp + vertices * 4)), sbrk(ip - sbrk(0));
+      for (var i = 0;i < indices.length; ++i)
+        indices[i] = remap[indices[i]];
+      return [remap, unique];
+    }
+    function maxindex(source2) {
+      var result = 0;
+      for (var i = 0;i < source2.length; ++i) {
+        var index = source2[i];
+        result = result < index ? index : result;
+      }
+      return result;
+    }
+    function simplify(fun, indices, index_count, vertex_positions, vertex_count, vertex_positions_stride, target_index_count, target_error, options) {
+      var sbrk = instance.exports.sbrk, te2 = sbrk(4), ti = sbrk(index_count * 4), sp = sbrk(vertex_count * vertex_positions_stride), si = sbrk(index_count * 4), heap = new Uint8Array(instance.exports.memory.buffer);
+      heap.set(bytes3(vertex_positions), sp), heap.set(bytes3(indices), si);
+      var result = fun(ti, si, index_count, sp, vertex_count, vertex_positions_stride, target_index_count, target_error, options, te2);
+      heap = new Uint8Array(instance.exports.memory.buffer);
+      var target = new Uint32Array(result);
+      bytes3(target).set(heap.subarray(ti, ti + result * 4));
+      var error = new Float32Array(1);
+      return bytes3(error).set(heap.subarray(te2, te2 + 4)), sbrk(te2 - sbrk(0)), [target, error[0]];
+    }
+    function simplifyAttr(fun, indices, index_count, vertex_positions, vertex_count, vertex_positions_stride, vertex_attributes, vertex_attributes_stride, attribute_weights, vertex_lock, target_index_count, target_error, options) {
+      var sbrk = instance.exports.sbrk, te2 = sbrk(4), ti = sbrk(index_count * 4), sp = sbrk(vertex_count * vertex_positions_stride), sa = sbrk(vertex_count * vertex_attributes_stride), sw = sbrk(attribute_weights.length * 4), si = sbrk(index_count * 4), vl = vertex_lock ? sbrk(vertex_count) : 0, heap = new Uint8Array(instance.exports.memory.buffer);
+      if (heap.set(bytes3(vertex_positions), sp), heap.set(bytes3(vertex_attributes), sa), heap.set(bytes3(attribute_weights), sw), heap.set(bytes3(indices), si), vertex_lock)
+        heap.set(bytes3(vertex_lock), vl);
+      var result = fun(ti, si, index_count, sp, vertex_count, vertex_positions_stride, sa, vertex_attributes_stride, sw, attribute_weights.length, vl, target_index_count, target_error, options, te2);
+      heap = new Uint8Array(instance.exports.memory.buffer);
+      var target = new Uint32Array(result);
+      bytes3(target).set(heap.subarray(ti, ti + result * 4));
+      var error = new Float32Array(1);
+      return bytes3(error).set(heap.subarray(te2, te2 + 4)), sbrk(te2 - sbrk(0)), [target, error[0]];
+    }
+    function simplifyUpdate(fun, indices, index_count, vertex_positions, vertex_count, vertex_positions_stride, vertex_attributes, vertex_attributes_stride, attribute_weights, vertex_lock, target_index_count, target_error, options) {
+      var sbrk = instance.exports.sbrk, te2 = sbrk(4), sp = sbrk(vertex_count * vertex_positions_stride), sa = sbrk(vertex_count * vertex_attributes_stride), sw = sbrk(attribute_weights.length * 4), si = sbrk(index_count * 4), vl = vertex_lock ? sbrk(vertex_count) : 0, heap = new Uint8Array(instance.exports.memory.buffer);
+      if (heap.set(bytes3(vertex_positions), sp), heap.set(bytes3(vertex_attributes), sa), heap.set(bytes3(attribute_weights), sw), heap.set(bytes3(indices), si), vertex_lock)
+        heap.set(bytes3(vertex_lock), vl);
+      var result = fun(si, index_count, sp, vertex_count, vertex_positions_stride, sa, vertex_attributes_stride, sw, attribute_weights.length, vl, target_index_count, target_error, options, te2);
+      heap = new Uint8Array(instance.exports.memory.buffer), bytes3(indices).set(heap.subarray(si, si + result * 4)), bytes3(vertex_positions).set(heap.subarray(sp, sp + vertex_count * vertex_positions_stride)), bytes3(vertex_attributes).set(heap.subarray(sa, sa + vertex_count * vertex_attributes_stride));
+      var error = new Float32Array(1);
+      return bytes3(error).set(heap.subarray(te2, te2 + 4)), sbrk(te2 - sbrk(0)), [result, error[0]];
+    }
+    function simplifyScale(fun, vertex_positions, vertex_count, vertex_positions_stride) {
+      var sbrk = instance.exports.sbrk, sp = sbrk(vertex_count * vertex_positions_stride), heap = new Uint8Array(instance.exports.memory.buffer);
+      heap.set(bytes3(vertex_positions), sp);
+      var result = fun(sp, vertex_count, vertex_positions_stride);
+      return sbrk(sp - sbrk(0)), result;
+    }
+    function simplifyPoints(fun, vertex_positions, vertex_count, vertex_positions_stride, vertex_colors, vertex_colors_stride, color_weight, target_vertex_count) {
+      var sbrk = instance.exports.sbrk, ti = sbrk(target_vertex_count * 4), sp = sbrk(vertex_count * vertex_positions_stride), sc = vertex_colors ? sbrk(vertex_count * vertex_colors_stride) : 0, heap = new Uint8Array(instance.exports.memory.buffer);
+      if (heap.set(bytes3(vertex_positions), sp), vertex_colors)
+        heap.set(bytes3(vertex_colors), sc);
+      var result = fun(ti, sp, vertex_count, vertex_positions_stride, sc, vertex_colors_stride, color_weight, target_vertex_count);
+      heap = new Uint8Array(instance.exports.memory.buffer);
+      var target = new Uint32Array(result);
+      return bytes3(target).set(heap.subarray(ti, ti + result * 4)), sbrk(ti - sbrk(0)), target;
+    }
+    function simplifySloppy(fun, indices, index_count, vertex_positions, vertex_count, vertex_positions_stride, vertex_lock, target_index_count, target_error) {
+      var sbrk = instance.exports.sbrk, te2 = sbrk(4), ti = sbrk(index_count * 4), sp = sbrk(vertex_count * vertex_positions_stride), si = sbrk(index_count * 4), vl = vertex_lock ? sbrk(vertex_count) : 0, heap = new Uint8Array(instance.exports.memory.buffer);
+      if (heap.set(bytes3(vertex_positions), sp), heap.set(bytes3(indices), si), vertex_lock)
+        heap.set(bytes3(vertex_lock), vl);
+      var result = fun(ti, si, index_count, sp, vertex_count, vertex_positions_stride, vl, target_index_count, target_error, te2);
+      heap = new Uint8Array(instance.exports.memory.buffer);
+      var target = new Uint32Array(result);
+      bytes3(target).set(heap.subarray(ti, ti + result * 4));
+      var error = new Float32Array(1);
+      return bytes3(error).set(heap.subarray(te2, te2 + 4)), sbrk(te2 - sbrk(0)), [target, error[0]];
+    }
+    function simplifyPrune(fun, indices, index_count, vertex_positions, vertex_count, vertex_positions_stride, target_error) {
+      var sbrk = instance.exports.sbrk, ti = sbrk(index_count * 4), sp = sbrk(vertex_count * vertex_positions_stride), si = sbrk(index_count * 4), heap = new Uint8Array(instance.exports.memory.buffer);
+      heap.set(bytes3(vertex_positions), sp), heap.set(bytes3(indices), si);
+      var result = fun(ti, si, index_count, sp, vertex_count, vertex_positions_stride, target_error);
+      heap = new Uint8Array(instance.exports.memory.buffer);
+      var target = new Uint32Array(result);
+      return bytes3(target).set(heap.subarray(ti, ti + result * 4)), sbrk(ti - sbrk(0)), target;
+    }
+    var simplifyOptions = {
+      LockBorder: 1,
+      Sparse: 2,
+      ErrorAbsolute: 4,
+      Prune: 8,
+      Regularize: 16,
+      Permissive: 32,
+      _InternalDebug: 1073741824
+    };
+    return {
+      ready: ready3,
+      supported: !0,
+      compactMesh: function(indices) {
+        assert5(indices instanceof Uint32Array || indices instanceof Int32Array || indices instanceof Uint16Array || indices instanceof Int16Array), assert5(indices.length % 3 == 0);
+        var indices32 = indices.BYTES_PER_ELEMENT == 4 ? indices : new Uint32Array(indices), result = reorder(instance.exports.meshopt_optimizeVertexFetchRemap, indices32, maxindex(indices) + 1);
+        if (indices !== indices32)
+          for (var i = 0;i < indices32.length; ++i)
+            indices[i] = indices32[i];
+        return result;
+      },
+      generatePositionRemap: function(vertex_positions, vertex_positions_stride) {
+        return assert5(vertex_positions instanceof Float32Array), assert5(vertex_positions.length % vertex_positions_stride == 0), assert5(vertex_positions_stride >= 3), genremap(instance.exports.meshopt_generatePositionRemap, vertex_positions, vertex_positions.length / vertex_positions_stride, vertex_positions_stride);
+      },
+      simplify: function(indices, vertex_positions, vertex_positions_stride, target_index_count, target_error, flags) {
+        assert5(indices instanceof Uint32Array || indices instanceof Int32Array || indices instanceof Uint16Array || indices instanceof Int16Array), assert5(indices.length % 3 == 0), assert5(vertex_positions instanceof Float32Array), assert5(vertex_positions.length % vertex_positions_stride == 0), assert5(vertex_positions_stride >= 3), assert5(target_index_count >= 0 && target_index_count <= indices.length), assert5(target_index_count % 3 == 0), assert5(target_error >= 0);
+        var options = 0;
+        for (var i = 0;i < (flags ? flags.length : 0); ++i)
+          assert5(flags[i] in simplifyOptions), options |= simplifyOptions[flags[i]];
+        var indices32 = indices.BYTES_PER_ELEMENT == 4 ? indices : new Uint32Array(indices), result = simplify(instance.exports.meshopt_simplify, indices32, indices.length, vertex_positions, vertex_positions.length / vertex_positions_stride, vertex_positions_stride * 4, target_index_count, target_error, options);
+        return result[0] = indices instanceof Uint32Array ? result[0] : new indices.constructor(result[0]), result;
+      },
+      simplifyWithAttributes: function(indices, vertex_positions, vertex_positions_stride, vertex_attributes, vertex_attributes_stride, attribute_weights, vertex_lock, target_index_count, target_error, flags) {
+        assert5(indices instanceof Uint32Array || indices instanceof Int32Array || indices instanceof Uint16Array || indices instanceof Int16Array), assert5(indices.length % 3 == 0), assert5(vertex_positions instanceof Float32Array), assert5(vertex_positions.length % vertex_positions_stride == 0), assert5(vertex_positions_stride >= 3), assert5(vertex_attributes instanceof Float32Array), assert5(vertex_attributes.length == vertex_attributes_stride * (vertex_positions.length / vertex_positions_stride)), assert5(vertex_attributes_stride >= 0), assert5(vertex_lock == null || vertex_lock instanceof Uint8Array), assert5(vertex_lock == null || vertex_lock.length == vertex_positions.length / vertex_positions_stride), assert5(target_index_count >= 0 && target_index_count <= indices.length), assert5(target_index_count % 3 == 0), assert5(target_error >= 0), assert5(Array.isArray(attribute_weights)), assert5(vertex_attributes_stride >= attribute_weights.length), assert5(attribute_weights.length <= 32);
+        for (var i = 0;i < attribute_weights.length; ++i)
+          assert5(attribute_weights[i] >= 0);
+        var options = 0;
+        for (var i = 0;i < (flags ? flags.length : 0); ++i)
+          assert5(flags[i] in simplifyOptions), options |= simplifyOptions[flags[i]];
+        var indices32 = indices.BYTES_PER_ELEMENT == 4 ? indices : new Uint32Array(indices), result = simplifyAttr(instance.exports.meshopt_simplifyWithAttributes, indices32, indices.length, vertex_positions, vertex_positions.length / vertex_positions_stride, vertex_positions_stride * 4, vertex_attributes, vertex_attributes_stride * 4, new Float32Array(attribute_weights), vertex_lock, target_index_count, target_error, options);
+        return result[0] = indices instanceof Uint32Array ? result[0] : new indices.constructor(result[0]), result;
+      },
+      simplifyWithUpdate: function(indices, vertex_positions, vertex_positions_stride, vertex_attributes, vertex_attributes_stride, attribute_weights, vertex_lock, target_index_count, target_error, flags) {
+        assert5(indices instanceof Uint32Array || indices instanceof Int32Array || indices instanceof Uint16Array || indices instanceof Int16Array), assert5(indices.length % 3 == 0), assert5(vertex_positions instanceof Float32Array), assert5(vertex_positions.length % vertex_positions_stride == 0), assert5(vertex_positions_stride >= 3), assert5(vertex_attributes instanceof Float32Array), assert5(vertex_attributes.length == vertex_attributes_stride * (vertex_positions.length / vertex_positions_stride)), assert5(vertex_attributes_stride >= 0), assert5(vertex_lock == null || vertex_lock instanceof Uint8Array), assert5(vertex_lock == null || vertex_lock.length == vertex_positions.length / vertex_positions_stride), assert5(target_index_count >= 0 && target_index_count <= indices.length), assert5(target_index_count % 3 == 0), assert5(target_error >= 0), assert5(Array.isArray(attribute_weights)), assert5(vertex_attributes_stride >= attribute_weights.length), assert5(attribute_weights.length <= 32);
+        for (var i = 0;i < attribute_weights.length; ++i)
+          assert5(attribute_weights[i] >= 0);
+        var options = 0;
+        for (var i = 0;i < (flags ? flags.length : 0); ++i)
+          assert5(flags[i] in simplifyOptions), options |= simplifyOptions[flags[i]];
+        var indices32 = indices.BYTES_PER_ELEMENT == 4 ? indices : new Uint32Array(indices), result = simplifyUpdate(instance.exports.meshopt_simplifyWithUpdate, indices32, indices.length, vertex_positions, vertex_positions.length / vertex_positions_stride, vertex_positions_stride * 4, vertex_attributes, vertex_attributes_stride * 4, new Float32Array(attribute_weights), vertex_lock, target_index_count, target_error, options);
+        if (indices !== indices32)
+          for (var i = 0;i < result[0]; ++i)
+            indices[i] = indices32[i];
+        return result;
+      },
+      getScale: function(vertex_positions, vertex_positions_stride) {
+        return assert5(vertex_positions instanceof Float32Array), assert5(vertex_positions.length % vertex_positions_stride == 0), assert5(vertex_positions_stride >= 3), simplifyScale(instance.exports.meshopt_simplifyScale, vertex_positions, vertex_positions.length / vertex_positions_stride, vertex_positions_stride * 4);
+      },
+      simplifyPoints: function(vertex_positions, vertex_positions_stride, target_vertex_count, vertex_colors, vertex_colors_stride, color_weight) {
+        if (assert5(vertex_positions instanceof Float32Array), assert5(vertex_positions.length % vertex_positions_stride == 0), assert5(vertex_positions_stride >= 3), assert5(target_vertex_count >= 0 && target_vertex_count <= vertex_positions.length / vertex_positions_stride), vertex_colors)
+          return assert5(vertex_colors instanceof Float32Array), assert5(vertex_colors.length % vertex_colors_stride == 0), assert5(vertex_colors_stride >= 3), assert5(vertex_positions.length / vertex_positions_stride == vertex_colors.length / vertex_colors_stride), simplifyPoints(instance.exports.meshopt_simplifyPoints, vertex_positions, vertex_positions.length / vertex_positions_stride, vertex_positions_stride * 4, vertex_colors, vertex_colors_stride * 4, color_weight || 0, target_vertex_count);
+        else
+          return simplifyPoints(instance.exports.meshopt_simplifyPoints, vertex_positions, vertex_positions.length / vertex_positions_stride, vertex_positions_stride * 4, void 0, 0, 0, target_vertex_count);
+      },
+      simplifySloppy: function(indices, vertex_positions, vertex_positions_stride, vertex_lock, target_index_count, target_error) {
+        assert5(indices instanceof Uint32Array || indices instanceof Int32Array || indices instanceof Uint16Array || indices instanceof Int16Array), assert5(indices.length % 3 == 0), assert5(vertex_positions instanceof Float32Array), assert5(vertex_positions.length % vertex_positions_stride == 0), assert5(vertex_positions_stride >= 3), assert5(vertex_lock == null || vertex_lock instanceof Uint8Array), assert5(vertex_lock == null || vertex_lock.length == vertex_positions.length / vertex_positions_stride), assert5(target_index_count >= 0 && target_index_count <= indices.length), assert5(target_index_count % 3 == 0), assert5(target_error >= 0);
+        var indices32 = indices.BYTES_PER_ELEMENT == 4 ? indices : new Uint32Array(indices), result = simplifySloppy(instance.exports.meshopt_simplifySloppy, indices32, indices.length, vertex_positions, vertex_positions.length / vertex_positions_stride, vertex_positions_stride * 4, vertex_lock, target_index_count, target_error);
+        return result[0] = indices instanceof Uint32Array ? result[0] : new indices.constructor(result[0]), result;
+      },
+      simplifyPrune: function(indices, vertex_positions, vertex_positions_stride, target_error) {
+        assert5(indices instanceof Uint32Array || indices instanceof Int32Array || indices instanceof Uint16Array || indices instanceof Int16Array), assert5(indices.length % 3 == 0), assert5(vertex_positions instanceof Float32Array), assert5(vertex_positions.length % vertex_positions_stride == 0), assert5(vertex_positions_stride >= 3), assert5(target_error >= 0);
+        var indices32 = indices.BYTES_PER_ELEMENT == 4 ? indices : new Uint32Array(indices), result = simplifyPrune(instance.exports.meshopt_simplifyPrune, indices32, indices.length, vertex_positions, vertex_positions.length / vertex_positions_stride, vertex_positions_stride * 4, target_error);
+        return result = indices instanceof Uint32Array ? result : new indices.constructor(result), result;
+      }
+    };
+  }();
+});
+
 import { closeSync as closeSync4, existsSync as existsSync11, openSync as openSync4, readFileSync as readFileSync15, readSync as readSync2, statSync as statSync10 } from "node:fs";
 import { basename as basename4, dirname as dirname13, extname as extname7, join as join18, relative as relative8, resolve as resolve12 } from "node:path";
 function withFile(path14, fn) {
@@ -61612,11 +62483,18 @@ function factsLine(rel, r) {
     ...USD.test(rel) ? [] : [`Draco ${r.draco ? "yes" : "no"}, meshopt ${r.meshopt ? "yes" : "no"}, KTX2 ${r.ktx2 ? "yes" : "no"}`]
   ].join(" · ");
 }
-function shrinkFix(rel, max) {
+function shrinkFix(rel, max, triangles) {
   if (USD.test(rel))
     return `Fix: ${CONVERT(rel)}`;
   let out = join18(dirname13(rel), `${basename4(rel, extname7(rel))}-opt.glb`);
-  return `Fix: \`model_audit\` { path: ${JSON.stringify(rel)}, shrink: { textures: ${max} } } writes ${out} with each texture at most ${max} px (WebP; textures: false drops them); then \`look\` compare against a look saved before (save).`;
+  return `Fix: \`model_audit\` { path: ${JSON.stringify(rel)}, shrink: { textures: ${max}${triangles ? `, triangles: ${triangles}` : ""} } } writes ${out} with each texture at most ${max} px (WebP; textures: false drops them)${triangles ? ` and about ${triangles.toLocaleString("en-US")} triangles` : ""}; then \`look\` compare against a look saved before (save).`;
+}
+function heavyPick(cwd, file3, r) {
+  let budget = BUDGETS.site.assetMB, MB2 = mb(r.bytes);
+  if (MB2 <= budget || USD.test(file3))
+    return null;
+  let rel = relative8(cwd, file3), out = join18(dirname13(rel), `${basename4(rel, extname7(rel))}-opt.glb`), triangles = Math.max(1000, Math.round(r.triangles * (budget / 4) / MB2 / 1000) * 1000);
+  return `${rel} is ${MB2} MB, over the ${budget} MB site budget for all of a page's assets on its own: \`model_audit\` { path: ${JSON.stringify(rel)}, shrink: { textures: 1024${triangles < r.triangles ? `, triangles: ${triangles}` : ""} } } writes ${out} smaller (then check it with \`look\`).`;
 }
 function assetsText(cwd, path14, target) {
   if (!TARGETS[target])
@@ -61633,9 +62511,9 @@ function assetsText(cwd, path14, target) {
         throw e;
       return `${rel}: unreadable, ${e.message}`;
     }
-    let v2 = verdict(r, target), lines = [factsLine(rel, r), v2], max = TARGETS[target].textureMax;
+    let v2 = verdict(r, target), lines = [factsLine(rel, r), v2], max = TARGETS[target].textureMax, tris = TARGETS[target].triangles;
     if (v2.includes("fails"))
-      lines.push(shrinkFix(rel, max) + (r.triangles > (TARGETS[target].triangles ?? 1 / 0) ? " Shrink keeps every triangle: for fewer, pick a lower-poly model." : ""));
+      lines.push(shrinkFix(rel, max, tris && r.triangles > tris ? tris : void 0));
     return lines.join(`
 `);
   }).join(`
@@ -61655,7 +62533,14 @@ async function shrink(file3, o, chrome2) {
     Promise.resolve().then(() => (init_meshopt_encoder(), exports_meshopt_encoder))
   ]);
   await Promise.all([MeshoptDecoder2.ready, MeshoptEncoder2.ready]);
-  let io = new NodeIO2().registerExtensions(ALL_EXTENSIONS2).registerDependencies({ "meshopt.decoder": MeshoptDecoder2, "meshopt.encoder": MeshoptEncoder2 }), doc = await io.read(file3), textures = doc.getRoot().listTextures();
+  let io = new NodeIO2().registerExtensions(ALL_EXTENSIONS2).registerDependencies({ "meshopt.decoder": MeshoptDecoder2, "meshopt.encoder": MeshoptEncoder2 });
+  if (o.triangles !== void 0 && !(o.triangles >= 1))
+    throw Error("model_audit: shrink's triangles is how many the file keeps, at least 1");
+  let doc = await io.read(file3), textures = doc.getRoot().listTextures();
+  if (o.drop?.length)
+    dropNodes(doc, o.drop);
+  if (o.triangles && o.triangles < before.triangles)
+    await decimate(doc, o.triangles / before.triangles);
   if (o.textures === !1)
     for (let t of textures)
       t.dispose();
@@ -61678,6 +62563,64 @@ async function shrink(file3, o, chrome2) {
       doc.createExtension(EXTTextureWebP2).setRequired(!0);
   }
   return await io.write(out, doc), { out, before, after: readModel(out) };
+}
+function dropNodes(doc, names) {
+  let nodes = doc.getRoot().listNodes();
+  for (let name of names)
+    if (!nodes.some((n) => n.getName() === name))
+      throw Error(`model_audit: no node is named ${JSON.stringify(name)}; its nodes: ${[...new Set(nodes.map((n) => n.getName()).filter(Boolean))].slice(0, 40).join(", ")}`);
+  let gone2 = (n) => {
+    for (let c of n.listChildren())
+      gone2(c);
+    let m = n.getMesh();
+    if (n.dispose(), m && !m.listParents().some((p) => p.propertyType === "Node"))
+      m.dispose();
+  };
+  for (let n of nodes)
+    if (!n.isDisposed() && names.includes(n.getName()))
+      gone2(n);
+}
+async function decimate(doc, ratio) {
+  let { MeshoptSimplifier: S } = await Promise.resolve().then(() => (init_meshopt_simplifier(), exports_meshopt_simplifier));
+  await S.ready;
+  let buffer = doc.getRoot().listBuffers()[0] ?? doc.createBuffer();
+  for (let mesh of doc.getRoot().listMeshes())
+    for (let prim of mesh.listPrimitives()) {
+      let pos = prim.getAttribute("POSITION"), idx = prim.getIndices();
+      if (prim.getMode() !== 4 || !pos)
+        continue;
+      let count = pos.getCount(), p = new Float32Array(count * 3), el = [];
+      for (let i = 0;i < count; i++)
+        p.set(pos.getElement(i, el), i * 3);
+      let tris = idx ? Uint32Array.from(idx.getArray()) : Uint32Array.from({ length: count }, (_3, i) => i), target = Math.max(3, Math.floor(tris.length * ratio / 3) * 3);
+      if (target >= tris.length)
+        continue;
+      let [kept] = S.simplify(tris, p, 3, target, 0.01);
+      if (kept.length > target * 1.2) {
+        let remap = S.generatePositionRemap(p, 3);
+        [kept] = S.simplify(tris.map((i) => remap[i]), p, 3, target, 0.05);
+      }
+      if (kept.length > target * 1.2)
+        [kept] = S.simplifySloppy(kept, p, 3, null, target, 1);
+      let used = /* @__PURE__ */ new Map, order = [], out = kept.map((i) => {
+        let j2 = used.get(i);
+        if (j2 === void 0)
+          used.set(i, j2 = order.length), order.push(i);
+        return j2;
+      }), cut = (a2) => {
+        let C2 = a2.getArray().constructor, n = a2.getElementSize(), arr = new C2(order.length * n), e = [];
+        return order.forEach((v2, i) => arr.set(a2.getElement(v2, e), i * n)), doc.createAccessor().setType(a2.getType()).setArray(arr).setNormalized(a2.getNormalized()).setBuffer(a2.getBuffer() ?? buffer);
+      }, old = [...prim.listAttributes(), ...prim.listTargets().flatMap((t) => t.listAttributes()), ...idx ? [idx] : []];
+      for (let sem of prim.listSemantics())
+        prim.setAttribute(sem, cut(prim.getAttribute(sem)));
+      for (let t of prim.listTargets())
+        for (let sem of t.listSemantics())
+          t.setAttribute(sem, cut(t.getAttribute(sem)));
+      prim.setIndices(doc.createAccessor().setType("SCALAR").setArray(order.length > 65535 ? out : Uint16Array.from(out)).setBuffer(idx?.getBuffer() ?? buffer));
+      for (let a2 of old)
+        if (a2.listParents().every((q2) => q2.propertyType === "Root"))
+          a2.dispose();
+    }
 }
 function shrinkText(cwd, file3, s, target) {
   return [`Before: ${factsLine(relative8(cwd, file3), s.before)}`, `After: ${factsLine(relative8(cwd, s.out), s.after)}`, verdict(s.after, target)].join(`
@@ -61831,7 +62774,9 @@ async function pick2(id, kind, cwd, agent, height, textures, format3) {
   let file3 = projectHits(cwd), all = [.../* @__PURE__ */ new Set([...seen.keys(), ...Object.keys(file3)])], ids = all.includes(id) ? [id] : all.filter((k) => k.startsWith(id));
   if (ids.length > 1)
     throw Error(`pick: "${id}" matches ${ids.slice(0, 5).join(", ")}${ids.length > 5 ? ` and ${ids.length - 5} more` : ""}: give the whole id`);
-  let full = ids[0] ?? id, was = ids.length ? seen.get(full) ?? file3[full] : { kind }, h = seen.get(full) ?? { ...was, m: await api2(`/${was.kind === "model" ? "asset" : was.kind === "texture" ? "textures" : "hdris"}/${encodeURIComponent(full)}`, agent) }, vite = isVite(cwd), dir = join19(cwd, vite ? "public" : "", "assets"), base = vite ? "three/examples/jsm" : "three/addons", url2 = (file4) => relative9(dir, file4).split("\\").join("/"), saved = [], code = [], where = "";
+  let full = ids[0] ?? id, was = ids.length ? seen.get(full) ?? file3[full] : { kind }, h = seen.get(full) ?? { ...was, m: await api2(`/${was.kind === "model" ? "asset" : was.kind === "texture" ? "textures" : "hdris"}/${encodeURIComponent(full)}`, agent).catch((e) => {
+    throw String(e?.message).startsWith("asset library answered 404") ? Error(`pick: ${full} is not in the library. ${was.kind === "model" ? "Its models are a filtered subset of Objaverse's 2022 Sketchfab snapshot, so a model published later, or one the filter left out, has no id here" : `No ${was.kind === "texture" ? "texture" : "HDRI sky"} has that id`}: search by what it is (\`query\`) and pick from the hits.`) : e;
+  }) }, vite = isVite(cwd), dir = join19(cwd, vite ? "public" : "", "assets"), base = vite ? "three/examples/jsm" : "three/addons", url2 = (file4) => relative9(dir, file4).split("\\").join("/"), saved = [], code = [], where = "", heavy = null;
   if (h.kind === "model") {
     let m = h.m, usd = format3 === "usd" || !m.glb_url, src = usd ? m.usd_url : m.glb_url;
     if (!src)
@@ -61841,14 +62786,51 @@ async function pick2(id, kind, cwd, agent, height, textures, format3) {
     let file4 = join19(dir, `${slug(m.name)}-${m.uid.slice(0, 6)}${usd ? src.match(/\.usd[acz]?$/i)?.[0] ?? ".usdz" : ".glb"}`), v2 = varName(m.name);
     if (await download(src, file4), textures === !1)
       await shrink(file4, { textures: !1, out: file4 }), where = `${relative9(cwd, file4)} without its textures`;
-    if (saved.push(file4), h.sid)
+    saved.push(file4);
+    try {
+      heavy = heavyPick(cwd, file4, readModel(file4));
+    } catch {}
+    if (h.sid)
       await report(`/pick/${h.sid}`, agent, { uid: m.uid });
     let credits = join19(dir, "CREDITS.md"), credit = `- ${m.name}: ${m.attribution}
 `;
     if (!(existsSync12(credits) && readFileSync16(credits, "utf8").includes(credit)))
       appendFileSync(credits, credit);
     let tall = m.bbox?.[1], root = usd ? "usd" : "gltf.scene", loaded = JSON.stringify(`assets/${url2(file4)}`);
-    code.push(...usd ? [`import { USDLoader } from "${base}/loaders/USDLoader.js";`] : [`import { GLTFLoader } from "${base}/loaders/GLTFLoader.js";`, `import { MeshoptDecoder } from "${base}/libs/meshopt_decoder.module.js";`], "", `const ${v2} = new THREE.Group();`, "{ // a block, so a second pick's snippet pastes beside this one", ...usd ? [`  const usd = await new USDLoader().loadAsync(${loaded});`] : ["  const loader = new GLTFLoader();", "  loader.setMeshoptDecoder(MeshoptDecoder);", `  const gltf = await loader.loadAsync(${loaded});`], `  const box = new THREE.Box3().setFromObject(${root});`, `  ${root}.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2); // origin to floor centre`, `  ${v2}.add(${root});`, m.animated ? `  ${v2}.animations = ${usd ? "usd" : "gltf"}.animations;` : null, "}", height && tall ? `${v2}.scale.setScalar(${height} / ${num2(tall)}); // ${height} units tall` : m.scale_to_real ? `${v2}.scale.setScalar(${m.scale_to_real}); // real size${m.real_height_m ? `, about ${m.real_height_m} m tall` : ""}` : null, `scene.add(${v2});`, ...m.animated ? [
+    code.push(...usd ? [`import { USDLoader } from "${base}/loaders/USDLoader.js";`] : [
+      `import { GLTFLoader } from "${base}/loaders/GLTFLoader.js";`,
+      `import { MeshoptDecoder } from "${base}/libs/meshopt_decoder.module.js";`,
+      `import { mergeGeometries as mergeInstances } from "${base}/utils/BufferGeometryUtils.js"; // its own name, beside the page's mergeGeometries`
+    ], "", `const ${v2} = new THREE.Group();`, "{ // a block, so a second pick's snippet pastes beside this one", ...usd ? [`  const usd = await new USDLoader().loadAsync(${loaded});`] : [
+      "  const loader = new GLTFLoader();",
+      "  loader.setMeshoptDecoder(MeshoptDecoder);",
+      `  const gltf = await loader.loadAsync(${loaded});`,
+      "  // quantized (and normalized) vertex data to floats, GPU instances baked into one mesh, and a skinned mesh's pose",
+      "  // in userData.posed, so geometry.applyMatrix4() and mergeGeometries() keep the shape and take every part",
+      "  const instanced = [], v = new THREE.Vector3(), n = new THREE.Vector3();",
+      "  gltf.scene.updateMatrixWorld(true);",
+      "  gltf.scene.traverse(o => {",
+      "    for (const [k, a] of Object.entries(o.geometry?.attributes ?? {})) if (a.isInstancedBufferAttribute) o.geometry.deleteAttribute(k);",
+      '      else if (k !== "skinIndex" && (a.isInterleavedBufferAttribute || !(a.array instanceof Float32Array)))',
+      "        o.geometry.setAttribute(k, new THREE.BufferAttribute(Float32Array.from({ length: a.count * a.itemSize }, (_, i) => a.getComponent(i / a.itemSize | 0, i % a.itemSize)), a.itemSize));",
+      "    if (o.isInstancedMesh) instanced.push(o);",
+      "    if (o.isSkinnedMesh) { // its skin places its vertices: merge or instance (o.userData.posed ?? o.geometry), never its bare geometry",
+      "      const g = o.userData.posed = o.geometry.clone(), p = g.attributes.position, nl = g.attributes.normal;",
+      "      for (let i = 0; i < p.count; i++) {",
+      "        const at = o.applyBoneTransform(i, v.fromBufferAttribute(p, i).clone());",
+      "        if (nl) nl.setXYZ(i, ...o.applyBoneTransform(i, v.add(n.fromBufferAttribute(nl, i))).sub(at).normalize().toArray());",
+      "        p.setXYZ(i, at.x, at.y, at.z);",
+      "      }",
+      '      g.deleteAttribute("skinIndex"); g.deleteAttribute("skinWeight");',
+      "    }",
+      "  });",
+      "  for (const o of instanced) { // EXT_mesh_gpu_instancing",
+      "    const m = new THREE.Matrix4(), g = mergeInstances(Array.from({ length: o.count }, (_, i) => o.geometry.clone().applyMatrix4((o.getMatrixAt(i, m), m))));",
+      "    const mesh = Object.assign(new THREE.Mesh(g, o.material), { name: o.name, castShadow: o.castShadow, receiveShadow: o.receiveShadow });",
+      "    o.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);",
+      "    o.parent.add(mesh); o.removeFromParent();",
+      "  }"
+    ], `  const box = new THREE.Box3().setFromObject(${root});`, `  ${root}.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2); // origin to floor centre`, `  ${v2}.add(${root});`, m.animated ? `  ${v2}.animations = ${usd ? "usd" : "gltf"}.animations;` : null, "}", height && tall ? `${v2}.scale.setScalar(${height} / ${num2(tall)}); // ${height} units tall` : m.scale_to_real ? `${v2}.scale.setScalar(${m.scale_to_real}); // real size${m.real_height_m ? `, about ${m.real_height_m} m tall` : ""}` : null, `scene.add(${v2});`, ...m.animated ? [
       `const ${v2}Mixer = new THREE.AnimationMixer(${v2});`,
       `${v2}Mixer.clipAction(${v2}.animations[0]).play(); // ${v2}Mixer.update(dt) each frame; ${v2}.animations holds every clip by name`
     ] : []);
@@ -61871,6 +62853,7 @@ async function pick2(id, kind, cwd, agent, height, textures, format3) {
     ...full === id ? [] : [`Picked ${full}, the one shown id that starts with "${id}".`],
     `Saved ${where || relative9(cwd, saved[0])} (${h.m.name}, ${h.m.license})${h.kind === "model" ? `; credited in ${relative9(cwd, join19(dir, "CREDITS.md"))}` : ""}`,
     ...vite || h.kind === "texture" ? [] : ["If the import map has no `three/addons/`, map it to three's `examples/jsm/` folder."],
+    ...heavy ? [heavy] : [],
     "```js",
     ...code.filter((l) => l !== null),
     "```"
@@ -61883,7 +62866,10 @@ var API, seen, shown, idOf = (h) => h.kind === "model" ? h.m.uid : h.kind === "t
   } catch {
     return {};
   }
-}, SOURCING = "sourcing.json", reason = (e) => String(e?.cause?.message ?? e?.message ?? e), api2 = async (path14, agent, body) => (await get(API + path14, body ? { method: "POST", headers: { "x-agent-model": agent, "content-type": "application/json" }, body: JSON.stringify(body) } : { headers: { "x-agent-model": agent } })).json(), report = (path14, agent, body) => api2(path14, agent, body).catch(() => {}), qs = (o) => new URLSearchParams(Object.entries(o).filter(([, v2]) => v2 !== void 0 && v2 !== "").map(([k, v2]) => [k, String(v2)])).toString(), line = (h) => h.kind === "model" ? [h.m.uid, h.m.name, h.m.style, `${h.m.tris} tris`, `${h.m.mb} MB`, h.m.real_height_m ? `about ${h.m.real_height_m} m tall` : "", h.m.animated ? "animated" : "", h.m.usd_url ? h.m.glb_url ? "also USD" : "USD only" : "", h.m.license, h.m.thumb_url] : h.kind === "texture" ? [h.m.tid, h.m.name, `maps: ${Object.keys(h.m.maps).join(", ")}`, h.m.size_m ? `tiles every ${h.m.size_m.join(" × ")} m` : "", h.m.license, h.m.preview_url] : [h.m.hid, h.m.name, h.m.tags.join(", "), h.m.license, h.m.preview_url], CELL = 160, isVite = (cwd) => {
+}, SOURCING = "sourcing.json", reason = (e) => String(e?.cause?.message ?? e?.message ?? e), api2 = async (path14, agent, body) => (await get(API + path14, body ? { method: "POST", headers: { "x-agent-model": agent, "content-type": "application/json" }, body: JSON.stringify(body) } : { headers: { "x-agent-model": agent } })).json(), report = (path14, agent, body) => api2(path14, agent, body).catch(() => {}), qs = (o) => new URLSearchParams(Object.entries(o).filter(([, v2]) => v2 !== void 0 && v2 !== "").map(([k, v2]) => [k, String(v2)])).toString(), licence = (m) => {
+  let by = /^CC0/i.test(m.license) ? "" : (m.author || /" by (.+?)(?: \(https?:| is licensed)/.exec(m.attribution ?? "")?.[1] || "").trim();
+  return by ? `${m.license} by ${by}` : m.license;
+}, line = (h) => h.kind === "model" ? [h.m.uid, h.m.name, h.m.style, `${h.m.tris} tris`, `${h.m.mb} MB`, h.m.real_height_m ? `about ${h.m.real_height_m} m tall` : "", [h.m.rigged ? "rigged" : "", h.m.animated ? "animated" : ""].filter(Boolean).join(", "), h.m.usd_url ? h.m.glb_url ? "also USD" : "USD only" : "", licence(h.m), h.m.thumb_url] : h.kind === "texture" ? [h.m.tid, h.m.name, `maps: ${Object.keys(h.m.maps).join(", ")}`, h.m.size_m ? `tiles every ${h.m.size_m.join(" × ")} m` : "", h.m.license, h.m.preview_url] : [h.m.hid, h.m.name, h.m.tags.join(", "), h.m.license, h.m.preview_url], CELL = 160, isVite = (cwd) => {
   try {
     let p = JSON.parse(readFileSync16(join19(cwd, "package.json"), "utf8"));
     return !!(p.dependencies?.vite ?? p.devDependencies?.vite);
@@ -61899,11 +62885,11 @@ var init_asset = __esm(() => {
   init_reference();
   init_state();
   API = process.env.PAPRIKA3D_ASSET_API ?? "https://assets.keeno.dev", seen = /* @__PURE__ */ new Map, shown = /* @__PURE__ */ new Map;
-  TAKEN = /* @__PURE__ */ new Set(["scene", "camera", "renderer", "controls", "clock", "light", "player", "world", "floor", "ground", "loader", "gltf", "box", "mixer", "pmrem", "sky", "loadMap", "class", "new", "delete", "switch", "case", "default", "function", "return", "var", "let", "const", "if", "else", "for", "while", "do", "in", "of", "import", "export"]), SLOTS = { basecolor: "map", normal: "normalMap", roughness: "roughnessMap", metalness: "metalnessMap", ao: "aoMap", opacity: "alphaMap" };
+  TAKEN = /* @__PURE__ */ new Set(["scene", "camera", "renderer", "controls", "clock", "light", "player", "world", "floor", "ground", "loader", "gltf", "box", "instanced", "v", "n", "mixer", "pmrem", "sky", "loadMap", "class", "new", "delete", "switch", "case", "default", "function", "return", "var", "let", "const", "if", "else", "for", "while", "do", "in", "of", "import", "export"]), SLOTS = { basecolor: "map", normal: "normalMap", roughness: "roughnessMap", metalness: "metalnessMap", ao: "aoMap", opacity: "alphaMap" };
 });
 
 import { existsSync as existsSync13, mkdirSync as mkdirSync9, readFileSync as readFileSync17, writeFileSync as writeFileSync10 } from "node:fs";
-import { cpus as cpus2, loadavg } from "node:os";
+import { cpus as cpus4, loadavg as loadavg3 } from "node:os";
 import { dirname as dirname15, join as join20, relative as relative10, resolve as resolve14 } from "node:path";
 function inside2(cwd, path14) {
   let to = resolve14(cwd, String(path14)), rel = relative10(cwd, to);
@@ -61952,17 +62938,17 @@ function sourceHint(cwd, code, searched) {
   let names = [...new Set([...code.matchAll(/\.name\s*=\s*["'`]([^"'`\n]{1,40})["'`]/g)].map((m) => m[1]))].slice(0, 4);
   return logSourcing(cwd, (x2) => {
     x2.hinted = (/* @__PURE__ */ new Date()).toISOString();
-  }, s), `No asset search on record for ${names.length ? `"${names.join(", ")}"` : "this model"}: asset_search (57,732 free models, searched by a reference crop) usually looks better than a model built in code.
+  }, s), `No asset search on record for ${names.length ? `"${names.join(", ")}"` : "this model"}: asset_search (84,249 free models, searched by a reference crop) usually looks better than a model built in code.
 `;
 }
 async function modelRun(chrome2, cwd, code, searched) {
   let hint = sourceHint(cwd, code, searched), { page: p, note: loaded } = await page(chrome2, cwd), note = hint + loaded, logs = printedLines2(p), errors = [], onError = (e) => errors.push(String(e?.message ?? e).split(`
 `)[0]);
   p.on("pageerror", onError);
-  let bound = RUN_MS * Math.min(4, Math.max(1, loadavg()[0] / cpus2().length)), timer2, late = !1;
+  let bound = RUN_MS * Math.min(4, Math.max(1, loadavg3()[0] / cpus4().length)), timer2, late = !1;
   try {
     let run2 = p.evaluate(`(async () => {
-  const before = __studio.signature(), { THREE, scene, geo, scatter, find, stats, save, load, clear } = await __studio.scope(), saved = [];
+  const before = __studio.signature(), { THREE, BufferGeometryUtils, scene, geo, scatter, find, stats, save, load, clear } = await __studio.scope(), saved = [];
   const keep = save; // what the code saved, for the reply
   const [, self, mark] = /^\\s*at (?:async )?(.*):(\\d+):\\d+$/.exec(String(new Error().stack).split("\\n")[1]) ?? [];
   let value, error;
@@ -61993,6 +62979,9 @@ ${loading(s.saved)}`),
       ...logs(),
       ...uniq2(errors, 5).map((e) => `errors: ${e}`)
     ];
+    if (r.error && /Failed to resolve module specifier 'three/.test(r.error))
+      r.error += `
+The modelling page has no import map: use THREE and BufferGeometryUtils from scope, load(path) for a model file.`;
     if (r.error)
       return { text: [note + `model_run threw: ${r.error}`, ...lines, r.changed ? "The scene was saved with what the code did before it threw." : ""].filter(Boolean).join(`
 `), failed: !0 };
@@ -62033,8 +63022,218 @@ var init_model = __esm(() => {
   MAKES = /new\s+THREE\.Mesh\b|\bManifold\.|\bscatter\(/, ADDS = /\bscene\.add\(/;
 });
 
-import { readFileSync as readFileSync18 } from "node:fs";
-import { extname as extname8, join as join21, resolve as resolve15 } from "node:path";
+import { existsSync as existsSync14, mkdirSync as mkdirSync10, readFileSync as readFileSync18, writeFileSync as writeFileSync11 } from "node:fs";
+import { basename as basename5, join as join21, relative as relative11, resolve as resolve15 } from "node:path";
+function gameState(state) {
+  let classes = [], type = (v2, key2, path14) => {
+    if (typeof v2 === "number")
+      return { t: "float", init: num3(v2) };
+    if (typeof v2 === "boolean")
+      return { t: "bool", init: String(v2) };
+    if (typeof v2 === "string")
+      return { t: "string", init: str(v2) };
+    if (Array.isArray(v2)) {
+      let first2 = v2.find((x2) => x2 !== null);
+      if (first2 === void 0)
+        return { t: "List<float>", init: "new List<float>() /* empty in observe(): set its element type */" };
+      let e = type(first2, key2.replace(/ies$/, "y").replace(/s$/, "") || key2, path14), items = v2.every((x2) => typeof x2 === typeof first2 && typeof x2 !== "object") ? v2.map((x2) => type(x2, key2, path14).init).join(", ") : "";
+      return { t: `List<${e.t}>`, init: `new List<${e.t}>${items ? ` { ${items} }` : "()"}` };
+    }
+    if (v2 && typeof v2 === "object") {
+      let name = klass(v2, pascal(key2));
+      return { t: name, init: `new ${name}()` };
+    }
+    return { t: "string", init: "null /* null in observe(): set its type */" };
+  }, taken = /* @__PURE__ */ new Set, klass = (o, want) => {
+    let name = want;
+    for (let i = 2;taken.has(name); i++)
+      name = `${want}${i}`;
+    taken.add(name);
+    let lines = Object.entries(o).map(([k, v2]) => {
+      let { t, init } = type(v2, k, name);
+      return `        public ${t} ${field(k)} = ${init};`;
+    });
+    return classes.push(`    [Serializable]
+    public class ${name}
+    {
+${lines.join(`
+`)}
+    }`), name;
+  };
+  if (state && typeof state === "object" && !Array.isArray(state))
+    klass(state, "GameState");
+  else
+    classes.push(`    [Serializable]
+    public class GameState
+    {
+        // the page had no window.__game.observe() to read; put the game's state here
+    }`);
+  return `// The game's state as window.__game.observe() returned it when paprika3d's unity_export ran, its values as the
+// defaults. Port the code that changes it into MonoBehaviours that hold one of these.
+using System;
+using System.Collections.Generic;
+
+namespace Paprika3d
+{
+${[...classes.slice(-1), ...classes.slice(0, -1)].join(`
+
+`)}
+}
+`;
+}
+function importer(name, s) {
+  let glb = `Assets/${name}/${name}.glb`, scene = `Assets/${name}/${name}.unity`, fog = !s.fog ? "            RenderSettings.fog = false;" : s.fog.mode === "linear" ? `            RenderSettings.fog = true; RenderSettings.fogMode = FogMode.Linear; RenderSettings.fogColor = Hex(${str(s.fog.color)});
+            RenderSettings.fogStartDistance = ${num3(s.fog.near)}; RenderSettings.fogEndDistance = ${num3(s.fog.far)};` : `            RenderSettings.fog = true; RenderSettings.fogMode = FogMode.ExponentialSquared; RenderSettings.fogColor = Hex(${str(s.fog.color)}); RenderSettings.fogDensity = ${num3(s.fog.density)};`, ambient = "flat" in s.ambient ? `            RenderSettings.ambientMode = AmbientMode.Flat; RenderSettings.ambientLight = Hex(${str(s.ambient.flat)});` : `            RenderSettings.ambientMode = AmbientMode.Trilight; RenderSettings.ambientSkyColor = Hex(${str(s.ambient.sky)});
+            RenderSettings.ambientEquatorColor = Color.Lerp(Hex(${str(s.ambient.sky)}), Hex(${str(s.ambient.ground)}), 0.5f); RenderSettings.ambientGroundColor = Hex(${str(s.ambient.ground)});`;
+  return `// Written by paprika3d's unity_export. On the project's first open it builds ${scene} from ${name}.glb, which
+// glTFast imports: the objects hidden in the page start inactive, the page's camera is the main camera, and its
+// background, fog and ambient light are set as the page had them. Menu paprika3d > Rebuild scene runs it again; in batch
+// mode, -executeMethod Paprika3d.PaprikaImport.Build.
+using System;
+using System.IO;
+using UnityEditor;
+using UnityEditor.SceneManagement;
+using UnityEngine;
+using UnityEngine.Rendering;
+
+namespace Paprika3d
+{
+    [InitializeOnLoad]
+    public static class PaprikaImport
+    {
+        const string Glb = ${str(glb)}, ScenePath = ${str(scene)};
+        static readonly string[] Hidden = { ${s.hidden.map(str).join(", ")} };
+
+        static PaprikaImport()
+        {
+            if (Application.isBatchMode || File.Exists(ScenePath)) return;
+            EditorApplication.delayCall += Build;
+        }
+
+        static Color Hex(string hex) { ColorUtility.TryParseHtmlString(hex, out var c); return c; }
+
+        [MenuItem("paprika3d/Rebuild scene")]
+        public static void Build()
+        {
+            PlayerSettings.colorSpace = ColorSpace.Linear; // three.js lights and shades in linear space
+            AssetDatabase.ImportAsset(Glb, ImportAssetOptions.ForceSynchronousImport);
+            var model = AssetDatabase.LoadAssetAtPath<GameObject>(Glb);
+            if (model == null)
+            {
+                Debug.LogError("paprika3d: " + Glb + " did not import: check that com.unity.cloud.gltfast resolved in Window > Package Manager");
+                if (Application.isBatchMode) EditorApplication.Exit(1);
+                return;
+            }
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            var root = (GameObject)PrefabUtility.InstantiatePrefab(model);
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+                if (Array.IndexOf(Hidden, t.name) >= 0) t.gameObject.SetActive(false);
+            var cam = ${s.camera ? `root.GetComponentsInChildren<Camera>(true).FirstOrDefault(c => c.name == ${str(s.camera)}) ?? ` : ""}root.GetComponentInChildren<Camera>(true);
+            if (cam == null) cam = new GameObject("Main Camera").AddComponent<Camera>();
+            cam.tag = "MainCamera";
+            if (cam.GetComponent<AudioListener>() == null) cam.gameObject.AddComponent<AudioListener>();
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = Hex(${str(s.background)});
+${fog}
+${ambient}
+            EditorSceneManager.SaveScene(scene, ScenePath);
+            EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
+            Debug.Log("paprika3d: built " + ScenePath + " from " + Glb);
+        }
+    }
+}
+`.replace(`using System;
+`, s.camera ? `using System;
+using System.Linq;
+` : `using System;
+`);
+}
+function porting(name, s, game, lost) {
+  let d = s.describe ?? {}, controls = d.controls === void 0 ? "" : `
+## Controls (describe())
+
+\`\`\`json
+${JSON.stringify(d.controls, null, 2)}
+\`\`\`
+`;
+  return `# Porting ${d.name ?? name} to Unity
+
+Exported by paprika3d's \`unity_export\` from ${game.url}. Open this folder in Unity ${UNITY} or newer (Unity Hub > Add > Add
+project from disk). On the first open the Package Manager fetches glTFast ${GLTFAST}, glTFast imports
+\`Assets/${name}/${name}.glb\`, and \`Assets/${name}/Editor/PaprikaImport.cs\` builds \`Assets/${name}/${name}.unity\`.
+
+## What came over
+
+${fmt(s.meshes)} meshes (${fmt(s.triangles)} triangles), their hierarchy, names and transforms, PBR materials and textures,
+${s.lights} light${s.lights === 1 ? "" : "s"} (KHR_lights_punctual), ${s.clips} animation clip${s.clips === 1 ? "" : "s"}, ${s.skinned} skinned and ${s.instanced} instanced mesh${s.instanced === 1 ? "" : "es"},
+the camera, background colour, fog and ambient light. Colour space is Linear. Physics colliders and bodies are not in the GLB.
+
+## What did not
+
+${lost.length ? lost.map((l) => `- ${l}`).join(`
+`) : "- nothing the export could see; post-processing passes, if the page has any, are not in the scene"}
+
+## What to port by hand
+
+- The game loop: \`requestAnimationFrame\` code becomes MonoBehaviour \`Update\`, with \`Time.deltaTime\` for the frame time.
+- Input: \`keydown\` / \`event.code\` handlers become the Input System's actions.
+- State: \`Assets/${name}/Scripts/GameState.cs\` holds what \`observe()\` returned; move the code that changes it.
+- Physics: Rapier or cannon bodies become Rigidbody and Collider components on the imported objects.
+- UI and sound: HTML overlays become uGUI or UI Toolkit, Web Audio becomes AudioSources.
+- Look: post-processing becomes a URP Volume; check light brightness against the page (three uses physical units).
+${controls}`;
+}
+async function unityExport(game, cwd, o = {}) {
+  let s = await game.queue(async () => {
+    if (!await game.page.evaluate("!!__harness.main()?.[1].screen"))
+      await game.page.evaluate(FIRST);
+    if (!await game.page.evaluate("!!window.__unityExport"))
+      await game.page.evaluate(readFileSync18(BUNDLE, "utf8"));
+    return await game.page.evaluate("window.__unityExport()");
+  }), name = pascal(o.name ?? (String(s.describe?.name ?? "") || basename5(cwd))), dir = resolve15(cwd, o.out ?? join21("paprika3d/unity", name)), at = relative11(cwd, dir) || ".", assets = join21(dir, "Assets", name);
+  for (let d of ["Packages", `Assets/${name}/Editor`, `Assets/${name}/Scripts`])
+    mkdirSync10(join21(dir, d), { recursive: !0 });
+  let fresh = !existsSync14(join21(dir, "Packages/manifest.json"));
+  if (fresh)
+    writeFileSync11(join21(dir, "Packages/manifest.json"), JSON.stringify({ dependencies: { "com.unity.cloud.gltfast": GLTFAST } }, null, 2) + `
+`);
+  if (!existsSync14(join21(dir, ".gitignore")))
+    writeFileSync11(join21(dir, ".gitignore"), `Library/
+Temp/
+Logs/
+obj/
+UserSettings/
+*.csproj
+*.sln
+`);
+  writeFileSync11(join21(assets, `${name}.glb`), Buffer.from(s.glb, "base64")), writeFileSync11(join21(assets, "Editor/PaprikaImport.cs"), importer(name, s)), writeFileSync11(join21(assets, "Scripts/GameState.cs"), gameState(s.state));
+  let lost = s.lost.map((l) => `${l.kind} (${l.names.slice(0, 3).join(", ")}${l.names.length > 3 ? `, ${l.names.length - 3} more` : ""})`);
+  writeFileSync11(join21(dir, "PORTING.md"), porting(name, s, game, lost));
+  let same = s.back.meshes >= s.meshes && s.back.triangles === s.triangles;
+  return { text: [
+    `Wrote a Unity project to ${at}/ (Unity ${UNITY}+: Unity Hub > Add > Add project from disk): Assets/${name}/${name}.glb (${mb2(s.bytes)}, ${fmt(s.meshes)} meshes, ${fmt(s.triangles)} triangles, ${s.lights} light${s.lights === 1 ? "" : "s"}, ${s.clips} clip${s.clips === 1 ? "" : "s"}), Editor/PaprikaImport.cs, which builds Assets/${name}/${name}.unity on the first open, Scripts/GameState.cs from ${s.state ? "observe()" : "nothing (no __game.observe())"}, ${fresh ? `Packages/manifest.json (glTFast ${GLTFAST})` : "the existing Packages/manifest.json"} and PORTING.md, what is left to port by hand.`,
+    same ? `Loaded back in the page, the GLB has all ${fmt(s.triangles)} triangles.` : `Loaded back in the page, the GLB has ${fmt(s.back.meshes)} meshes and ${fmt(s.back.triangles)} triangles of the scene's ${fmt(s.meshes)} and ${fmt(s.triangles)}: something did not export (the lines below, or the page's console).`,
+    lost.length ? `Does not carry over:
+${lost.map((l) => `- ${l}`).join(`
+`)}` : "Nothing the export can see is lost; gameplay code, input and physics are ported by hand (PORTING.md).",
+    `Not opened in Unity here; to check it headless: Unity -batchmode -quit -projectPath ${at} -executeMethod Paprika3d.PaprikaImport.Build -logFile -`
+  ].join(`
+`), ...same ? {} : { failed: !0 } };
+}
+var BUNDLE, GLTFAST = "6.20.0", UNITY = "6000.0", fmt = (n) => n.toLocaleString("en-US"), mb2 = (b2) => b2 >= 1e6 ? `${(b2 / 1e6).toFixed(1)} MB` : `${Math.round(b2 / 1000)} KB`, pascal = (s) => {
+  let p = s.replace(/[^A-Za-z0-9]+/g, " ").trim().split(" ").filter(Boolean).map((w2) => w2[0].toUpperCase() + w2.slice(1)).join("");
+  return !p ? "Game" : /^\d/.test(p) ? `_${p}` : p;
+}, KEYWORDS, field = (k) => {
+  let f = k.replace(/[^A-Za-z0-9_]/g, "_").replace(/^(?=\d)/, "_") || "_";
+  return KEYWORDS.has(f) ? `@${f}` : f;
+}, str = (s) => JSON.stringify(s), num3 = (n) => `${Number.isFinite(n) ? n : 0}f`;
+var init_unity = __esm(() => {
+  init_look();
+  BUNDLE = resolve15(import.meta.dirname, "..", "geo/dist/unity.js"), KEYWORDS = new Set("abstract as base bool break byte case catch char checked class const continue decimal default delegate do double else enum event explicit extern false finally fixed float for foreach goto if implicit in int interface internal is lock long namespace new null object operator out override params private protected public readonly ref return sbyte sealed short sizeof stackalloc static string struct switch this throw true try typeof uint ulong unchecked unsafe ushort using virtual void volatile while".split(" "));
+});
+
+import { readFileSync as readFileSync19 } from "node:fs";
+import { extname as extname8, join as join22, resolve as resolve16 } from "node:path";
 function lintText(path14, src) {
   return STALE.flatMap(([re2, went, use]) => [...src.matchAll(re2)].map((m) => `${path14}:${src.slice(0, m.index).split(`
 `).length} uses ${m[1] ?? m[0]}, ${went}: use ${use}`));
@@ -62044,17 +63243,17 @@ function staleThree(cwd) {
   sourceFiles(cwd, (path14, binary) => {
     if (binary || !CODE.has(extname8(path14).toLowerCase()))
       return;
-    let src = readFileSync18(join21(cwd, path14), "utf8");
+    let src = readFileSync19(join22(cwd, path14), "utf8");
     if (path14.endsWith(".html"))
       mapped ||= minor(src.match(MAP)?.[1]);
     composer ||= /\bEffectComposer\b/.test(src), output2 ||= /\bOutputPass\b/.test(src), hits.push(...lintText(path14, src));
   });
-  let pkg = json(join21(cwd, "package.json")), have = minor(json(join21(cwd, "node_modules/three/package.json"))?.version) || minor(pkg?.dependencies?.three ?? pkg?.devDependencies?.three) || mapped, old = have && have < CURRENT ? [`three r${have} installed (current r${CURRENT}).`] : [], pass = composer && !output2 ? ["EffectComposer without an OutputPass: since r155 tone mapping and the output colour space apply only on the screen pass, so add new OutputPass() as the last pass."] : [];
+  let pkg = json(join22(cwd, "package.json")), have = minor(json(join22(cwd, "node_modules/three/package.json"))?.version) || minor(pkg?.dependencies?.three ?? pkg?.devDependencies?.three) || mapped, old = have && have < CURRENT ? [`three r${have} installed (current r${CURRENT}).`] : [], pass = composer && !output2 ? ["EffectComposer without an OutputPass: since r155 tone mapping and the output colour space apply only on the screen pass, so add new OutputPass() as the last pass."] : [];
   return [...old, ...pass, ...hits.slice(0, 5), ...hits.length > 5 ? [`and ${hits.length - 5} more uses of removed three.js API`] : []];
 }
 var STALE, CODE, MAP, minor = (v2) => Number(String(v2 ?? "").match(/^\D*0\.(\d+)/)?.[1]) || 0, json = (p) => {
   try {
-    return JSON.parse(readFileSync18(p, "utf8"));
+    return JSON.parse(readFileSync19(p, "utf8"));
   } catch {
     return;
   }
@@ -62072,10 +63271,10 @@ var init_lint = __esm(() => {
       "removed in React Three Fiber 9",
       "ThreeElements['mesh'] (and so on for each element)"
     ]
-  ], CODE = /* @__PURE__ */ new Set([".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".html", ".vue", ".svelte"]), MAP = /["']three["']\s*:\s*["'][^"']*?three@([\w.^~-]+)/, CURRENT = minor("0.186.1") || minor(json(resolve15(import.meta.dirname, "../node_modules/three/package.json"))?.version);
+  ], CODE = /* @__PURE__ */ new Set([".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".html", ".vue", ".svelte"]), MAP = /["']three["']\s*:\s*["'][^"']*?three@([\w.^~-]+)/, CURRENT = minor("0.186.1") || minor(json(resolve16(import.meta.dirname, "../node_modules/three/package.json"))?.version);
 });
 
-import { rmSync as rmSync6 } from "node:fs";
+import { rmSync as rmSync7 } from "node:fs";
 function stillShare(poses) {
   let d = poses.slice(1).map((b2, i) => Math.hypot(b2[0] - poses[i][0], b2[1] - poses[i][1], b2[2] - poses[i][2])), moved = d.filter((x2) => x2 > 0.000001).sort((x2, y) => x2 - y);
   if (moved.length < 5)
@@ -62103,7 +63302,7 @@ async function measure2(seat, game, steps, first2, browser, cwd) {
     let bad = seen2.find(([, share]) => share !== null && share >= STILL);
     return !bad ? "" : `Motion at 100 Hz (${bad[0]}): it stands still on ${Math.round(bad[1] * 100)}% of frames while ${keys.join(" + ")} is held, which a 100 or 120 Hz screen shows as stutter though every frame here looks even. A thing moved in whole 1/60 s steps is drawn between its last two (prev + (cur - prev) * acc / STEP, or game-state's between()); or move it by the frame's elapsed time.`;
   } finally {
-    await probe2.close().catch(() => {}), rmSync6(probe2.runDir, { recursive: !0, force: !0 });
+    await probe2.close().catch(() => {}), rmSync7(probe2.runDir, { recursive: !0, force: !0 });
   }
 }
 async function pacing(game, steps, chrome2, cwd) {
@@ -62143,14 +63342,139 @@ var init_pacing = __esm(() => {
   tried = /* @__PURE__ */ new WeakMap;
 });
 
-import { isAbsolute as isAbsolute5, relative as relative11 } from "node:path";
+import { rmSync as rmSync8 } from "node:fs";
+function phaseResponse(poses) {
+  let v2 = poses.slice(1).map((b2, i) => [b2[0] - poses[i][0], b2[2] - poses[i][2]]);
+  if (v2.length < TAIL)
+    return null;
+  let tail = v2.slice(-TAIL), x2 = tail.reduce((s, a2) => s + a2[0], 0) / TAIL, z2 = tail.reduce((s, a2) => s + a2[1], 0) / TAIL, speed = Math.hypot(x2, z2);
+  if (!Number.isFinite(speed) || speed < 0.000001 || tail.some((a2) => Math.hypot(a2[0] - x2, a2[1] - z2) > 0.2 * speed))
+    return null;
+  let at = v2.findIndex((a2) => (a2[0] * x2 + a2[1] * z2) / speed >= 0.9 * speed);
+  return at < 0 ? null : { frames: at + 1, speed };
+}
+function responseTimes(phases) {
+  let [start, reverse, turn] = phases.map(phaseResponse);
+  if (!start)
+    return null;
+  let comparable = (p) => p && p.speed / start.speed >= 0.599999 && p.speed / start.speed <= 1.600001 ? p.frames : null, back = comparable(reverse), cut = comparable(turn);
+  return { start: start.frames, reverse: back, turn: cut, slow: start.frames > SLOW || back !== null && cut !== null && back > SLOW && cut > SLOW };
+}
+async function measure3(seat, game, steps, first2, browser, cwd) {
+  let key2 = steps[first2].key, keys = [key2, ...DIRECTIONS[key2]], probe2 = seat.probe = await openGame2({ url: game.url, cwd, browser, viewport: game.page.viewport() ?? void 0, config: game.config });
+  try {
+    let earlier = game.played.slice(0, game.played.length - steps.length);
+    await act(probe2, [...earlier, ...steps.slice(0, first2)]);
+    for (let k of [...probe2.held]) {
+      if (k.startsWith("mouse:"))
+        await probe2.page.mouse.up({ button: k.slice(6) });
+      else
+        await probe2.page.keyboard.up(k);
+      probe2.held.delete(k);
+    }
+    await act(probe2, [{ wait: 30 }]);
+    let phases = [];
+    for (let k of keys) {
+      let state = await probe2.page.evaluate("window.__game?.observe?.() ?? null");
+      await probe2.page.keyboard.down(k);
+      let out = await probe2.page.evaluate(`(async () => {
+        ${motionStart(statePos(state), !0)};
+        window.__harness.skip = true;
+        try { await __clock.step(${FRAMES2}, 1000 / 60); }
+        finally { window.__harness.skip = false; }
+        return window.__harnessMotion?.end() ?? null;
+      })()`);
+      if (await probe2.page.keyboard.up(k), !out)
+        return null;
+      phases.push(out);
+    }
+    let times2 = responseTimes(phases.map((p) => p.samples));
+    if (!times2)
+      return null;
+    if (!times2.slow)
+      return "";
+    let { start, reverse, turn } = times2;
+    return `Response (${phases[0].name}): full speed in ${start} frames from standing${reverse == null ? "" : `, reverses in ${reverse}`}${turn == null ? "" : `, makes a 90° cut in ${turn}`} while ${keys.join(", then ")} is held (60 fps frames to 90% of held speed the new way). Arcade/action controls answer in about 3–6 frames; past 8 reads as sluggish unless the request wants weight (a car, ice, a heavy ship): ease velocity much faster, or set it from input and ease only looks (facing, animation blends).`;
+  } finally {
+    await probe2.close().catch(() => {}), rmSync8(probe2.runDir, { recursive: !0, force: !0 });
+  }
+}
+async function response(game, steps, chrome2, cwd) {
+  if (game.engine.name !== "chromium" || !Array.isArray(steps))
+    return;
+  let first2 = steps.findIndex(holds3);
+  if (first2 < 0)
+    return;
+  let print = fingerprint(cwd), was = tried2.get(game), tries = was?.print === print ? was.tries : 0;
+  if (tries >= TRIES2)
+    return;
+  tried2.set(game, { print, tries: tries + 1 });
+  let seat = {}, timer2;
+  try {
+    let browser = await chrome2(), line2 = await Promise.race([
+      measure3(seat, game, steps, first2, browser, cwd),
+      new Promise((done) => {
+        timer2 = setTimeout(() => {
+          seat.probe?.close().catch(() => {}), done(null);
+        }, MAX_MS2);
+      })
+    ]);
+    if (line2 === null)
+      return;
+    return tried2.set(game, { print, tries: TRIES2 }), line2 || void 0;
+  } catch {
+    return;
+  } finally {
+    clearTimeout(timer2);
+  }
+}
+var DIRECTIONS, FRAMES2 = 32, TAIL = 8, TRIES2 = 3, MAX_MS2 = 15000, SLOW = 8, holds3 = (s) => ("key" in s) && typeof s.key === "string" && Object.hasOwn(DIRECTIONS, s.key) && (s.down === !0 || s.down === void 0 && (s.frames ?? 1) >= 12), tried2;
+var init_response = __esm(() => {
+  init_browser2();
+  init_fingerprint();
+  init_input();
+  DIRECTIONS = {
+    ArrowUp: ["ArrowDown", "ArrowRight"],
+    ArrowDown: ["ArrowUp", "ArrowRight"],
+    ArrowLeft: ["ArrowRight", "ArrowUp"],
+    ArrowRight: ["ArrowLeft", "ArrowUp"],
+    KeyW: ["KeyS", "KeyD"],
+    KeyS: ["KeyW", "KeyD"],
+    KeyA: ["KeyD", "KeyW"],
+    KeyD: ["KeyA", "KeyW"],
+    w: ["s", "d"],
+    s: ["w", "d"],
+    a: ["d", "w"],
+    d: ["a", "w"],
+    W: ["S", "D"],
+    S: ["W", "D"],
+    A: ["D", "W"],
+    D: ["A", "W"]
+  };
+  tried2 = /* @__PURE__ */ new WeakMap;
+});
+
+import { isAbsolute as isAbsolute5, relative as relative12 } from "node:path";
+function newerBundle(a2, b2) {
+  let key2 = (v2) => {
+    let [, x2, y, z2, n] = v2.match(/^(\d+)\.(\d+)\.(\d+)(?:-\D*(\d+))?/) ?? [];
+    return [x2, y, z2, n ?? -1].map(Number);
+  };
+  if (!a2 || !b2)
+    return !1;
+  let [ka, kb] = [key2(a2), key2(b2)];
+  for (let i = 0;i < 4; i++)
+    if (ka[i] !== kb[i])
+      return ka[i] > kb[i];
+  return !1;
+}
 function serverText(log, cwd) {
   let found = log.flatMap((l, i) => {
     if (FRAME2.test(l) || !/error|warn/i.test(l))
       return [];
     let at = log[i + 1]?.match(FRAME2), file3 = at?.[1].replace(/^(webpack-internal:\/\/\/(\([^)]*\)\/)?|file:\/\/)/, "").replace(/^\.\//, "");
-    if (file3 && isAbsolute5(file3) && !relative11(cwd, file3).startsWith(".."))
-      file3 = relative11(cwd, file3);
+    if (file3 && isAbsolute5(file3) && !relative12(cwd, file3).startsWith(".."))
+      file3 = relative12(cwd, file3);
     return [`Dev server: ${l.trim().replace(/^[^\x00-\x7f]+\s*/, "").slice(0, 300)}${at ? ` (${file3}:${at[2]})` : ""}`];
   });
   return uniq2(found, 5);
@@ -62165,7 +63489,7 @@ async function openText(game, cwd) {
     lines.push(`Page text outside the canvas: ${p.words ? `${p.h1} h1, ${p.h2} h2, ${p.words} words` : "none"}`);
   return lines;
 }
-var FRAME2, PAGE = `(() => {
+var bundleVersion = (text) => text.match(/^\/\/ @paprika3d\/game-\w+ (\d+\.\d+\.\d+(?:-[\w.]+)?),/)?.[1], FRAME2, PAGE = `(() => {
   const c = __harness.canvas(), name = (e) => e.tagName.toLowerCase() + (e.id ? "#" + e.id : e.classList[0] ? "." + e.classList[0] : "");
   let empty = null;
   if (c?.isConnected) {
@@ -62180,19 +63504,19 @@ var init_open = __esm(() => {
   FRAME2 = /^\s+at (?:.*\()?(.+?):(\d+):\d+\)?$/;
 });
 
-import { appendFileSync as appendFileSync2, existsSync as existsSync14, mkdirSync as mkdirSync10, readFileSync as readFileSync19, writeFileSync as writeFileSync11 } from "node:fs";
+import { appendFileSync as appendFileSync2, existsSync as existsSync15, mkdirSync as mkdirSync11, readFileSync as readFileSync20, writeFileSync as writeFileSync12 } from "node:fs";
 import { createHash as createHash5, randomUUID } from "node:crypto";
 import { platform } from "node:os";
-import { join as join22, resolve as resolve16 } from "node:path";
+import { join as join23, resolve as resolve17 } from "node:path";
 function install2() {
   if (id)
     return id;
-  let f = join22(telemetryDir(), "id");
+  let f = join23(telemetryDir(), "id");
   try {
-    id = readFileSync19(f, "utf8").trim();
+    id = readFileSync20(f, "utf8").trim();
   } catch {}
   if (!id)
-    id = randomUUID(), mkdirSync10(telemetryDir(), { recursive: !0 }), writeFileSync11(f, id);
+    id = randomUUID(), mkdirSync11(telemetryDir(), { recursive: !0 }), writeFileSync12(f, id);
   return id;
 }
 function noteOpen(facts) {
@@ -62207,16 +63531,18 @@ function event(tool, args, r, ms, schema) {
       if (k !== "cwd" && k !== "game")
         flags[k] = schema?.properties?.[k]?.enum?.includes(v2) ? v2 : !0;
     let ok = !!r && !r.isError, error = !ok ? r ? scrub(t) : "threw" : void 0;
-    if (last3 = { tool, flags, ok, ...error && { error } }, !ON)
+    if (last3 = { tool, flags, ok, ...error && { error } }, !ON) {
+      usedToday();
       return;
+    }
     let steps = {};
     for (let s of Array.isArray(args?.steps) ? args.steps : [])
       for (let k of Object.keys(s ?? {}))
         if (KINDS3.includes(k))
           steps[k] = (steps[k] ?? 0) + 1;
-    let faults = (t.match(/^(Lighting|Surfaces|Surface): (?!not checked)/gm) ?? []).length, pageErrors = Number(/Page errors since the last call \((\d+)\)/.exec(t)?.[1] ?? 0), e = {
+    let faults = (t.match(/^(Lighting|Surfaces|Surface|Skinned scale): (?!not checked)/gm) ?? []).length, pageErrors = Number(/Page errors since the last call \((\d+)\)/.exec(t)?.[1] ?? 0), e = {
       ...base(),
-      project: createHash5("sha256").update(install2() + resolve16(String(args?.cwd ?? "."))).digest("hex").slice(0, 12),
+      project: createHash5("sha256").update(install2() + resolve17(String(args?.cwd ?? "."))).digest("hex").slice(0, 12),
       tool,
       ms,
       ok,
@@ -62229,42 +63555,73 @@ function event(tool, args, r, ms, schema) {
       .../answered nothing for|without finishing|did not answer/.test(t) && { hung: !0 },
       ...extra
     };
-    extra = {}, mkdirSync10(telemetryDir(), { recursive: !0 }), appendFileSync2(join22(telemetryDir(), `${run2}.jsonl`), `${JSON.stringify(e)}
+    extra = {}, mkdirSync11(telemetryDir(), { recursive: !0 }), appendFileSync2(join23(telemetryDir(), `${run2}.jsonl`), `${JSON.stringify(e)}
 `);
   } catch {}
 }
 function reportTool(a2, runDir) {
   if (!REPORT_TOOL.inputSchema.properties.kind.enum.includes(a2.kind) || typeof a2.text !== "string" || !a2.text.trim())
     throw Error('kind: "bug", "feedback" or "criticism", and text saying what happened');
+  if (PUBLISHED && off)
+    return Promise.resolve(`Not sent: ${process.env.PAPRIKA3D_TELEMETRY === "0" ? "PAPRIKA3D_TELEMETRY=0" : "DO_NOT_TRACK=1"} turns send_feedback off, so nothing leaves this machine. To send it, file it with \`${ISSUE_CMD}\` (or at ${ISSUES}). Carry on with the task.`);
   return report2(a2.kind, a2.text, runDir);
 }
 async function report2(kind, text, runDir) {
-  if (++reports > 5)
-    return "Not sent: at most 5 reports a session. Carry on with the task.";
-  let body = JSON.stringify({ id: randomUUID(), ...base(), kind, text: text.slice(0, 2000), last: last3 }), copy = join22(runDir ?? telemetryDir(), `report-${Date.now()}.json`);
+  let body = JSON.stringify({ id: randomUUID(), ...base(), kind, text: text.slice(0, 2000), last: last3 }), copy = join23(runDir ?? telemetryDir(), `report-${Date.now()}.json`);
   try {
-    mkdirSync10(runDir ?? telemetryDir(), { recursive: !0 }), writeFileSync11(copy, body);
+    mkdirSync11(runDir ?? telemetryDir(), { recursive: !0 }), writeFileSync12(copy, body);
   } catch {}
-  if (await post("/report", body))
-    return "Sent to the paprika3d team. Carry on with the task.";
+  let file3 = `A copy is in ${copy}. File it with \`${ISSUE_CMD}\` (or at ${ISSUES}) instead, not with the client's own feedback command. Carry on with the task.`;
+  if (reports >= MAX_REPORTS)
+    return `Not sent: at most ${MAX_REPORTS} reports a session. ${file3}`;
+  let answer = await postStatus("/report", body);
+  if (!answer || answer >= 500)
+    answer = await new Promise((r) => setTimeout(r, 500)).then(() => postStatus("/report", body));
+  if (answer >= 200 && answer < 300)
+    return reports++, "Sent to the paprika3d team. Carry on with the task.";
+  if (answer === 429)
+    return `Not sent: the team's server's daily feedback limit was reached. ${file3}`;
+  if (answer)
+    return `Not sent: the team's server refused it (HTTP ${answer}). ${file3}`;
   if (!ON)
-    return `Not sent: the team's server did not answer. A copy is in ${copy}. Carry on with the task.`;
+    return `Not sent: the team's server (${host()}) did not answer. ${file3}`;
   try {
-    writeFileSync11(join22(telemetryDir(), `${randomUUID()}.report.json`), body);
+    writeFileSync12(join23(telemetryDir(), `${randomUUID()}.report.json`), body);
   } catch {}
   return `Saved in ${copy}; it is sent when the session stops. Carry on with the task.`;
 }
 async function installed(client) {
   if (!FEEDBACK)
     return;
+  mcpClient = client.slice(0, 64);
   try {
-    let f = join22(telemetryDir(), "pinged"), body = JSON.stringify({ ...base(), client: client.slice(0, 64) }), version = "0.4.2";
-    if (existsSync14(f) && readFileSync19(f, "utf8") === "0.4.2")
+    let f = join23(telemetryDir(), "pinged"), body = JSON.stringify({ ...base(), client: client.slice(0, 64) }), version = "0.4.3";
+    if (existsSync15(f) && readFileSync20(f, "utf8") === "0.4.3")
       return;
     let answer = await postStatus("/install", body);
     if (answer && answer < 500)
-      writeFileSync11(f, "0.4.2");
+      writeFileSync12(f, "0.4.3");
   } catch {}
+}
+async function usedToday() {
+  if (!FEEDBACK)
+    return;
+  let day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  if (today === day)
+    return;
+  today = day;
+  try {
+    let f = join23(telemetryDir(), "active"), body = JSON.stringify({ ...base(), day, client: mcpClient });
+    if (existsSync15(f) && readFileSync20(f, "utf8") === day)
+      return;
+    let answer = await postStatus("/active", body);
+    if (answer && answer < 500)
+      writeFileSync12(f, day);
+    else
+      today = "";
+  } catch {
+    today = "";
+  }
 }
 function told() {
   return "";
@@ -62273,22 +63630,151 @@ function stopEvent(asked) {
   if (!ON)
     return;
   try {
-    mkdirSync10(telemetryDir(), { recursive: !0 }), appendFileSync2(join22(telemetryDir(), `stop-${run2}.jsonl`), `${JSON.stringify({ ...base(), tool: "stop", asked })}
+    mkdirSync11(telemetryDir(), { recursive: !0 }), appendFileSync2(join23(telemetryDir(), `stop-${run2}.jsonl`), `${JSON.stringify({ ...base(), tool: "stop", asked })}
 `);
   } catch {}
 }
-var off, ON = !1, FEEDBACK, URL3 = "https://paprika3d-telemetry.paprika3d.workers.dev", KEY = "9cf6093e07a2c1cc94161e84dbdb59268440ff04d06b7be9", telemetryDir = () => join22(harnessHome(), "telemetry"), run2, KINDS3, id = "", base = () => ({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), install: install2(), run: run2, version: "0.4.2", os: platform(), node: process.versions.node.split(".")[0] }), scrub = (s) => (s.split(`
-`)[0] ?? "").replace(/[a-z]+:\/\/\S+/gi, "<url>").replace(/(?:[A-Za-z]:\\|~?\/)[^\s:'"`,)]+/g, "<path>").slice(0, 160), extra, last3 = null, postStatus = (path14, body) => !URL3 ? Promise.resolve(0) : fetch(URL3 + path14, { method: "POST", headers: { "content-type": "application/json", "x-paprika3d-key": KEY }, body, signal: AbortSignal.timeout(3000) }).then((r) => r.status, () => 0), post = (path14, body) => postStatus(path14, body).then((s) => s >= 200 && s < 300), REPORT_TOOL, reports = 0, REPORT_ASK;
+var off, ON = !1, PUBLISHED = !0, FEEDBACK, ISSUES = "https://github.com/Keeno-Corp/paprika3d/issues/new", ISSUE_CMD = 'gh issue create -R Keeno-Corp/paprika3d -t "agent-report: <summary>" -b "<the report>"', URL3 = "https://paprika3d-telemetry.paprika3d.workers.dev", KEY = "9cf6093e07a2c1cc94161e84dbdb59268440ff04d06b7be9", telemetryDir = () => join23(harnessHome(), "telemetry"), run2, KINDS3, id = "", base = () => ({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), install: install2(), run: run2, version: "0.4.3", os: platform(), node: process.versions.node.split(".")[0] }), scrub = (s) => (s.split(`
+`)[0] ?? "").replace(/[a-z]+:\/\/\S+/gi, "<url>").replace(/(?:[A-Za-z]:\\|~?\/)[^\s:'"`,)]+/g, "<path>").slice(0, 160), extra, last3 = null, postStatus = (path14, body) => !URL3 ? Promise.resolve(0) : fetch(URL3 + path14, { method: "POST", headers: { "content-type": "application/json", "x-paprika3d-key": KEY }, body, signal: AbortSignal.timeout(3000) }).then((r) => r.status, () => 0), host = () => {
+  try {
+    return new globalThis.URL(URL3).host;
+  } catch {
+    return "none set";
+  }
+}, MAX_REPORTS = 20, REPORT_TOOL, reports = 0, mcpClient = "", today = "", REPORT_ASK;
 var init_telemetry = __esm(() => {
   init_state();
-  off = /^(1|true)$/i.test(process.env.DO_NOT_TRACK ?? "") || process.env.PAPRIKA3D_TELEMETRY === "0", FEEDBACK = !off, run2 = randomUUID().slice(0, 8), KINDS3 = ["key", "mouse", "wheel", "resize", "scroll", "touch", "wait", "clock", "state", "until", "action"];
+  off = /^(1|true)$/i.test(process.env.DO_NOT_TRACK ?? "") || process.env.PAPRIKA3D_TELEMETRY === "0", FEEDBACK = PUBLISHED && !off, run2 = randomUUID().slice(0, 8), KINDS3 = ["key", "mouse", "wheel", "resize", "scroll", "touch", "wait", "clock", "state", "until", "action"];
   extra = {};
   REPORT_TOOL = {
     name: "send_feedback",
-    description: "Sends the paprika3d team a bug, feedback or criticism about the harness itself (not about the user's page): a reply that was wrong or unclear, a tool that hung, errored or got in your way, a check you disagree with, or something you needed and no tool gave. It attaches the last tool call's name, options and error, never the page's code or files. One line back; carry on with the task after it.",
+    annotations: { readOnlyHint: !1, openWorldHint: !0 },
+    description: `Sends the paprika3d team a bug, feedback or criticism about the harness itself (not about the user's page): a reply that was wrong or unclear, a tool that hung, errored or got in your way, a check you disagree with, or something you needed and no tool gave. It attaches the last tool call's name, options and error, never the page's code or files. Use it, not the client's own feedback command (Claude Code's \`/feedback\` goes to Anthropic). At most ${MAX_REPORTS} a session, so put related snags in one report; a refused one says how to file it as an issue. One line back; carry on with the task after it.`,
     inputSchema: { type: "object", properties: { kind: { type: "string", enum: ["bug", "feedback", "criticism"] }, text: { type: "string", description: "What happened and what you expected, in a few sentences (2,000 characters at most)." } }, required: ["kind", "text"] }
   };
   REPORT_ASK = FEEDBACK ? "\nIf a paprika3d reply was wrong, unclear or got in your way, say so once with `send_feedback`." : "";
+});
+
+import { lstatSync, readFileSync as readFileSync21, realpathSync as realpathSync3, statSync as statSync11 } from "node:fs";
+import { dirname as dirname16, isAbsolute as isAbsolute6, join as join24, relative as relative13, resolve as resolve18 } from "node:path";
+function sections(text) {
+  let out = /* @__PURE__ */ new Map, at;
+  for (let line2 of text.split(/\r?\n/)) {
+    let h = /^##\s+(.+?)\s*$/.exec(line2);
+    if (h)
+      out.set(h[1].toLowerCase(), at = []);
+    else if (line2.trim())
+      at?.push(line2.trim());
+  }
+  return out;
+}
+function unsafe(cwd, f) {
+  let full = resolve18(cwd, f);
+  if (isAbsolute6(f) || relative13(resolve18(cwd), full).startsWith(".."))
+    return "it is outside the project";
+  try {
+    if (!lstatSync(full, { throwIfNoEntry: !1 }))
+      return "missing";
+  } catch {
+    return "missing";
+  }
+  let real;
+  try {
+    real = realpathSync3(full);
+  } catch {
+    return "missing";
+  }
+  if (relative13(realpathSync3(cwd), real).startsWith(".."))
+    return "it links outside the project";
+  return statSync11(real).isFile() ? null : "it is not a file";
+}
+function lintBrief(cwd) {
+  let file3 = briefFile(cwd);
+  if (!file3)
+    return [];
+  let why = unsafe(cwd, file3);
+  if (why)
+    return [`${file3} is not read: ${why}.`];
+  let read2 = (f) => readFileSync21(join24(cwd, f), "utf8"), out = [], brief = sections(read2(file3)), must = numbered(brief.get("must have"));
+  if (ownWords(file3, brief))
+    return [];
+  if (!brief.has("what it is"))
+    out.push(`${file3} has no "## What it is" section.`);
+  if (!must.length)
+    out.push(`${file3} has no numbered line under "## Must have": the build is checked against that list.`);
+  if (!brief.has("sheets"))
+    out.push(`${file3} has no "## Sheets" section: it names each sheet and logs the answers.`);
+  let named2 = sheetNames(brief.get("sheets"));
+  for (let name of named2) {
+    let beside = join24(dirname16(file3), name).split("\\").join("/"), f = unsafe(cwd, beside) !== "missing" ? beside : name, why2 = unsafe(cwd, f);
+    if (why2 === "missing") {
+      out.push(`${file3} names ${f} under "## Sheets", and there is no such file.`);
+      continue;
+    }
+    if (why2) {
+      out.push(`${file3} names ${f} under "## Sheets", and it is not read: ${why2}.`);
+      continue;
+    }
+    let base2 = f.split("/").pop();
+    if (!/\.md$/i.test(base2))
+      continue;
+    if (!must.some((l) => l.includes(base2)))
+      out.push(`${file3}'s Must have list has no line for ${base2} (one line per sheet).`);
+    let text = read2(f), s = sections(text);
+    if (!text.trim()) {
+      out.push(`${f} is empty.`);
+      continue;
+    }
+    if (base2 === "LOOK.md") {
+      let palette = s.get("palette"), checks = numbered(s.get("checks"));
+      if (!palette?.some((l) => /#[0-9a-f]{6}\b/i.test(l)))
+        out.push(`${f} has no hex colour under "## Palette".`);
+      else if (palette.some((l) => /#[0-9a-f]{6}\b/i.test(l) && !/\(.*\)\s*$/.test(l)))
+        out.push(`${f}'s Palette line names no source: end it with the picture it was sampled from, or "(not sampled)".`);
+      if (checks.length < 3 || checks.length > 5)
+        out.push(`${f} has ${checks.length} numbered line${checks.length === 1 ? "" : "s"} under "## Checks"; the critic and a loop's judge hold the page to three to five.`);
+    } else if (base2 === "CHARACTERS.md") {
+      let entries = [...s].filter(([, lines]) => lines.some((l) => ENTRY.test(l) || /^Source:/.test(l)));
+      for (let [name2, lines] of entries)
+        if (!lines.some((l) => /^Source:\s*\S/.test(l)))
+          out.push(`${f}: "${name2}" has no Source line (a library pick, a web file, a generation job, or built in code).`);
+    } else if (base2 === "DESIGN.md") {
+      let decisions = find(s, "decisions"), log = find(s, "decision log");
+      if (!decisions)
+        out.push(`${f} has no "## Decisions" section.`);
+      if (!log)
+        out.push(`${f} has no "## Decision log" section.`);
+      else if (decisions?.some((l) => l.startsWith("- ")) && !log.length)
+        out.push(`${f} lists decisions and its Decision log is empty: each one taken gets a line (date · what · choice · over what · who).`);
+    }
+  }
+  return out;
+}
+function briefText(cwd) {
+  let file3 = null;
+  try {
+    if (file3 = briefFile(cwd), !file3)
+      return "";
+    let brief = unsafe(cwd, file3) ? null : sections(readFileSync21(join24(cwd, file3), "utf8"));
+    if (brief && ownWords(file3, brief))
+      return "";
+    let lacks = lintBrief(cwd);
+    if (lacks.length)
+      return `
+Brief (${file3}) and its sheets lack ${lacks.length === 1 ? "one thing" : `${lacks.length} things`}:
+${lacks.map((l) => `- ${l}`).join(`
+`)}`;
+    return sheetNames(brief?.get("sheets")).length ? `
+Brief (${file3}) and the sheets it names are whole.` : `
+Brief (${file3}) has its sections and names no sheet, so no sheet was checked: only a scene rebuilt 1:1 from pictures goes without LOOK.md.`;
+  } catch (e) {
+    return `
+Brief${file3 ? ` (${file3})` : ""}: not read (${e.message}).`;
+  }
+}
+var numbered = (lines = []) => lines.filter((l) => /^\d+\.\s+\S/.test(l)), find = (s, start) => [...s].find(([k]) => k.startsWith(start))?.[1], briefFile = (cwd) => ["paprika-loop/PROMPT.md", "BRIEF.md"].find((f) => unsafe(cwd, f) !== "missing") ?? null, ownWords = (file3, brief) => file3 !== "BRIEF.md" && !["what it is", "must have", "sheets"].some((h) => brief.has(h)), ENTRY, sheetNames = (lines = []) => [...new Set(lines.flatMap((l) => l.split(/\s*·\s*/)).map((s) => s.trim().replace(/^`(.*)`$/, "$1").trim()).filter((s) => /\.(md|png|jpe?g|webp)$/i.test(s)))];
+var init_brief = __esm(() => {
+  ENTRY = /^(Role|Silhouette|Colours|Colors|Materials|Animation|Refs|Turnaround):/;
 });
 
 var exports_sheet = {};
@@ -62303,14 +63789,15 @@ __export(exports_sheet, {
   found: () => found,
   dig: () => dig,
   checkText: () => checkText,
+  badge: () => badge,
   absent: () => absent,
   PROVIDERS: () => PROVIDERS,
   MODEL_ORDER: () => MODEL_ORDER,
   IMAGE_ORDER: () => IMAGE_ORDER
 });
-import { existsSync as existsSync15, mkdirSync as mkdirSync11, readFileSync as readFileSync20, writeFileSync as writeFileSync12 } from "node:fs";
+import { existsSync as existsSync16, mkdirSync as mkdirSync12, readFileSync as readFileSync22, writeFileSync as writeFileSync13 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { dirname as dirname16, extname as extname9, join as join23, relative as relative12, resolve as resolve17, sep as sep5 } from "node:path";
+import { dirname as dirname17, extname as extname9, join as join25, relative as relative14, resolve as resolve19, sep as sep5 } from "node:path";
 function found(env2 = process.env) {
   let opt = (k) => [env2[`PAPRIKA3D_IMAGE_${k}`], env2[`CLAUDE_PLUGIN_OPTION_IMAGE_${k}`]].find((v2) => !absent(v2))?.trim(), out = [], optName = opt("PROVIDER")?.toLowerCase(), optKey = opt("KEY"), chosen = optName && byName(optName);
   if (chosen && optKey)
@@ -62343,7 +63830,7 @@ function optionProblem(env2 = process.env) {
 }
 function prefs(env2 = process.env) {
   try {
-    let p = JSON.parse(readFileSync20(prefsFile(env2), "utf8"));
+    let p = JSON.parse(readFileSync22(prefsFile(env2), "utf8"));
     return p && typeof p === "object" ? p : {};
   } catch {
     return {};
@@ -62355,7 +63842,7 @@ function remember(env2, answer) {
     p.picture_sheets = "yes";
   else
     delete p.picture_sheets;
-  return mkdirSync11(dirname16(file3), { recursive: !0 }), writeFileSync12(file3, JSON.stringify(p, null, 2) + `
+  return mkdirSync12(dirname17(file3), { recursive: !0 }), writeFileSync13(file3, JSON.stringify(p, null, 2) + `
 `), answer === "yes" ? `Remembered in ${file3}: this person wants picture sheets, so later projects skip the question (remember: "ask" forgets it).` : `Forgot the picture-sheet answer in ${file3}: the next brief asks again.`;
 }
 function checkText(env2 = process.env, jobs = []) {
@@ -62378,9 +63865,9 @@ function checkText(env2 = process.env, jobs = []) {
     lines.push(`3D models: recommended ${m3.provider.name} (${m3.provider.model.model}, ${price(m3.provider.model)} and ${m3.provider.model.time} a model${m3.provider.why3d ? `, ${m3.provider.why3d}` : ""}); a job runs in the background while the build goes on.`);
   else
     lines.push("(connect a 3D key to generate models: /plugin configure paprika3d, or MESHY_API_KEY, TRIPO_API_KEY, FAL_KEY ...)");
-  lines.push(`Sources on this machine: the library (57,732 free models, textures and skies, searched by your pictures), web search for free assets (with the session's web tools)${m3 ? `, generation with your ${m3.provider.title} key (${price(m3.provider.model)} and ${m3.provider.model.time} a model)` : ""}, and building in code (model_run with Manifold, checked with model_look).`);
+  lines.push(`Sources on this machine: the library (84,249 free models, textures and skies, searched by your pictures), web search for free assets (with the session's web tools)${m3 ? `, generation with your ${m3.provider.title} key (${price(m3.provider.model)} and ${m3.provider.model.time} a model)` : ""}, and building in code (model_run with Manifold, checked with model_look).`);
   for (let j2 of jobs)
-    lines.push(`${j2.kind === "model" ? "Model" : "Turnaround"} job ${j2.name} (${j2.provider}): ${j2.state === "running" ? `running for ${Math.round((Date.now() - j2.started) / 1000)} s` : j2.state === "done" ? `done, ${j2.file}` : `failed: ${j2.error}`}.`);
+    lines.push(`${j2.kind === "model" ? "Model" : "Turnaround"} job ${j2.name} (${j2.provider}): ${j2.state === "running" ? `running${j2.step ? ` (${j2.step} ${j2.file})` : ""} for ${Math.round((Date.now() - j2.started) / 1000)} s` : j2.state === "done" ? `done, ${[j2.file, ...j2.rigged ?? []].join(", ")}` : `failed: ${j2.error}${j2.file ? ` (the unrigged model landed: ${j2.file})` : ""}`}.`);
   return lines.join(`
 `);
 }
@@ -62410,6 +63897,10 @@ function dig(o, path14) {
 function fill(t, v2) {
   if (t === "$prompt")
     return v2.prompt;
+  if (t === "$url")
+    return v2.url;
+  if (t === "$height")
+    return v2.height ?? 1.7;
   if (t === "$ext")
     return v2.ext;
   if (t === "$model")
@@ -62446,10 +63937,10 @@ function hideKey(f, s) {
 async function generate(f, kind, prompt, refs, o = {}) {
   let p = f.provider, e = endpoint(p, kind);
   if (!e)
-    throw Error(`${p.name} has no ${kind === "model" ? "3D" : "picture"} endpoint in the table`);
+    throw Error(`${p.name} has no ${kind === "rig" ? "rigging" : kind === "model" ? "3D" : "picture"} endpoint in the table`);
   if ((e.refs || e.pre?.refs) && (JSON.stringify(e.template).includes("$ref") || e.pre) && !refs.length)
     throw Error(`${p.name}'s ${kind} takes a reference picture: give pictures`);
-  let limit = o.timeoutMs ?? (kind === "model" ? 600000 : 90000), deadline = Date.now() + limit, model = o.model ?? e.model, auth = authHeaders(p, f);
+  let limit = o.timeoutMs ?? (kind === "model" || kind === "rig" ? 600000 : 90000), deadline = Date.now() + limit, model = o.model ?? e.model, auth = authHeaders(p, f);
   if (!/^[\w./:-]+$/.test(model) || model.includes(".."))
     throw Error(`${p.name}: model "${model}" is not a model name`);
   let hide = (s) => hideKey(f, s), ext = MIME_EXT[refs[0]?.mime ?? ""] ?? "jpg", call = async (url3, init = {}, signed = !0) => {
@@ -62476,7 +63967,7 @@ async function generate(f, kind, prompt, refs, o = {}) {
     }
   }, send = (s, pre2) => ({
     method: "POST",
-    body: body(s, { prompt, model, pre: pre2, ext }, refs),
+    body: body(s, { prompt, model, pre: pre2, ext, url: o.url, height: o.height }, refs),
     headers: s.body === "json" ? { "content-type": "application/json" } : {}
   }), pre = e.pre ? String(dig(await json2(e.pre.url, send(e.pre)), e.pre.id)) : void 0, url2 = tpl(e.url, { model }), wait = () => new Promise((ok) => setTimeout(ok, o.pollMs ?? 2000)), first2 = await json2(url2, send(e, pre)), reply = first2;
   if (e.poll && !e.poll.done.includes(String(dig(reply, e.poll.status)))) {
@@ -62499,7 +63990,13 @@ async function generate(f, kind, prompt, refs, o = {}) {
     throw Error(`${p.name}'s reply has no ${e.result.path}`);
   if (e.result.as === "base64")
     return made(Buffer.from(out, "base64"), e, model);
-  return { ...made(Buffer.from(await (await call(out, {}, !1)).arrayBuffer()), e, model), url: out.startsWith("data:") ? void 0 : out };
+  let clips2 = [];
+  for (let [name, path14] of Object.entries(e.clips ?? {})) {
+    let at = dig(reply, path14);
+    if (typeof at === "string" && at)
+      clips2.push({ name, bytes: made(Buffer.from(await (await call(at, {}, !1)).arrayBuffer()), e, model).bytes });
+  }
+  return { ...made(Buffer.from(await (await call(out, {}, !1)).arrayBuffer()), e, model), url: out.startsWith("data:") ? void 0 : out, ...clips2.length && { clips: clips2 } };
 }
 function made(bytes3, e, model) {
   let h = bytes3.subarray(0, 12).toString("latin1"), ext = h.startsWith("PNG") ? ".png" : h.startsWith("ÿØ") ? ".jpg" : h.startsWith("RIFF") && h.slice(8) === "WEBP" ? ".webp" : h.startsWith("glTF") ? ".glb" : "";
@@ -62508,25 +64005,31 @@ function made(bytes3, e, model) {
   return { bytes: bytes3, ext, model, price: e.price, about: !!e.about };
 }
 function inside3(cwd, path14) {
-  let to = resolve17(cwd, path14), rel = relative12(cwd, to);
-  if (!rel || rel.split(sep5)[0] === ".." || resolve17(rel) === rel)
+  let to = resolve19(cwd, path14), rel = relative14(cwd, to);
+  if (!rel || rel.split(sep5)[0] === ".." || resolve19(rel) === rel)
     throw Error(`sheet: ${path14} is outside the project (${cwd}); give a path under it`);
   return to;
 }
 async function sheet2(chrome2, a2, env2 = process.env, o = {}) {
-  let cwd = resolve17(a2.cwd);
+  let cwd = resolve19(a2.cwd);
   if (a2.remember)
     return { text: remember(env2, a2.remember) };
   if (a2.check)
-    return { text: checkText(env2, [...jobs.values()]) };
+    return { text: checkText(env2, [...jobs.values()]) + briefText(cwd) };
   let kind = a2.kind ?? (a2.provider ? "board" : "look"), pics = a2.pictures ?? [];
   if (kind === "look" || !a2.provider)
     return compose(chrome2, cwd, a2);
-  let all = found(env2), f = a2.provider === "auto" ? recommend(all, kind, env2) : all.find((x2) => x2.provider.name === a2.provider);
+  if (a2.rig && kind !== "model")
+    throw Error('sheet: rig is for a model job (kind: "model"): it binds a skeleton to the generated character');
+  if (a2.height !== void 0 && !(a2.rig && a2.height > 0 && a2.height < 100))
+    throw Error("sheet: height is the rigged character's height in metres (1.7 by default), with rig: true");
+  let all = found(env2), f = a2.provider === "auto" ? a2.rig ? all.find((x2) => x2.provider.rig && x2.provider.model) : recommend(all, kind, env2) : all.find((x2) => x2.provider.name === a2.provider);
   if (!f) {
     let p = byName(a2.provider ?? "");
     throw Error(p ? `sheet: no key for ${p.name} (${p.env.join(", ")}, or the plugin option): \`sheet\` { check: true } names the keys found` : `sheet: no provider "${a2.provider}"; one of ${PROVIDERS.map((x2) => x2.name).join(", ")} or "auto"`);
   }
+  if (a2.rig && !f.provider.rig)
+    throw Error(`sheet: ${f.provider.name} cannot rig; rig: true needs a provider with rigging (${PROVIDERS.filter((p) => p.rig).map((p) => p.name).join(", ")})`);
   if (!a2.prompt)
     throw Error("sheet: prompt is needed with a provider: what the picture shows, in LOOK.md's or CHARACTERS.md's words");
   let study = pics.find((p) => isStudy(cwd, p.file));
@@ -62535,15 +64038,18 @@ async function sheet2(chrome2, a2, env2 = process.env, o = {}) {
   let refs = [];
   for (let p of pics) {
     let file3 = inside3(cwd, p.file);
-    if (!existsSync15(file3))
+    if (!existsSync16(file3))
       throw Error(`sheet: no file ${p.file} under ${cwd}`);
-    refs.push(p.crop ? { data: Buffer.from((await reference(chrome2(), { file: file3, crop: p.crop }, p.file)).jpeg, "base64"), mime: "image/jpeg", name: "ref.jpg" } : { data: readFileSync20(file3), mime: MIME2[extname9(file3).toLowerCase()] ?? "image/png", name: `ref${extname9(file3)}` });
+    refs.push(p.crop ? { data: Buffer.from((await reference(chrome2(), { file: file3, crop: p.crop }, p.file)).jpeg, "base64"), mime: "image/jpeg", name: "ref.jpg" } : { data: readFileSync22(file3), mime: MIME2[extname9(file3).toLowerCase()] ?? "image/png", name: `ref${extname9(file3)}` });
   }
-  let name = slug2(a2.name ?? (kind === "board" ? "LOOK-board" : kind === "model" ? "model" : "turnaround")).replace(/^look-board$/, "LOOK-board"), inputs = pics.map((p) => ({ file: p.file, crop: p.crop })), save = (dir, m) => {
-    let file3 = join23(cwd, dir, name + m.ext);
-    return mkdirSync11(dirname16(file3), { recursive: !0 }), writeFileSync12(file3, m.bytes), writeFileSync12(join23(cwd, dir, `${name}.json`), JSON.stringify({ provider: f.provider.name, model: m.model, kind, prompt: a2.prompt, inputs, price: m.price, priceAbout: m.about, source: m.url?.split("?")[0], at: (/* @__PURE__ */ new Date()).toISOString() }, null, 2) + `
-`), relative12(cwd, file3);
-  };
+  let name = slug2(a2.name ?? (kind === "board" ? "LOOK-board" : kind === "model" ? "model" : "turnaround")).replace(/^look-board$/, "LOOK-board"), inputs = pics.map((p) => ({ file: p.file, crop: p.crop })), save = (dir, m, as = name, what = kind) => {
+    let file3 = join25(cwd, dir, as + m.ext);
+    return mkdirSync12(dirname17(file3), { recursive: !0 }), writeFileSync13(file3, m.bytes), writeFileSync13(join25(cwd, dir, `${as}.json`), JSON.stringify({ provider: f.provider.name, model: m.model, kind: what, prompt: a2.prompt, inputs, price: m.price, priceAbout: m.about, source: m.url?.split("?")[0], at: (/* @__PURE__ */ new Date()).toISOString() }, null, 2) + `
+`), relative14(cwd, file3);
+  }, rigged = (m) => [save("assets/generated", m, `${name}-rigged`, "rig"), ...(m.clips ?? []).map((c) => {
+    let file3 = join25(cwd, "assets/generated", `${name}-${c.name}.glb`);
+    return writeFileSync13(file3, c.bytes), relative14(cwd, file3);
+  })];
   if (kind === "model" || kind === "turnaround") {
     let id2 = `${kind}:${name}`, e = endpoint(f.provider, kind), dir = kind === "model" ? "assets/generated" : "refs/sheets", ext = kind === "model" ? ".glb" : ".png";
     if (jobs.get(id2)?.state === "running")
@@ -62553,14 +64059,16 @@ async function sheet2(chrome2, a2, env2 = process.env, o = {}) {
     let failed = (err) => {
       job.error = hideKey(f, String(err?.message ?? err)), job.state = "failed";
     };
-    generate(f, kind, a2.prompt, refs, o).then((m) => {
-      try {
-        job.file = save(dir, m), job.state = "done";
-      } catch (err) {
-        failed(err);
+    generate(f, kind, a2.prompt, refs, o).then(async (m) => {
+      if (job.file = save(dir, m), !a2.rig) {
+        job.state = "done";
+        return;
       }
-    }, failed).catch(failed);
-    let until = kind === "model" ? "Until then the page loads a stand-in; then model_audit and model_look the file before the page uses it." : "If it fails, the build fills the Turnaround line from model_look or the pick's contact sheet.";
+      job.step = "rigging";
+      let r2 = await generate(f, "rig", a2.prompt, [], { ...o, url: m.url ?? `data:model/gltf-binary;base64,${m.bytes.toString("base64")}`, height: a2.height });
+      job.rigged = rigged(r2), job.step = void 0, job.state = "done";
+    }).catch(failed);
+    let r = a2.rig ? f.provider.rig : void 0, rig = r ? ` Then ${f.provider.name} rigs it (${r.model}, ${price(r)}, ${r.time}; a textured humanoid facing +Z, ${a2.height ?? 1.7} m tall): ${dir}/${name}-rigged.glb, with walk and run clips on the same skeleton in ${name}-walk.glb and ${name}-run.glb (each a SkinnedMesh with its animation, played with THREE.AnimationMixer).` : "", until = kind === "model" ? `${rig} Until then the page loads a stand-in; then model_audit and model_look ${r ? "each file" : "the file"} before the page uses it${r ? ", and look at a clip playing with interact" : ""}.` : "If it fails, the build fills the Turnaround line from model_look or the pick's contact sheet.";
     return { text: `Started a ${f.provider.name} ${kind} job for ${name} (${e.model}, ${price(e)}, ${e.time}). It lands in ${dir}/${name}${ext} (or another picture type) with ${name}.json beside it; \`sheet\` { check: true } says when it is done (after a server restart, look for ${dir}/${name}.json). ${until}` };
   }
   try {
@@ -62575,6 +64083,8 @@ async function sheet2(chrome2, a2, env2 = process.env, o = {}) {
     let why = `${f.provider.name} made no ${kind}: ${err.message}`;
     if (!pics.length)
       return { text: `${why}.` };
+    if (existsSync16(inside3(cwd, "refs/sheets/LOOK.png")))
+      return { text: `${why}. The free board refs/sheets/LOOK.png stands as it was.` };
     let free = await compose(chrome2, cwd, { ...a2, out: void 0 });
     return { text: `${why}. The free board stands:
 ${free.text}`, jpeg: free.jpeg };
@@ -62597,12 +64107,19 @@ async function drawBoard(a2, cell) {
       g.drawImage(img, l, t, sw2, sh, x2 + (CELL_W - w2) / 2, y2 + (CELL_H - h) / 2, w2, h);
     } else
       g.fillStyle = "#999", g.font = "14px sans-serif", g.fillText("not a picture", x2 + 150, y2 + CELL_H / 2);
-    g.fillStyle = "rgba(0, 0, 0, 0.75)", g.fillRect(x2 + 4, y2 + 4, 26, 24), g.fillStyle = "#fff", g.font = "bold 16px sans-serif", g.fillText(String(i + 1), x2 + 11, y2 + 22), g.fillStyle = "#f2efe6", g.font = "14px sans-serif", g.fillText(p.label.slice(0, 52), x2, y2 + CELL_H + 20);
+    g.font = "bold 16px sans-serif", g.fillStyle = "rgba(0, 0, 0, 0.75)", g.fillRect(x2 + 4, y2 + 4, Math.max(26, g.measureText(p.n).width + 14), 24), g.fillStyle = "#fff", g.fillText(p.n, x2 + 11, y2 + 22), g.fillStyle = "#f2efe6", g.font = "14px sans-serif", g.fillText(p.label.slice(0, 52), x2, y2 + CELL_H + 20);
   }
-  let y = top + rows * (CELL_H + LABEL + PAD), sw = a2.palette.length ? Math.min(140, (c.width - PAD) / a2.palette.length - PAD) : 0;
+  let y = top + rows * (CELL_H + LABEL + PAD), sw = a2.palette.length ? Math.min(140, (c.width - PAD) / a2.palette.length - PAD) : 0, fit = (t, w2) => {
+    let s = t;
+    while (s && g.measureText(s).width > w2)
+      s = s.length > 1 ? s.slice(0, -2) + "…" : "";
+    return s;
+  };
   if (a2.palette.forEach((s, i) => {
     let x2 = PAD + i * (sw + PAD);
-    g.fillStyle = s.hex, g.fillRect(x2, y, sw, 56), g.fillStyle = "#f2efe6", g.font = "13px sans-serif", g.fillText(`${s.label ? s.label + " " : ""}${s.hex}`.slice(0, 24), x2, y + 76);
+    if (g.fillStyle = s.hex, g.fillRect(x2, y, sw, 56), g.fillStyle = "#f2efe6", g.font = "12px sans-serif", s.label)
+      g.fillText(fit(s.label, sw - 2), x2, y + 70);
+    g.fillText(fit(s.hex, sw - 2), x2, y + (s.label ? 86 : 72));
   }), y += swatch, a2.notes)
     g.fillStyle = "#f2efe6", g.font = "15px sans-serif", g.fillText(a2.notes.slice(0, 160), PAD, y + 24);
   let k = Math.min(1, 1024 / c.width), pv = document.createElement("canvas");
@@ -62621,26 +64138,27 @@ async function compose(chrome2, cwd, a2) {
   let palette = (a2.palette ?? []).map((s) => typeof s === "string" ? { hex: s, label: "" } : { hex: s.hex, label: s.label ?? "" }), bad = palette.find((s) => !/^#[0-9a-f]{6}$/i.test(s.hex));
   if (bad)
     throw Error(`sheet: palette colours are #rrggbb, got ${bad.hex}`);
-  let loaded = pics.map((p) => {
+  let loaded = pics.map((p, i) => {
     let file3 = inside3(cwd, p.file);
-    if (!existsSync15(file3))
+    if (!existsSync16(file3))
       throw Error(`sheet: no file ${p.file} under ${cwd}`);
-    return { b64: readFileSync20(file3).toString("base64"), crop: p.crop ?? null, label: p.label ?? p.file };
+    return { b64: readFileSync22(file3).toString("base64"), crop: p.crop ?? null, label: p.label ?? p.file, n: badge(p.label, i) };
   }), r = await (await utilPage(chrome2())).evaluate(drawBoard, { pics: loaded, palette, title: a2.title ?? "", notes: a2.notes ?? "", type }, CELL2);
-  return mkdirSync11(dirname16(out), { recursive: !0 }), writeFileSync12(out, Buffer.from(r.file, "base64")), { text: `Saved ${relative12(cwd, out)} (${r.size[0]} × ${r.size[1]}): ${pics.length} picture${pics.length === 1 ? "" : "s"}, numbered as given, and ${palette.length} swatch${palette.length === 1 ? "" : "es"}. Made here, free; nothing was sent anywhere.`, jpeg: r.preview };
+  return mkdirSync12(dirname17(out), { recursive: !0 }), writeFileSync13(out, Buffer.from(r.file, "base64")), { text: `Saved ${relative14(cwd, out)} (${r.size[0]} × ${r.size[1]}): ${pics.length} picture${pics.length === 1 ? "" : "s"}, numbered as their labels are, and ${palette.length} swatch${palette.length === 1 ? "" : "es"}. Made here, free; nothing was sent anywhere.`, jpeg: r.preview };
 }
-var bearer, PROVIDERS, IMAGE_ORDER, MODEL_ORDER, byName = (n) => PROVIDERS.find((p) => p.name === n), endpoint = (p, k) => k === "model" ? p.model : k === "turnaround" ? p.turnaround ?? p.board : p.board, absent = (v2) => !v2 || !v2.trim() || /^\$\{[^}]*\}$/.test(v2.trim()) || v2.trim().toLowerCase() === "none", usd = (n) => {
+var bearer, PROVIDERS, IMAGE_ORDER, MODEL_ORDER, byName = (n) => PROVIDERS.find((p) => p.name === n), endpoint = (p, k) => k === "rig" ? p.rig : k === "model" ? p.model : k === "turnaround" ? p.turnaround ?? p.board : p.board, absent = (v2) => !v2 || !v2.trim() || /^\$\{[^}]*\}$/.test(v2.trim()) || v2.trim().toLowerCase() === "none", usd = (n) => {
   let t = +n.toFixed(3);
   return `$${t.toFixed(Math.round(t * 1000) % 10 ? 3 : 2)}`;
-}, price = (e) => e.note ?? `${e.about ? "about " : ""}${usd(e.price)}`, prefsFile = (env2 = process.env) => join23(env2.PAPRIKA3D_CONFIG_DIR || join23(env2.XDG_CONFIG_HOME || join23(homedir4(), ".config"), "paprika3d"), "prefs.json"), tpl = (s, ...from2) => s.replace(/\{([\w.]+)\}/g, (_3, p) => {
+}, price = (e) => e.note ?? `${e.about ? "about " : ""}${usd(e.price)}`, prefsFile = (env2 = process.env) => join25(env2.PAPRIKA3D_CONFIG_DIR || join25(env2.XDG_CONFIG_HOME || join25(homedir4(), ".config"), "paprika3d"), "prefs.json"), tpl = (s, ...from2) => s.replace(/\{([\w.]+)\}/g, (_3, p) => {
   for (let o of from2) {
     let v2 = dig(o, p);
     if (v2 !== void 0 && v2 !== null)
       return String(v2);
   }
   throw Error(`the reply has no ${p}`);
-}), encode = (r, as) => as === "inline" ? { inlineData: { mimeType: r.mime, data: r.data.toString("base64") } } : `data:${r.mime};base64,${r.data.toString("base64")}`, authHeaders = (p, f) => ({ [p.auth.header]: `${p.auth.prefix ?? ""}${f.key}` }), jobs, MIME2, MIME_EXT, isStudy = (cwd, file3) => /(^|\/)refs\/study\//.test(relative12(cwd, resolve17(cwd, file3)).split("\\").join("/")), slug2 = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "sheet", CELL2;
+}), encode = (r, as) => as === "inline" ? { inlineData: { mimeType: r.mime, data: r.data.toString("base64") } } : `data:${r.mime};base64,${r.data.toString("base64")}`, authHeaders = (p, f) => ({ [p.auth.header]: `${p.auth.prefix ?? ""}${f.key}` }), jobs, MIME2, MIME_EXT, isStudy = (cwd, file3) => /(^|\/)refs\/study\//.test(relative14(cwd, resolve19(cwd, file3)).split("\\").join("/")), slug2 = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "sheet", CELL2, badge = (label, i) => /^\s*(\d+)\s*(?:[·.:)\]-]|$)/.exec(label ?? "")?.[1] ?? String(i + 1);
 var init_sheet = __esm(() => {
+  init_brief();
   init_reference();
   bearer = { header: "Authorization", prefix: "Bearer " }, PROVIDERS = [
     {
@@ -62728,6 +64246,19 @@ var init_sheet = __esm(() => {
         price: 0.4,
         about: !0,
         time: "2 to 5 min"
+      },
+      rig: {
+        url: "https://api.meshy.ai/openapi/v1/rigging",
+        body: "json",
+        model: "meshy-rigging",
+        template: { model_url: "$url", height_meters: "$height" },
+        poll: { url: "https://api.meshy.ai/openapi/v1/rigging/{result}", status: "status", done: ["SUCCEEDED"], failed: ["FAILED", "CANCELED"] },
+        result: { path: "result.rigged_character_glb_url", as: "url" },
+        clips: { walk: "result.basic_animations.walking_glb_url", run: "result.basic_animations.running_glb_url" },
+        price: 0.1,
+        about: !0,
+        time: "1 to 2 min",
+        note: "about 5 Meshy credits"
       }
     },
     {
@@ -62986,19 +64517,19 @@ __export(exports_publish, {
 });
 import { spawn as spawn6 } from "node:child_process";
 import { createHash as createHash6, randomUUID as randomUUID2 } from "node:crypto";
-import { accessSync as accessSync3, chmodSync, constants as fsConstants, existsSync as existsSync16, lstatSync, mkdirSync as mkdirSync12, readdirSync as readdirSync7, readFileSync as readFileSync21, realpathSync as realpathSync3, statSync as statSync11, unlinkSync as unlinkSync2, writeFileSync as writeFileSync13 } from "node:fs";
+import { accessSync as accessSync3, chmodSync, constants as fsConstants, existsSync as existsSync17, lstatSync as lstatSync2, mkdirSync as mkdirSync13, readdirSync as readdirSync7, readFileSync as readFileSync23, realpathSync as realpathSync4, statSync as statSync12, unlinkSync as unlinkSync2, writeFileSync as writeFileSync14 } from "node:fs";
 import { homedir as homedir5, platform as platform2 } from "node:os";
-import { join as join24, posix as posix4, relative as relative13, sep as sep6 } from "node:path";
+import { join as join26, posix as posix4, relative as relative15, sep as sep6 } from "node:path";
 function walk(root, dir, out, skip, links, depth = 0) {
   if (depth > MAX_DEPTH)
     return;
   for (let name of readdirSync7(dir)) {
     if (out.length > MAX_WALK)
       return;
-    let abs = join24(dir, name), rel = relative13(root, abs).split(sep6).join("/");
+    let abs = join26(dir, name), rel = relative15(root, abs).split(sep6).join("/");
     if (name.startsWith("."))
       continue;
-    let st = lstatSync(abs);
+    let st = lstatSync2(abs);
     if (st.isSymbolicLink()) {
       links.push(rel);
       continue;
@@ -63017,7 +64548,7 @@ function projectFiles(cwd) {
 function vendored(cwd, pages, scripts, warnings) {
   let map2 = {};
   for (let page2 of pages)
-    for (let block of all(IMPORTMAP, readFileSync21(join24(cwd, page2), "utf8"))) {
+    for (let block of all(IMPORTMAP, readFileSync23(join26(cwd, page2), "utf8"))) {
       let imports = {};
       try {
         imports = JSON.parse(block).imports ?? {};
@@ -63031,9 +64562,9 @@ function vendored(cwd, pages, scripts, warnings) {
   let found2 = /* @__PURE__ */ new Set, queue = [], unmapped = /* @__PURE__ */ new Set, inside4 = (p) => !p.startsWith("../") && p !== ".." && !posix4.isAbsolute(p), add = (p) => {
     if (!p.startsWith("node_modules/") || !inside4(p) || found2.has(p))
       return;
-    let abs = join24(cwd, p), st;
+    let abs = join26(cwd, p), st;
     try {
-      st = statSync11(abs);
+      st = statSync12(abs);
     } catch {
       warnings.push(`${p} is referenced but not installed`);
       return;
@@ -63078,10 +64609,10 @@ function vendored(cwd, pages, scripts, warnings) {
       add(posix4.normalize(spec.startsWith("/") ? spec.slice(1) : posix4.join(posix4.dirname(file3), spec)));
   };
   for (let f of [...pages, ...scripts])
-    scan(f, readFileSync21(join24(cwd, f), "utf8"), /\.html?$/.test(f));
+    scan(f, readFileSync23(join26(cwd, f), "utf8"), /\.html?$/.test(f));
   while (queue.length) {
     let f = queue.shift();
-    scan(f, readFileSync21(join24(cwd, f), "utf8"), !1);
+    scan(f, readFileSync23(join26(cwd, f), "utf8"), !1);
   }
   if (unmapped.size)
     warnings.push(`imports with no import map entry, which fail in the browser: ${[...unmapped].slice(0, 5).join(", ")}`);
@@ -63091,16 +64622,16 @@ function isVite2(cwd) {
   if (readdirSync7(cwd).some((f) => /^vite\.config\.(js|mjs|cjs|ts|mts|cts)$/.test(f)))
     return !0;
   try {
-    return /\bvite\b/.test(JSON.parse(readFileSync21(join24(cwd, "package.json"), "utf8")).scripts?.build ?? "");
+    return /\bvite\b/.test(JSON.parse(readFileSync23(join26(cwd, "package.json"), "utf8")).scripts?.build ?? "");
   } catch {
     return !1;
   }
 }
 async function viteBuild(cwd) {
-  let bin = join24(cwd, "node_modules/vite/bin/vite.js");
-  if (!existsSync16(bin))
+  let bin = join26(cwd, "node_modules/vite/bin/vite.js");
+  if (!existsSync17(bin))
     throw Error("This is a Vite project but vite is not installed in it: run `npm install` (or `bun install`) in the project, then publish again.");
-  let out = join24(harnessDir(cwd), "publish", "dist"), said = [], code = await new Promise((done, fail) => {
+  let out = join26(harnessDir(cwd), "publish", "dist"), said = [], code = await new Promise((done, fail) => {
     let p = spawn6(process.execPath, [bin, "build", "--outDir", out, "--emptyOutDir", "--base", "/", "--logLevel", "warn"], { cwd, env: childEnv(), stdio: ["ignore", "pipe", "pipe"] }), keep = (b2) => {
       said.push(...b2.toString().split(`
 `).filter(Boolean)), said.splice(0, Math.max(0, said.length - 30));
@@ -63136,7 +64667,7 @@ async function build(cwd) {
         named2.push(rel);
       if (/\.md$/i.test(rel) && !/(^|\/)CREDITS\.md$/i.test(rel))
         continue;
-      files.set(rel, join24(root, rel));
+      files.set(rel, join26(root, rel));
     }
     if (refused.length)
       warnings.push(`left out ${refused.length} file${refused.length > 1 ? "s" : ""} of a type that is not served: ${refused.slice(0, 5).join(", ")}${refused.length > 5 ? ", …" : ""}`);
@@ -63158,20 +64689,20 @@ async function build(cwd) {
     if (badPath(f))
       unserved.push(f);
     else
-      files.set(f, join24(cwd, f));
+      files.set(f, join26(cwd, f));
   if (unserved.length)
     warnings.push(`the page imports files of a type that is not served, left out: ${unserved.slice(0, 5).join(", ")}`);
   return { kind: "plain", root: cwd, files, warnings };
 }
 function privateDir() {
-  if (mkdirSync12(configDir(), { recursive: !0, mode: 448 }), platform2() !== "win32")
+  if (mkdirSync13(configDir(), { recursive: !0, mode: 448 }), platform2() !== "win32")
     chmodSync(configDir(), 448);
 }
 function writePrivate(file3, text) {
-  privateDir(), writeFileSync13(file3, text, { mode: 384 }), chmodSync(file3, 384);
+  privateDir(), writeFileSync14(file3, text, { mode: 384 }), chmodSync(file3, 384);
 }
 function storeKey(api3, k, extra2) {
-  let f = join24(configDir(), CREDENTIALS), all2 = readJson(f);
+  let f = join26(configDir(), CREDENTIALS), all2 = readJson(f);
   all2[api3] = { ...all2[api3], public_id: k.public_id, secret: k.secret, ...extra2 }, writePrivate(f, JSON.stringify(all2, null, 2));
 }
 function savedKey(api3 = apiBase()) {
@@ -63181,17 +64712,17 @@ function savedKey(api3 = apiBase()) {
   let held = unsaved.get(`${configDir()} ${api3}`);
   if (held)
     return held;
-  let c = readJson(join24(configDir(), CREDENTIALS))[api3];
+  let c = readJson(join26(configDir(), CREDENTIALS))[api3];
   return typeof c?.secret === "string" ? { public_id: c.public_id, secret: c.secret, from: "file" } : null;
 }
 function installId() {
   try {
-    let id2 = readFileSync21(join24(harnessHome(), "telemetry", "id"), "utf8").trim();
+    let id2 = readFileSync23(join26(harnessHome(), "telemetry", "id"), "utf8").trim();
     if (id2)
       return id2;
   } catch {}
   try {
-    let id2 = readFileSync21(join24(configDir(), "install-id"), "utf8").trim();
+    let id2 = readFileSync23(join26(configDir(), "install-id"), "utf8").trim();
     if (id2)
       return id2;
   } catch {}
@@ -63210,20 +64741,20 @@ function solve(challenge, bits, ms = 60000) {
   throw Error("could not solve the publish server's proof of work in time; nothing was published. Try again in a minute.");
 }
 function slugFor(cwd, api3 = apiBase()) {
-  let kept = readJson(join24(configDir(), PROJECTS))[`${api3} ${realpathSync3(cwd)}`]?.slug;
+  let kept = readJson(join26(configDir(), PROJECTS))[`${api3} ${realpathSync4(cwd)}`]?.slug;
   if (typeof kept === "string")
     return { slug: kept, kept: !0 };
   let name = "";
   try {
-    name = JSON.parse(readFileSync21(join24(cwd, "package.json"), "utf8")).name ?? "";
+    name = JSON.parse(readFileSync23(join26(cwd, "package.json"), "utf8")).name ?? "";
   } catch {}
   if (!name || /^(vite-project|my-app|app|game|three|plain|r3f|vite|paprika-game|paprika3d-game|create-paprika3d-game)$/.test(name.replace(/^@[^/]+\//, "")))
-    name = realpathSync3(cwd).split(sep6).at(-1) ?? "";
+    name = realpathSync4(cwd).split(sep6).at(-1) ?? "";
   return { slug: slugify(name) || "game", kept: !1 };
 }
 function keepSlug(cwd, slug3, api3) {
-  let f = join24(configDir(), PROJECTS), all2 = readJson(f);
-  all2[`${api3} ${realpathSync3(cwd)}`] = { slug: slug3, at: (/* @__PURE__ */ new Date()).toISOString() }, privateDir(), writeFileSync13(f, JSON.stringify(all2, null, 2));
+  let f = join26(configDir(), PROJECTS), all2 = readJson(f);
+  all2[`${api3} ${realpathSync4(cwd)}`] = { slug: slug3, at: (/* @__PURE__ */ new Date()).toISOString() }, privateDir(), writeFileSync14(f, JSON.stringify(all2, null, 2));
 }
 async function call(path14, init = {}) {
   let api3 = apiBase(), headers = { ...init.headers };
@@ -63267,7 +64798,7 @@ function guidance(e, where) {
     case 401:
       return b2.replaced ? scrub2(replacedWords(b2, where)) : `The publish server refused the publish key in ${where} (${why}). Tell the person; do not make, paste or print a key yourself.`;
     case 402:
-      return `Not published: ${why}. Republishing one of this key's games (the same project) still works. The person can ask for more games on the waitlist: ${b2.waitlist_url ?? "https://paprika3d.com/waitlist"}`;
+      return `Not published: ${why}. Republishing one of this key's games (the same project) still works. The person can ask for more games on the waitlist: ${b2.waitlist_url ?? INVITE_URL}`;
     case 403:
       return /invite/i.test(why) ? `Not published: ${why}. Publishing to paprika3d.app is an invite-only preview: tell the person they can ask for an invite at ${INVITE_URL}, then set PAPRIKA3D_PUBLISH_INVITE to the code.` : `Not published: ${why}. Tell the person.`;
     case 429: {
@@ -63303,10 +64834,10 @@ async function mint(who) {
     client_version,
     model: who.model ?? null,
     os: platform2(),
-    plugin_version: "0.4.2"
+    plugin_version: "0.4.3"
   }, headers: invite ? { "x-paprika3d-invite": invite } : {} });
   if (!had)
-    writePrivate(join24(configDir(), "install-id"), install3);
+    writePrivate(join26(configDir(), "install-id"), install3);
   return storeKey(apiBase(), k, { created: (/* @__PURE__ */ new Date()).toISOString() }), { public_id: k.public_id, secret: k.secret, from: "file" };
 }
 async function rotateKey(api3, who) {
@@ -63315,9 +64846,9 @@ async function rotateKey(api3, who) {
     return "This install has no publish key yet, so there is nothing to rotate. Nothing was published.";
   if (key2.from === "env")
     return "The publish key in use is PAPRIKA3D_PUBLISH_KEY, which the person set: only they can replace it. Nothing was rotated or published.";
-  let f = join24(configDir(), CREDENTIALS), probe2 = join24(configDir(), `.rotate-${process.pid}`);
+  let f = join26(configDir(), CREDENTIALS), probe2 = join26(configDir(), `.rotate-${process.pid}`);
   try {
-    if (privateDir(), writeFileSync13(probe2, "x"), unlinkSync2(probe2), existsSync16(f))
+    if (privateDir(), writeFileSync14(probe2, "x"), unlinkSync2(probe2), existsSync17(f))
       accessSync3(f, fsConstants.W_OK);
   } catch (e) {
     throw Error(scrub2(`Nothing was rotated: ${f} cannot be written (${e?.code ?? e}), so the new key would have nowhere to go. Tell the person to make it writable (or free disk space), then ask again.`));
@@ -63344,8 +64875,10 @@ async function publish(cwd, who, opts = {}) {
     throw Error(`Nothing was published: PAPRIKA3D_PUBLISH_KEY is sent only to ${DEFAULT_API}, and PAPRIKA3D_PUBLISH_API points at ${scrub2(api3)}. Tell the person: they can set PAPRIKA3D_PUBLISH_API_TRUST=1 if they trust that server.`);
   if (opts.rotate)
     return rotateKey(api3, who);
-  if (!existsSync16(cwd) || !statSync11(cwd).isDirectory())
+  if (!existsSync17(cwd) || !statSync12(cwd).isDirectory())
     throw Error(`publish: ${cwd} is not a folder`);
+  if (opts.feedback)
+    return readFeedback(cwd, api3);
   await ready3(api3, !savedKey(api3));
   let built = await build(cwd);
   if (!built.files.has("index.html"))
@@ -63354,7 +64887,7 @@ async function publish(cwd, who, opts = {}) {
     throw Error(`The project has ${built.files.size} files to publish; the most a game holds is ${MAX_FILES}. Nothing was published.`);
   let total = 0;
   for (let [rel, abs] of built.files) {
-    let size = statSync11(abs).size;
+    let size = statSync12(abs).size;
     if (size > MAX_FILE)
       throw Error(`${rel} is ${(size / 1048576).toFixed(1)} MiB; the most a file may be is 25 MiB (\`model_audit\` with \`shrink\` makes a model smaller). Nothing was published.`);
     if (total += size, total > MAX_TOTAL)
@@ -63362,14 +64895,14 @@ async function publish(cwd, who, opts = {}) {
   }
   let manifest = {}, byHash = /* @__PURE__ */ new Map;
   for (let [rel, abs] of built.files) {
-    let bytes3 = readFileSync21(abs), hash = createHash6("sha256").update(bytes3).digest("hex");
+    let bytes3 = readFileSync23(abs), hash = createHash6("sha256").update(bytes3).digest("hex");
     manifest[rel] = { hash, size: bytes3.byteLength }, byHash.set(hash, abs);
   }
-  let key2 = savedKey(api3), minted = !1, where = () => key2 ? keyWhere(key2) : join24(configDir(), CREDENTIALS);
+  let key2 = savedKey(api3), minted = !1, where = () => key2 ? keyWhere(key2) : join26(configDir(), CREDENTIALS);
   try {
     if (!key2)
       key2 = await mint(who), minted = !0;
-    let agent = { install: installId(), client: who.client === "unknown" ? null : who.client, model: who.model ?? null, plugin_version: "0.4.2" }, chosen = opts.slug ? { slug: opts.slug, kept: !0 } : slugFor(cwd, api3), slug3 = chosen.slug, s;
+    let agent = { install: installId(), client: who.client === "unknown" ? null : who.client, model: who.model ?? null, plugin_version: "0.4.3" }, chosen = opts.slug ? { slug: opts.slug, kept: !0 } : slugFor(cwd, api3), slug3 = chosen.slug, s;
     for (let tries = 0;!s; tries++)
       try {
         s = await call("/v1/publish", { json: { slug: slug3, files: manifest, agent }, secret: key2.secret });
@@ -63381,17 +64914,17 @@ async function publish(cwd, who, opts = {}) {
     let queue = [...s.missing];
     await Promise.all(Array.from({ length: 6 }, async () => {
       for (let h = queue.shift();h; h = queue.shift())
-        await call(`/v1/blobs/${h}`, { method: "PUT", body: readFileSync21(byHash.get(h)), secret: key2.secret, headers: { "x-paprika3d-session": s.session, "content-type": "application/octet-stream" } });
+        await call(`/v1/blobs/${h}`, { method: "PUT", body: readFileSync23(byHash.get(h)), secret: key2.secret, headers: { "x-paprika3d-session": s.session, "content-type": "application/octet-stream" } });
     }));
-    let done = await call(`/v1/publish/${s.session}/finalize`, { json: {}, secret: key2.secret });
+    let done = await call(`/v1/publish/${s.session}/finalize`, { json: opts.playtest ? { playtest: !0 } : {}, secret: key2.secret });
     if (keepSlug(cwd, slug3, api3), key2.unsaved)
       try {
-        storeKey(api3, { public_id: key2.public_id, secret: key2.secret }, { rotated: (/* @__PURE__ */ new Date()).toISOString() }), unsaved.delete(`${configDir()} ${api3}`), built.warnings.push(`saved the rotated publish key to ${join24(configDir(), CREDENTIALS)}, never shown`);
+        storeKey(api3, { public_id: key2.public_id, secret: key2.secret }, { rotated: (/* @__PURE__ */ new Date()).toISOString() }), unsaved.delete(`${configDir()} ${api3}`), built.warnings.push(`saved the rotated publish key to ${join26(configDir(), CREDENTIALS)}, never shown`);
       } catch {
-        built.warnings.push(`the publish key is still only in this MCP server's memory: ${join24(configDir(), CREDENTIALS)} cannot be written. Tell the person to fix that before the agent restarts, or the key is lost (then founders@keeno.dev for a reissue)`);
+        built.warnings.push(`the publish key is still only in this MCP server's memory: ${join26(configDir(), CREDENTIALS)} cannot be written. Tell the person to fix that before the agent restarts, or the key is lost (then founders@keeno.dev for a reissue)`);
       }
     if (key2.from === "file" && !key2.public_id) {
-      let f = join24(configDir(), CREDENTIALS), c = readJson(f);
+      let f = join26(configDir(), CREDENTIALS), c = readJson(f);
       if (c[api3])
         c[api3].public_id = done.public_id, writePrivate(f, JSON.stringify(c, null, 2));
     }
@@ -63404,6 +64937,11 @@ async function publish(cwd, who, opts = {}) {
       ...done.held && { held: scrub2(String(done.held)) },
       ...done.warning && { warning: scrub2(String(done.warning)) },
       remaining_quota: done.remaining_quota,
+      ...done.playtest_url && {
+        playtest_url: done.playtest_url,
+        playtest_expires: done.playtest_expires,
+        playtest: "Send playtest_url to the friends who should try this build: it stays on this version until playtest_expires whatever is published later, is never listed or indexed, and has a Feedback button (no account). Read what they send with `publish` { cwd, feedback: true }."
+      },
       files: built.files.size,
       uploaded: s.missing.length,
       seconds: Math.round((Date.now() - t0) / 100) / 10,
@@ -63416,15 +64954,49 @@ async function publish(cwd, who, opts = {}) {
     throw Error(scrub2(e instanceof Error ? e.message : String(e)));
   }
 }
+async function readFeedback(cwd, api3) {
+  let key2 = savedKey(api3), { slug: slug3, kept } = slugFor(cwd, api3);
+  if (!key2 || !kept)
+    return "This project was never published from this install, so it has no playtest links and no feedback. Publish it with `playtest: true` for a link to send friends.";
+  let dir = join26(cwd, "paprika3d", "feedback"), seenFile = join26(dir, "last-read.txt"), seen2 = "";
+  try {
+    seen2 = readFileSync23(seenFile, "utf8").trim();
+  } catch {}
+  try {
+    let { feedback } = await call(`/v1/feedback?slug=${encodeURIComponent(slug3)}`, { secret: key2.secret });
+    if (!feedback.length)
+      return `No feedback yet on ${slug3}. Feedback comes from a playtest link's Feedback button: publish with \`playtest: true\` and send the person the playtest_url.`;
+    mkdirSync13(dir, { recursive: !0 });
+    let items = [];
+    for (let f of feedback) {
+      let picture = null;
+      if (f.shot && /^[0-9A-Za-z]{16}$/.test(f.id)) {
+        let r = await fetch(`${api3}/v1/feedback/${f.id}/shot`, { headers: { authorization: `Bearer ${key2.secret}` }, signal: AbortSignal.timeout(60000) });
+        if (r.ok)
+          picture = join26(dir, `${f.id}.${r.headers.get("content-type") === "image/png" ? "png" : "jpg"}`), writeFileSync14(picture, new Uint8Array(await r.arrayBuffer()));
+      }
+      let { shot: _3, ...rest } = f;
+      items.push({ ...f.at > seen2 && { new: !0 }, ...rest, ...picture && { picture } });
+    }
+    writeFileSync14(seenFile, feedback[0].at);
+    let fresh = items.filter((i) => i.new).length;
+    return scrub2(`${feedback.length} notes on ${slug3} from playtest links (${fresh} new since the last read), newest first; \`version\` is the build the tester played. Open each picture, and reproduce what a note says with open, interact and look before fixing it.
+` + JSON.stringify(items, null, 1));
+  } catch (e) {
+    if (e instanceof PublishError)
+      throw Error(guidance(e, keyWhere(key2)));
+    throw Error(scrub2(e instanceof Error ? e.message : String(e)));
+  }
+}
 function told2(minted) {
-  let f = join24(configDir(), TOLD);
-  if (existsSync16(f))
+  let f = join26(configDir(), TOLD);
+  if (existsSync17(f))
     return "";
   try {
-    privateDir(), writeFileSync13(f, (/* @__PURE__ */ new Date()).toISOString());
+    privateDir(), writeFileSync14(f, (/* @__PURE__ */ new Date()).toISOString());
   } catch {}
   return `
-First publish from this install${minted ? `: it made this install's publish key, kept in ${join24(configDir(), CREDENTIALS)} and never shown` : ""}. Publishing uploads the built files to paprika3d.app, where anyone with the link can open them, and binds the key to this install (install id, agent client and version, model, OS, plugin version and a hashed IP) for every publish, even with DO_NOT_TRACK set, since publishing opts in to hosting. Say this to the person once.`;
+First publish from this install${minted ? `: it made this install's publish key, kept in ${join26(configDir(), CREDENTIALS)} and never shown` : ""}. Publishing uploads the built files to paprika3d.app, where anyone with the link can open them, and binds the key to this install (install id, agent client and version, model, OS, plugin version and a hashed IP) for every publish, even with DO_NOT_TRACK set, since publishing opts in to hosting. Say this to the person once.`;
 }
 var DEFAULT_API = "https://api.paprika3d.app", apiBase = () => (process.env.PAPRIKA3D_PUBLISH_API || DEFAULT_API).replace(/\/+$/, ""), isLocal = (api3) => {
   try {
@@ -63433,13 +65005,13 @@ var DEFAULT_API = "https://api.paprika3d.app", apiBase = () => (process.env.PAPR
   } catch {
     return !1;
   }
-}, scrub2 = (text) => text.replace(/ppk_live_[0-9A-Za-z]*/g, "ppk_live_[hidden]").replace(/\bBearer\s+[^\s"'<>,;]+/gi, "Bearer [hidden]"), configDir = () => process.env.PAPRIKA3D_CONFIG_DIR || join24(process.env.XDG_CONFIG_HOME || join24(homedir5(), ".config"), "paprika3d"), CREDENTIALS = "credentials.json", PROJECTS = "projects.json", TOLD = "publish-told", INVITE_URL = "https://paprika3d.com/waitlist", SKIP_DIRS3, SKIP_FILES, QUIET, MAX_WALK = 20000, MAX_DEPTH = 32, CREDENTIAL, SECRETISH, IMPORTMAP, STATIC, DYNAMIC, URL_REF, SRC, NODE_MODULES, all = (re2, s) => [...s.matchAll(re2)].map((m) => m[1]), CHILD_ENV, childEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => CHILD_ENV.test(k) && !/^PAPRIKA3D_PUBLISH/i.test(k))), readJson = (f) => {
+}, scrub2 = (text) => text.replace(/ppk_live_[0-9A-Za-z]*/g, "ppk_live_[hidden]").replace(/\bBearer\s+[^\s"'<>,;]+/gi, "Bearer [hidden]"), configDir = () => process.env.PAPRIKA3D_CONFIG_DIR || join26(process.env.XDG_CONFIG_HOME || join26(homedir5(), ".config"), "paprika3d"), CREDENTIALS = "credentials.json", PROJECTS = "projects.json", TOLD = "publish-told", INVITE_URL = "https://paprika3d.com/waitlist?ref=publish", SKIP_DIRS3, SKIP_FILES, QUIET, MAX_WALK = 20000, MAX_DEPTH = 32, CREDENTIAL, SECRETISH, IMPORTMAP, STATIC, DYNAMIC, URL_REF, SRC, NODE_MODULES, all = (re2, s) => [...s.matchAll(re2)].map((m) => m[1]), CHILD_ENV, childEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => CHILD_ENV.test(k) && !/^PAPRIKA3D_PUBLISH/i.test(k))), readJson = (f) => {
   try {
-    return JSON.parse(readFileSync21(f, "utf8"));
+    return JSON.parse(readFileSync23(f, "utf8"));
   } catch {
     return {};
   }
-}, unsaved, keyWhere = (c) => c.from === "env" ? "PAPRIKA3D_PUBLISH_KEY" : join24(configDir(), CREDENTIALS), MAX_POW_BITS = 24, withSuffix = (slug3) => `${slug3.slice(0, 35).replace(/-+$/, "")}-${randomUUID2().replace(/-/g, "").slice(0, 4)}`, PublishError, notOpen = (what) => `Not published: publishing to paprika3d.app is not open yet (an invite-only preview), and its server ${what}. Nothing was built or uploaded, and trying again soon will not help. Tell the person they can ask for an invite at ${INVITE_URL}.`, splitClient = (c) => {
+}, unsaved, keyWhere = (c) => c.from === "env" ? "PAPRIKA3D_PUBLISH_KEY" : join26(configDir(), CREDENTIALS), MAX_POW_BITS = 24, withSuffix = (slug3) => `${slug3.slice(0, 35).replace(/-+$/, "")}-${randomUUID2().replace(/-/g, "").slice(0, 4)}`, PublishError, notOpen = (what) => `Not published: publishing to paprika3d.app is not open yet (an invite-only preview), and its server ${what}. Nothing was built or uploaded, and trying again soon will not help. Tell the person they can ask for an invite at ${INVITE_URL}.`, splitClient = (c) => {
   let i = c.lastIndexOf("/");
   return !c || c === "unknown" ? [null, null] : i > 0 ? [c.slice(0, i), c.slice(i + 1)] : [c, null];
 };
@@ -63463,7 +65035,9 @@ var init_publish = __esm(() => {
 
 var exports_server = {};
 __export(exports_server, {
+  workText: () => workText,
   slowStart: () => slowStart,
+  sharedProbeChrome: () => sharedProbeChrome,
   serve: () => serve,
   runCheck: () => runCheck,
   reloadCause: () => reloadCause,
@@ -63473,25 +65047,30 @@ __export(exports_server, {
   checkArgs: () => checkArgs,
   answer: () => answer
 });
-import { copyFileSync as copyFileSync2, existsSync as existsSync17, mkdirSync as mkdirSync13, readdirSync as readdirSync8, readFileSync as readFileSync22, rmSync as rmSync7, writeFileSync as writeFileSync14 } from "node:fs";
-import { basename as basename5, join as join25, relative as relative14, resolve as resolve19 } from "node:path";
-import { cpus as cpus3, loadavg as loadavg2 } from "node:os";
-import { createHash as createHash7, randomBytes } from "node:crypto";
+import { copyFileSync as copyFileSync2, existsSync as existsSync18, mkdirSync as mkdirSync14, readdirSync as readdirSync8, readFileSync as readFileSync24, realpathSync as realpathSync5, rmSync as rmSync9, statSync as statSync13, writeFileSync as writeFileSync15 } from "node:fs";
+import { basename as basename6, dirname as dirname18, join as join27, relative as relative16, resolve as resolve21 } from "node:path";
+import { cpus as cpus5, loadavg as loadavg4 } from "node:os";
+import { createHash as createHash7, randomBytes as randomBytes3 } from "node:crypto";
+import { AsyncLocalStorage as AsyncLocalStorage3 } from "node:async_hooks";
 import { createServer as createServer3 } from "node:http";
 import { json as json2 } from "node:stream/consumers";
+function sharedProbeChrome(launch2) {
+  let pending;
+  return () => pending ??= launch2();
+}
 function slowStart(ms, software = !1) {
   let secs = (ms / 1000).toFixed(1);
   if (ms > 1e4)
-    return `Slow start: the page took ${secs} s to load and set up before its first frame; a judge on software WebGL may see nothing for a minute. Move heavy setup (geometry, canvas textures, shader compiles) off the first frame or make it cheaper.`;
+    return `Slow start: the page took ${secs} s to load and set up before its first frame; a judge on software WebGL may see nothing for a minute. Draw a plain first frame and add the effects after it (scan materials, a noise sky, shadows, foliage(), water(), GPU simulation, post()), each in its own small renderer.compileAsync(effect, camera, scene) batch; move heavy geometry and canvas textures off the first frame too (optimize.md, Load time).`;
   if (software)
     return ms > 3000 ? `The page took ${secs} s to its first frame; expected on this software renderer, nothing to do.` : "";
-  return ms > 3000 ? `Slow start: the page took ${secs} s to load and set up before its first frame; a viewer sees nothing that long. Move heavy setup (geometry, canvas textures, shader compiles) off the first frame or make it cheaper.` : "";
+  return ms > 3000 ? `Slow start: the page took ${secs} s to load and set up before its first frame; a viewer sees nothing that long. Draw a plain first frame and add the effects after it (scan materials, a noise sky, shadows, foliage(), water(), GPU simulation, post()), each in its own small renderer.compileAsync(effect, camera, scene) batch; move heavy geometry and canvas textures off the first frame too (optimize.md, Load time).` : "";
 }
 function fit(body2) {
   if (body2.length <= MAX_CHARS)
     return body2;
   let tail = body2.slice(body2.indexOf(`
-`, body2.length - TAIL) + 1 || body2.length - TAIL), head = body2.slice(0, MAX_CHARS - tail.length - 60);
+`, body2.length - TAIL2) + 1 || body2.length - TAIL2), head = body2.slice(0, MAX_CHARS - tail.length - 60);
   return `${head}
 … (${body2.length - head.length - tail.length} characters cut) …
 ${tail}`;
@@ -63501,7 +65080,7 @@ function namedOr(cwd, c) {
 }
 async function withPicture(g, r, file3) {
   try {
-    let png = readFileSync22(file3).toString("base64"), data = await g.queue(() => g.page.evaluate(async (b64) => {
+    let png = readFileSync24(file3).toString("base64"), data = await g.queue(() => g.page.evaluate(async (b64) => {
       let U2 = Uint8Array, i = await createImageBitmap(new Blob([U2.fromBase64?.(b64) ?? Uint8Array.from(atob(b64), (c2) => c2.charCodeAt(0))], { type: "image/png" })), k = Math.min(1, 1024 / i.width), c = document.createElement("canvas");
       return c.width = Math.round(i.width * k), c.height = Math.round(i.height * k), c.getContext("2d").drawImage(i, 0, 0, c.width, c.height), c.toDataURL("image/jpeg", 0.8).split(",")[1];
     }, png));
@@ -63510,41 +65089,59 @@ async function withPicture(g, r, file3) {
     return r;
   }
 }
-function use(name) {
-  if (name === current)
-    return;
-  slots.set(current, { game, cwd, opened, loadedPrint, used: Date.now() }), { game, cwd, opened, loadedPrint } = slots.get(name) ?? { game: null, cwd: "", opened: {}, loadedPrint: "" }, slots.delete(name), current = name;
+function moreTools(a2) {
+  let g = typeof a2?.group === "string" && Object.hasOwn(GROUPS, a2.group) ? GROUPS[a2.group] : void 0;
+  if (!g)
+    return fail(`more_tools: no group "${a2?.group}"; one of ${Object.keys(GROUPS).join(", ")}`);
+  if (!shown2.has(a2.group))
+    shown2.add(a2.group), listChanged();
+  return text(`Added to the tool list: ${g.tools.join(", ")}. A client that does not show them still reaches each by name; PAPRIKA3D_TOOLS=full in the server's environment lists every tool from the start.`);
+}
+function slotOf(name) {
+  let s = slots.get(name);
+  if (!s)
+    slots.set(name, s = { name, game: null, cwd: "", opened: {}, loadedPrint: "", used: 0, calls: Promise.resolve(), queued: [], playing: null });
+  return s;
 }
 async function shot(g, kind) {
-  let path14 = join25(g.runDir, `${kind}-${++shots}.png`);
+  let path14 = join27(g.runDir, `${kind}-${++shots}.png`);
   return await g.page.screenshot({ path: path14 }), path14;
 }
 function ensureRuntime(dir) {
-  let to = join25(dir, "three-runtime.js");
-  if (existsSync17(RUNTIME) && (!existsSync17(to) || !readFileSync22(to).equals(readFileSync22(RUNTIME))))
-    mkdirSync13(dir, { recursive: !0 }), copyFileSync2(RUNTIME, to);
-  if (!existsSync17(join25(dir, "game-runtime.json")))
-    writeFileSync14(join25(dir, "game-runtime.json"), `{}
+  let to = join27(dir, "three-runtime.js");
+  if (existsSync18(RUNTIME) && (!existsSync18(to) || !readFileSync24(to).equals(readFileSync24(RUNTIME))))
+    mkdirSync14(dir, { recursive: !0 }), copyFileSync2(RUNTIME, to);
+  if (!existsSync18(join27(dir, "game-runtime.json")))
+    writeFileSync15(join27(dir, "game-runtime.json"), `{}
 `);
   return `The runtime layer is at ${to}: import { install } from "./three-runtime.js" (or "../three-runtime.js" from src/) and call install() before making the renderer. Never read or edit that file; the harness keeps it current.`;
 }
 function ensureBundles(dir) {
+  let wrote = [], kept = [];
   for (let from2 of BUNDLES) {
-    let to = join25(dir, basename5(from2));
-    if (existsSync17(from2) && (!existsSync17(to) || !readFileSync22(to).equals(readFileSync22(from2))))
-      mkdirSync13(dir, { recursive: !0 }), copyFileSync2(from2, to);
+    let to = join27(dir, basename6(from2));
+    if (!existsSync18(from2))
+      continue;
+    let ours = readFileSync24(from2), have = existsSync18(to) ? readFileSync24(to) : null;
+    if (have?.equals(ours))
+      continue;
+    let [h, o] = [have, ours].map((b2) => b2 ? bundleVersion(b2.subarray(0, 200).toString()) : void 0);
+    if (have && newerBundle(h, o)) {
+      kept.push({ name: basename6(from2), have: h, ours: o });
+      continue;
+    }
+    mkdirSync14(dir, { recursive: !0 }), copyFileSync2(from2, to), wrote.push(basename6(from2));
   }
+  return { wrote, kept };
 }
 function projectSummary(dir) {
-  let files = readdirSync8(dir).filter((f) => !["node_modules", "paprika3d", ".git", "bun.lock", "package-lock.json"].includes(f)), installed2 = ["three", "vite", "@react-three/fiber", "@dimforge/rapier3d-compat"].filter((p) => existsSync17(join25(dir, "node_modules", p)));
+  let files = readdirSync8(dir).filter((f) => !["node_modules", "paprika3d", ".git", "bun.lock", "package-lock.json"].includes(f)), installed2 = ["three", "vite", "@react-three/fiber", "@dimforge/rapier3d-compat"].filter((p) => existsSync18(join27(dir, "node_modules", p)));
   return `Project folder holds: ${files.join(", ") || "nothing yet"}. Installed: ${installed2.join(", ") || "nothing (no node_modules)"}.`;
 }
 function loadedFrom(g, print) {
-  if (game === g)
-    loadedPrint = print;
-  for (let s of slots.values())
-    if (s.game === g)
-      s.loadedPrint = print;
+  let s = slotFor(g);
+  if (s)
+    s.loadedPrint = print;
 }
 async function reloadAfter(g, dir, print, opts) {
   let first2 = (e) => e.split(`
@@ -63563,19 +65160,32 @@ async function reloadAfter(g, dir, print, opts) {
 }
 function runCheck(g, dir, opts = {}) {
   return g.queue(async () => {
-    let tests = opts.tests ?? (!existsSync17(join25(dir, "game-contract.json")) && existsSync17(join25(dir, TESTS.file)));
+    let tests = opts.tests ?? (!existsSync18(join27(dir, "game-contract.json")) && existsSync18(join27(dir, TESTS.file)));
     if (opts.faults && !tests) {
-      let start = Date.now(), print2 = fingerprint(dir), after2 = (game === g ? loadedPrint : [...slots.values()].find((s) => s.game === g)?.loadedPrint) === print2 ? null : await reloadAfter(g, dir, print2, opts);
+      let start = Date.now(), print2 = fingerprint(dir), ran = slotFor(g)?.loadedPrint === print2;
+      if (!ran && opts.yieldTo?.())
+        return { passed: 0, failed: 0, outcomes: [], durationMs: 0, fingerprint: print2, text: "", changed: !1, paused: { print: print2, outcomes: [], stepped: { ms: 0, frames: 0 }, wait: { on: !0 }, ms: 0 } };
+      let after2 = ran ? null : await reloadAfter(g, dir, print2, opts);
       return noteRun(dir, print2, { ts: (/* @__PURE__ */ new Date()).toISOString(), kind: "check", passed: 0, failed: 0, durationMs: Date.now() - start, failing: after2?.stale ? void 0 : [] }), { passed: 0, failed: 0, outcomes: [], durationMs: Date.now() - start, fingerprint: print2, text: "", changed: !1, faults: after2?.faults };
     }
-    let contract = loadContract(dir, tests ? TESTS : { ci: opts.ci }), print = fingerprints(dir, { assets: !0 }), key2 = [print.sources, print.assets, JSON.stringify(contract), JSON.stringify(g.config), !!opts.ci, tests].join("|"), memo = lastFull.get(g);
+    let loaded = loadContract(dir, tests ? TESTS : { ci: opts.ci }), page2 = pageOf(g.url), { contract, elsewhere } = tests ? onPage(loaded, page2) : { contract: loaded, elsewhere: {} }, print = fingerprints(dir, { assets: !0 }), key2 = [print.sources, print.assets, JSON.stringify(contract), JSON.stringify(g.config), !!opts.ci, tests].join("|"), memo = lastFull.get(g);
     if (memo?.key === key2) {
       if (owed.delete(g))
         await g.reload();
       return { ...memo.r, changed: !1, text: `${memo.r.text}
 (these sources were already checked at ${memo.at}, by the after-edit hook or an earlier call, so this is that result)` };
     }
-    let r = opts.result ?? await check(g, contract, { cwd: dir, print: print.sources, tests }), picture = r.outcomes.find((o) => o.picture)?.picture ?? g.runDir, after = !opts.result && opts.reload !== !1 ? await reloadAfter(g, dir, r.fingerprint, opts) : null, stale = after?.stale ?? fingerprint(dir) !== r.fingerprint;
+    let r = opts.result ?? await check(g, contract, { cwd: dir, print: print.sources, tests, yieldTo: opts.yieldTo, resume: opts.resume, restart: opts.restart });
+    if (r.paused) {
+      if (r.outcomes.length) {
+        if (owed.add(g), !r.paused.edited)
+          hookPaused.add(g);
+      }
+      return { ...r, changed: !1 };
+    }
+    if (tests && !opts.result && r.outcomes.length)
+      noteTest(g);
+    let picture = r.outcomes.find((o) => o.picture)?.picture ?? g.runDir, after = !opts.result && opts.reload !== !1 ? await reloadAfter(g, dir, r.fingerprint, opts) : null, stale = after?.stale ?? fingerprint(dir) !== r.fingerprint;
     if (opts.reload === !1 && !opts.result) {
       if (owed.add(g), !stale)
         loadedFrom(g, r.fingerprint);
@@ -63587,7 +65197,7 @@ function runCheck(g, dir, opts = {}) {
       failed: r.failed,
       durationMs: r.durationMs,
       failing: stale ? void 0 : r.outcomes.filter((o) => o.outcome !== "passed").map((o) => o.id)
-    });
+    }), { line: drew, ...on } = drewOn2(g);
     recordRun({
       cwd: dir,
       kind: "check",
@@ -63596,13 +65206,15 @@ function runCheck(g, dir, opts = {}) {
       passed: r.passed,
       failed: r.failed,
       outcomes: r.outcomes,
+      drew: on,
       durationMs: r.durationMs,
       iteration: state.iterations,
       elapsedMs: state.issued ? Date.now() - Date.parse(state.issued) : 0,
       fingerprint: r.fingerprint,
       edit: opts.edit
     });
-    let out = { ...r, text: `${r.text}${stale ? `
+    let away = elsewhereLine(elsewhere, page2), out = { ...r, drew, text: `${r.text}${away && `
+${away}`}${stale ? `
 stale: the sources changed while this check ran; run it again` : ""}`, changed: !stale && state.lastCheck.changed };
     if (!stale)
       lastFull.set(g, { key: key2, at: `${(/* @__PURE__ */ new Date()).toTimeString().slice(0, 8)} local time`, r: out });
@@ -63610,9 +65222,9 @@ stale: the sources changed while this check ran; run it again` : ""}`, changed: 
   });
 }
 function recordPlain(kind, picture, durationMs, extra2 = {}) {
-  let print = fingerprint(cwd), state = noteRun(cwd, print, { ts: (/* @__PURE__ */ new Date()).toISOString(), kind, passed: 0, failed: 0, durationMs });
+  let print = fingerprint(S().cwd), state = noteRun(S().cwd, print, { ts: (/* @__PURE__ */ new Date()).toISOString(), kind, passed: 0, failed: 0, durationMs });
   recordRun({
-    cwd,
+    cwd: S().cwd,
     kind,
     picture,
     contractHash: state.contractHash,
@@ -63636,30 +65248,38 @@ async function startControl() {
     let body2 = await json2(req).catch(() => null);
     if (body2?.token !== token)
       return reply(403, "forbidden");
-    let { game: game2, cwd: cwd2 } = mainGame();
-    if (!game2)
+    let main = mainGame(), { game, cwd } = main;
+    if (!game)
       return reply(409, "no game open");
     log(`check from the control socket${body2.edit ? ` after ${body2.edit.file || "a shell command"}` : ""}`);
-    let p = waiting && waiting.game === game2 && !!waiting.ci === !!body2.ci && waiting.tests === body2.tests && !!waiting.faults === !!body2.faults ? waiting : null, mine = p ?? (waiting = { game: game2, ci: body2.ci, tests: body2.tests, faults: body2.faults, edit: body2.edit, latest: 0, result: null }), me2 = ++mine.latest;
+    let p = waiting && waiting.game === game && !!waiting.ci === !!body2.ci && waiting.tests === body2.tests && !!waiting.faults === !!body2.faults ? waiting : null, mine = p ?? (waiting = { game, ci: body2.ci, tests: body2.tests, faults: body2.faults, edit: body2.edit, latest: 0, result: null }), me2 = ++mine.latest;
     if (body2.edit)
       mine.edit = body2.edit;
     if (!p) {
-      let g = game2, run3 = calls.then(() => {
-        if (waiting === mine)
-          waiting = null;
-        return running = HOOK, guarded2(g.queue(() => {
-          if (g.page.isClosed() || !g.page.browser().connected)
-            throw Error("the game's page was closed after a call hung; the agent's next call opens it again");
-          return runCheck(g, cwd2, { edit: mine.edit, ci: mine.ci, tests: mine.tests, faults: mine.faults, hook: !0 });
-        }), "check", () => g).finally(() => {
-          running = null;
+      let g = game, q2 = { name: savedChecks(main.cwd) ? HOOK : HOOK_BARE }, agent = () => main.queued.some((x2) => x2 !== q2 && x2.name !== HOOK && x2.name !== HOOK_BARE && x2.name !== "open"), restarts = 0, turn = (resume) => {
+        main.queued.push(q2);
+        let run3 = main.calls.then(() => {
+          if (waiting === mine)
+            waiting = null;
+          return guarded2(g.queue(() => {
+            if (g.page.isClosed() || !g.page.browser().connected)
+              throw Error("the game's page was closed after a call hung; the agent's next call opens it again");
+            return runCheck(g, cwd, { edit: mine.edit, ci: mine.ci, tests: mine.tests, faults: mine.faults, hook: !0, yieldTo: agent, resume, restart: restarts < 3 });
+          }), "check", () => g).finally(() => unqueue(main, q2));
         });
-      });
-      calls = run3.catch(() => {}), mine.result = run3;
+        return main.calls = run3.catch(() => {}), run3.then((r) => {
+          if (!r.paused)
+            return r;
+          if (r.paused.edited)
+            restarts++;
+          return waiting ??= mine, turn(r.paused);
+        });
+      };
+      mine.result = turn();
     }
     try {
       let r = await mine.result;
-      reply(200, { passed: r.passed, failed: r.failed, changed: r.changed && me2 === mine.latest, text: r.text, faults: me2 === mine.latest ? r.faults : void 0 });
+      reply(200, { passed: r.passed, failed: r.failed, changed: r.changed && me2 === mine.latest, text: r.text, drew: r.drew, faults: me2 === mine.latest ? r.faults : void 0 });
     } catch (e) {
       reply(500, { error: e.message });
     }
@@ -63667,29 +65287,42 @@ async function startControl() {
   return await new Promise((ok) => server.listen(0, "127.0.0.1", ok)), server;
 }
 async function closeGame() {
-  if (!game)
+  let s = S();
+  if (!s.game)
     return;
-  let g = game, dir = cwd;
-  if (game = null, current === "main")
-    updateState(dir, (s) => {
-      s.server = null;
+  let { game: g, cwd: dir } = s;
+  if (s.game = null, s.name === "main")
+    updateState(dir, (s2) => {
+      s2.server = null;
     });
   await (g.page.browser().connected && !g.page.isClosed() ? g.queue(() => g.close()) : g.close());
 }
+function aheadOf(ahead) {
+  let one = (n) => n === HOOK ? "the after-edit hook's check of the saved checks" : n === HOOK_BARE ? BARE : `the \`${n}\` call`;
+  if (ahead.length < 2)
+    return ahead[0] ? one(ahead[0].name) : "the calls";
+  let names = ahead.map((q2) => q2.name === HOOK ? "the after-edit hook's check" : q2.name === HOOK_BARE ? "the after-edit hook's Lighting and Surfaces recheck" : `\`${q2.name}\``);
+  return `the ${ahead.length} calls ${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+function devReloaded(ms, path14, log2, from2) {
+  let dep = log2.slice(since(log2, from2)).find((l) => /optimized dependencies changed\. reloading/.test(l));
+  return `Reloaded first: the dev server sent the page a reload after your last call (${dep ? `Vite optimized a dependency the page imported after it started (its log: "${dep.trim().slice(0, 200)}"); name that package in optimizeDeps.include in vite.config, or restart the dev server once after adding a dependency, and these reloads stop` : path14 && path14 !== "*" ? `a file it serves changed: ${path14}` : "a file it serves changed, or it optimized a dependency the page imported after it started (name that package in optimizeDeps.include)"}), so this ran on the new page from frame 0 (ready in ${(ms / 1000).toFixed(1)} s); state earlier calls set is gone.
+`;
+}
 async function reopen() {
-  await TOOL_FNS.open(opened);
+  await TOOL_FNS.open(S().opened);
 }
 function noteTest(g, l, keyFrames = 0, own = !0) {
-  let f = join25(g.runDir, "last-test.json"), was = {};
+  let f = join27(g.runDir, "last-test.json"), was = {};
   try {
-    was = JSON.parse(readFileSync22(f, "utf8"));
+    was = JSON.parse(readFileSync24(f, "utf8"));
   } catch {}
-  let faults = l ? faultLines(l).filter((x2) => /^(Lighting|Surfaces|Surface): /.test(x2)) : was.faults ?? [], keys = Math.max(was.keyFrames ?? 0, keyFrames), plain = l ? plainOf(l) : was.plain;
+  let faults = l ? faultLines(l).filter((x2) => /^(Lighting|Surfaces|Surface|Skinned scale): /.test(x2)) : was.faults ?? [], keys = Math.max(was.keyFrames ?? 0, keyFrames), plain = l ? plainOf(l) : was.plain;
   try {
-    writeFileSync14(f, JSON.stringify({ at: (/* @__PURE__ */ new Date()).toISOString(), faults, ...keys && { keyFrames: keys }, ...plain && { plain } }));
+    writeFileSync15(f, JSON.stringify({ at: (/* @__PURE__ */ new Date()).toISOString(), faults, ...keys && { keyFrames: keys }, ...plain && { plain } }));
   } catch {}
   if (l) {
-    lookPrint.set(g, loadedPrint);
+    lookPrint.set(g, S().loadedPrint);
     let base2 = hookFaults.get(g);
     if (own && (!base2 || base2.frame === l.frame))
       hookFaults.set(g, { frame: l.frame, lines: faultDiff(base2?.lines ?? [], [...l.setup ?? [], ...l.surfaces ?? []], !!l.unchecked).kept });
@@ -63702,42 +65335,61 @@ function plainOf(l) {
   let s = l.subject && !("absent" in l.subject) ? { name: l.subject.name, share: l.subject.share } : null, hues = Object.entries(l.pixels?.objects?.hues ?? l.pixels?.hues ?? {}).sort((a2, b2) => b2[1] - a2[1]).slice(0, 3).filter(([, v2]) => v2 >= 0.05).map(([h, v2]) => `${h} ${Math.round(v2 * 100)}%`).join(", ");
   return { subject: s, hues, onScreen: l.onScreen.length };
 }
+async function stepped(g) {
+  let { asked, most, now } = g.stepping, n = now(), f = (k) => k.toLocaleString("en-US"), state = await Promise.race([g.page.evaluate("JSON.stringify(window.__game?.observe?.() ?? null)").catch(() => null), sleep5(3000).then(() => null)]);
+  return `The page kept answering: it had stepped ${f(n)} of the ${f(asked)} frames its steps ask for (${f(Math.round(asked / 60))} s of game time at 60 Hz${most && most.frames > asked / 2 ? `; step ${most.at}, { ${Object.entries(most.step).map(([k, v2]) => `${k}: ${JSON.stringify(v2)}`).join(", ")} }, is ${f(most.frames)} frames alone` : ""}). A wait and a step's frames count frames, not milliseconds: { wait: 60 } is one second. Ask for fewer frames in one call.${state && state !== "null" ? `
+State reached: ${state.length > 600 ? `${state.slice(0, 600)}…` : state}` : ""}`;
+}
 async function guarded2(p, name, page2, long = LONG.has(name), start = Date.now()) {
-  let limit = long ? 2 * LIMIT_MS : LIMIT_MS, bound = () => (long ? 2 : 1) * BOUND_MS * Math.min(4, Math.max(1, loadavg2()[0] / cpus3().length)), done = !1, heard = start, settled = p.then(() => {
+  let limit = long ? 2 * LIMIT_MS : LIMIT_MS, done = !1, heard = start, loading2 = !1, bound = () => (long || loading2 ? 2 : 1) * BOUND_MS * Math.min(4, Math.max(1, loadavg4()[0] / cpus5().length)), settled = p.then(() => {
     done = !0;
   }, () => {
     done = !0;
-  });
+  }), ping = (g) => {
+    g.alive().then((ok) => {
+      if (ok && !done)
+        heard = Date.now();
+    });
+  };
   for (;; ) {
     await Promise.race([settled, sleep5(1000)]);
-    let g = page2();
-    if (!done && (!g || await g.alive()))
+    let g = page2(), was = loading2;
+    if (loading2 = !!g?.loading, !done && (!g || was && !loading2))
       heard = Date.now();
+    else if (!done && g)
+      ping(g);
+    if (!done && g?.progress && g.progress.at > heard)
+      heard = g.progress.at;
     if (done)
       return p;
-    let now = Date.now(), b2 = bound();
+    let compiles = g?.progress?.compiles ?? 0, now = Date.now(), b2 = bound() * (compiles ? 4 : 1);
     if (now - heard < b2 && now - start < limit)
       continue;
-    if (name === "eval" && now - heard >= b2 && g && await g.stop()) {
+    let silent = now - heard >= b2, quiet = Math.round((now - heard) / 1000), midFrame = !1;
+    if (name === "eval" && silent && g && await g.stop()) {
       await Promise.race([settled, sleep5(1000)]);
-      let whole = await Promise.race([g.page.evaluate(AFTER_STOP).then(Boolean, () => !1), sleep5(1000).then(() => !1)]);
+      let after = await Promise.race([g.page.evaluate(AFTER_STOP).then(Boolean, () => null), sleep5(1000).then(() => null)]);
       await Promise.race([settled, sleep5(1000)]);
-      let line2 = `\`eval\` ran ${Math.round((now - heard) / 1000)} s without yielding and was stopped; the page is kept. Split the work across calls, or await a 0 ms timer every few hundred iterations (the harness steps the clock once and the page answers).`;
-      if (whole && done)
+      let line2 = `\`eval\` ran ${quiet} s without yielding and was stopped; the page is kept. Split the work across calls, or await a 0 ms timer every few hundred iterations (the harness steps the clock once and the page answers).`;
+      if (after && done)
         return p.then((r) => withText(r, `${line2}
 ${body2(r)}`), () => {
           throw new Hung(line2);
         });
+      midFrame = after === !1;
     }
-    throw await g?.abandon(), await Promise.race([settled, sleep5(1e4)]), now - heard >= b2 ? hung(name, `stopped: the page answered nothing for ${Math.round((now - heard) / 1000)} s (its main thread never came free)`) : hung(name, `ran for ${Math.round((now - start) / 1000)} s without finishing`);
+    let ran = name === "interact" && !silent && g?.stepping ? await stepped(g) : void 0;
+    throw await g?.abandon(), await Promise.race([settled, sleep5(1e4)]), midFrame ? hung(name, `was stopped inside a game frame it stepped, silent for ${quiet} s (a frame cannot be stopped halfway)`, g?.software) : silent ? hung(name, `stopped: the page answered nothing for ${quiet} s (its main thread never came free${compiles ? `; ${compiles === 1 ? "1 GPU shader or pipeline compile was" : `${compiles} GPU shader or pipeline compiles were`} in flight` : ""})`, g?.software) : hung(name, `ran for ${Math.round((now - start) / 1000)} s without finishing`, g?.software, ran);
   }
 }
 function errorsText(errors) {
   if (!errors.length)
     return "";
-  let firsts = errors.map((e) => e.split(`
-`)[0].slice(0, 300)), kinds = new Set(firsts).size, lines = uniq2(firsts, 5), shader = errors.some((e) => /Shader Error|VALIDATE_STATUS|program not valid/i.test(e)) ? `
-A shader failed to compile: what is drawn with it draws nothing (a look lists it never visible) until it compiles.` : "";
+  let firsts = errors.map((e) => (e.split(`
+`)[0] || NO_TEXT).slice(0, 300)), kinds = new Set(firsts).size, lines = uniq2(firsts, 5), failed = errors.filter((e) => /Shader Error|VALIDATE_STATUS|program not valid|Error while parsing WGSL|pipeline creation failed|\/ (?:vertex|fragment|compute) error\]/i.test(e)), shader = failed.length ? `
+A shader failed to compile: what is drawn with it draws nothing (a look lists it never visible) until it compiles.${uniq2(failed.map(shaderLog).filter(Boolean), 3).map((l) => `
+${l}`).join("")}` + (failed.some((e) => /\batomic[A-Z]\w*\s*\(/.test(e)) ? `
+It uses atomics, which three's WebGL 2 backend (a WebGPURenderer page on a browser with no WebGPU) cannot compile: storage atomics and the compute or material that reads them run on WebGPU only.` : "") : "";
   return `
 Page errors since the last call (${errors.length}):
 ${lines.join(`
@@ -63745,7 +65397,7 @@ ${lines.join(`
 … ${kinds - 5} more kinds` : ""}${shader}`;
 }
 function reloadCause(log2, from2) {
-  let at = from2.last === void 0 ? 0 : log2.length > from2.length && log2[from2.length - 1] === from2.last ? from2.length : log2.lastIndexOf(from2.last) + 1, lines = log2.slice(at), dep = lines.find((l) => /optimized dependencies changed\. reloading/.test(l)), page2 = lines.find((l) => /\bpage reload\b/.test(l));
+  let lines = log2.slice(since(log2, from2)), dep = lines.find((l) => /optimized dependencies changed\. reloading/.test(l)), page2 = lines.find((l) => /\bpage reload\b/.test(l));
   if (dep)
     return `
 Vite reloaded it: it optimized a dependency the page imported after the dev server started (its log: "${dep.trim().slice(0, 200)}"). Name that package in optimizeDeps.include in vite.config, or restart the dev server once after adding a dependency, and these reloads stop.`;
@@ -63771,11 +65423,11 @@ function checkArgs(name, args, openCwd, pages = []) {
   let { properties: props, required = [] } = tool.inputSchema, fields = Object.keys(props), has = (k) => Object.hasOwn(props, k);
   if (kind(args) !== "object")
     return `\`${name}\` takes its arguments as an object: ${fields.join(", ")}`;
-  let here = (k) => k === "cwd" && (!openCwd || resolve19(String(args.cwd)) === openCwd), unknown = Object.keys(args).filter((k) => args[k] != null && !has(k) && k !== "game" && !here(k));
+  let here = (k) => k === "cwd" && (!openCwd || resolve21(String(args.cwd)) === openCwd), unknown = Object.keys(args).filter((k) => args[k] != null && !has(k) && k !== "game" && !here(k));
   if (unknown.length)
     return unknown.map((k) => {
       let near = (Object.hasOwn(ALIASES, k) && has(ALIASES[k]) ? ALIASES[k] : void 0) ?? fields.map((f) => ({ f, d: edits(k.toLowerCase(), f.toLowerCase()) })).filter(({ d }) => d <= 3 && 2 * d < k.length).sort((x2, y) => x2.d - y.d)[0]?.f;
-      return `\`${name}\` has no \`${k}\`${k === "cwd" ? `: it works on the game opened from ${openCwd}; \`open\` ${resolve19(String(args.cwd))} first to work there` : near ? `: did you mean \`${near}\`?` : `; its fields are ${fields.join(", ")}`}`;
+      return `\`${name}\` has no \`${k}\`${k === "cwd" ? `: it works on the game opened from ${openCwd}; \`open\` ${resolve21(String(args.cwd))} first to work there` : near ? `: did you mean \`${near}\`?` : `; its fields are ${fields.join(", ")}`}`;
     }).join(`
 `);
   let missing = [];
@@ -63817,80 +65469,113 @@ function call2(name, args) {
   let tool = !HIDDEN.includes(name) && TOOL_FNS[name];
   if (!tool)
     throw { code: -32602, message: `unknown tool ${name}` };
-  let named2 = typeof args.game === "string" && args.game.trim() ? args.game.trim() : "main", slot = slotOf(named2), own = { width: slot.opened.size?.[0] ?? VIEWPORT.width, height: slot.opened.size?.[1] ?? VIEWPORT.height }, resized = slot.game?.resized, bad = checkArgs(name, args, slot.cwd, slot.game ? [own, ...resized ? [resized] : []] : []);
+  let named2 = "game" in (TOOLS.find((t) => t.name === name)?.inputSchema.properties ?? {}) && typeof args.game === "string" && args.game.trim() ? args.game.trim() : "main", slot = slotOf(named2), own = { width: slot.opened.size?.[0] ?? VIEWPORT.width, height: slot.opened.size?.[1] ?? VIEWPORT.height }, resized = slot.game?.resized, bad = checkArgs(name, args, slot.cwd, slot.game ? [own, ...resized ? [resized] : []] : []);
   if (bad)
     return Promise.resolve(fail(bad + REPORT_ASK));
-  let optimizing = name === "perf" && !!args.optimize, once3 = (start) => answer(name, (async () => {
-    use(named2);
-    let note = "", from2 = game ? told3.get(game) ?? game.errors.length : 0;
+  if (name === REPORT_TOOL.name)
+    return running.run(slot, () => tool(args)).catch((e) => fail(String(e?.message ?? e)));
+  let optimizing = name === "perf" && !!args.optimize, s = slot, once3 = (start) => answer(name, (async () => {
+    let note = "", from2 = s.game ? told3.get(s.game) ?? s.game.errors.length : 0;
     if (name !== "open" && gone2())
       await reopen(), note = `${REOPENED}${newRun()}
 `;
-    else if (game && (FRESH.has(name) || name === "reference" && args.compare)) {
-      let print = fingerprint(cwd);
-      if (print !== loadedPrint)
-        owed.delete(game), await game.reload(), loadedPrint = print, note = reloaded(game.loadMs);
-      else if (hookReset.has(game) && name !== "feel")
-        note = HOOK_RESET;
+    else if (s.game && (FRESH.has(name) || name === "reference" && args.compare)) {
+      let print = fingerprint(s.cwd);
+      if (print !== s.loadedPrint)
+        owed.delete(s.game), await s.game.reload(), s.loadedPrint = print, note = reloaded(s.game.loadMs);
+      else if (hookPaused.has(s.game) && name !== "feel")
+        note = HOOK_PAUSED;
+      else if (hookReset.has(s.game) && name !== "feel")
+        note = savedChecks(s.cwd) ? HOOK_RESET : HOOK_RESET_BARE;
+      else {
+        let dev = await devReload(s.game);
+        if (dev) {
+          let from3 = heardBefore.get(s.game) ?? { length: 0 };
+          owed.delete(s.game), await s.game.reload(), note = devReloaded(s.game.loadMs, dev.path, s.game.serverLog, from3);
+        }
+      }
     }
-    if (game && !selfFresh(name, args) && owed.delete(game))
-      await game.reload();
-    if (game)
-      hookReset.delete(game);
+    if (s.game && !selfFresh(name, args) && owed.delete(s.game))
+      await s.game.reload();
+    if (s.game)
+      hookReset.delete(s.game), hookPaused.delete(s.game);
+    if (s.game && name !== "open" && !existsSync18(s.game.runDir))
+      mkdirSync14(s.game.runDir, { recursive: !0 }), note += `Run folder was deleted; made it again: ${s.game.runDir}
+`;
+    let at = s.game?.errors.length ?? 0;
+    if (s.game && NOTES_RAN.has(name)) {
+      s.playing = join27(s.game.runDir, "playing.json");
+      try {
+        writeFileSync15(s.playing, JSON.stringify({ tool: name, at: (/* @__PURE__ */ new Date()).toISOString(), pid: process.pid }));
+      } catch {}
+    }
     let r = await tool(args);
-    if (game && NOTES_RAN.has(name) && !r.isError) {
-      let g = game;
-      await g.queue(() => pageRan(g)).then((files) => writeFileSync14(join25(g.runDir, "ran.json"), JSON.stringify({ files }))).catch(() => {});
+    if (s.game && !OWN_ERRORS.has(name)) {
+      let g = s.game;
+      await g.queue(() => gpuSettled2(g.page));
+    }
+    if (s.game && NOTES_RAN.has(name) && !r.isError) {
+      let g = s.game;
+      await g.queue(() => pageRan(g)).then((files) => writeFileSync15(join27(g.runDir, "ran.json"), JSON.stringify({ files }))).catch(() => {});
     }
     if (note && r.content[0]?.type === "text")
       r.content[0] = { type: "text", text: r.isError ? r.content[0].text.replace(/^.*(\nat .*)*/, (l) => `${l}
 ${note.trimEnd()}`) : note + r.content[0].text };
-    if (game && !OWN_ERRORS.has(name) && !optimizing && r.content[0]?.type === "text")
-      r.content[0] = { type: "text", text: r.content[0].text + errorsText(game.errors.slice(from2)) };
-    if (game)
-      told3.set(game, game.errors.length);
+    if (s.game && !OWN_ERRORS.has(name) && !optimizing && r.content[0]?.type === "text") {
+      let errs = errorsText(s.game.errors.slice(from2)), t = r.content[0].text;
+      r.content[0] = { type: "text", text: name === "look" && errs && !r.isError ? `${errs.slice(1)}
+${t}` : t + errs };
+    } else if (s.game && BETWEEN.has(name) && r.content[0]?.type === "text")
+      r.content[0] = { type: "text", text: r.content[0].text + errorsText(s.game.errors.slice(from2, at)) };
+    if (s.game)
+      told3.set(s.game, s.game.errors.length);
     return r;
-  })(), () => game, LONG.has(name) || optimizing, start), arrived = Date.now(), before = running, run3 = calls.then(async () => {
-    let waited = Date.now() - arrived;
-    running = name;
-    let start = Date.now(), r = await once3(start);
+  })(), () => s.game, LONG.has(name) || optimizing, start).finally(() => {
+    if (s.playing)
+      rmSync9(s.playing, { force: !0 });
+    s.playing = null;
+  }), arrived = Date.now(), ahead = [...s.queued], me2 = { name };
+  s.queued.push(me2);
+  let run3 = s.calls.then(() => running.run(s, async () => {
+    s.used = Date.now();
+    let waited = Date.now() - arrived, start = Date.now(), r = await once3(start);
     if (r.isError && body2(r).includes(NAVIGATED)) {
       let again = await once3(start), cause = /\n(Vite reloaded it|The dev server reloaded it)[^\n]*/.exec(body2(r))?.[0].slice(1) ?? "";
       r = again.isError && body2(again).includes(NAVIGATED) ? withText(again, body2(again).replace(NAVIGATED, NAVIGATED_TWICE)) : again.isError ? again : withText(again, RERAN + (cause && `${cause}
 `) + body2(again));
     }
-    if (running = null, FEEDBACK && r.isError && REPORT_ASK && r.content[0]?.type === "text")
+    if (unqueue(s, me2), s.used = Date.now(), FEEDBACK && r.isError && REPORT_ASK && r.content[0]?.type === "text")
       r = withText(r, body2(r) + REPORT_ASK);
     if (waited > 5000)
-      r = withText(r, `Waited ${Math.round(waited / 1000)} s for ${before === HOOK ? "the after-edit hook's check of the saved checks" : before ? `the \`${before}\` call` : "the calls"} before this one to finish (calls run one at a time).
+      r = withText(r, `Waited ${Math.round(waited / 1000)} s for ${aheadOf(ahead)} before this one to finish (a game's calls run one at a time).
 ` + body2(r));
     return r;
-  });
-  return calls = run3, run3;
+  }));
+  return s.calls = run3, run3;
 }
 function answer(name, p, page2, long, start) {
   let g0 = page2(), log2 = g0?.serverLog, from2 = (g0 && heard.get(g0)) ?? { length: 0 };
   if (g0)
-    heard.set(g0, { length: g0.serverLog.length, last: g0.serverLog.at(-1) });
+    heardBefore.set(g0, from2), heard.set(g0, { length: g0.serverLog.length, last: g0.serverLog.at(-1) });
   return guarded2(p, name, page2, long, start).catch(async (e) => {
-    let game2 = page2();
+    let game = page2();
     if (e instanceof Hung)
       return fail(e.message);
     if (e instanceof EngineUnsupported)
       return fail(`${e.what} needs chrome: reopen with browser: chrome`);
     let message = String(e?.message ?? e);
-    if (game2 && (NAV_LOST2.test(message) || message.includes(REC_NAVIGATED))) {
-      if (await game2.reload(void 0, game2.url).then(() => !0, () => !1))
-        return fail(message + NAVIGATED + (log2 === game2.serverLog ? reloadCause(game2.serverLog, from2) : ""));
+    if (game && (NAV_LOST2.test(message) || message.includes(REC_NAVIGATED))) {
+      if (await game.reload(void 0, game.url).then(() => !0, () => !1))
+        return fail(message + NAVIGATED + (log2 === game.serverLog ? reloadCause(game.serverLog, from2) : ""));
     }
     if (name !== "open" && gone2() && await reopen().then(() => !0, () => !1))
       return fail(`${message}
 The harness's Chrome closed while this ran, so the harness opened the game again: paused at frame 0. Run the call again.
 ${newRun()}`);
     let slow = /(\S+) timed out\. Increase the 'protocolTimeout'/.exec(message);
-    if (!slow || !game2)
+    if (!slow || !game)
       return fail(message);
-    return await game2.abandon(), fail(hung(name, `stopped: the page did not answer ${slow[1]} within 180 s (on a software renderer a frame can take half a second: ask for less per call, fewer frames, a smaller viewport)`).message);
+    return await game.abandon(), fail(hung(name, `stopped: the page did not answer ${slow[1]} within 180 s (on a software renderer a frame can take half a second: ask for less per call, fewer frames, a smaller viewport)`).message);
   }).then((r) => {
     let said = page2() ? notes(page2().page) : [];
     if (!said.length)
@@ -63902,20 +65587,52 @@ ${said.join(`
 `) }, ...r.content] };
   });
 }
+function skillResource(uri) {
+  let rel = "";
+  try {
+    if (typeof uri === "string" && uri.startsWith(SKILL_URI))
+      rel = decodeURIComponent(uri.slice(SKILL_URI.length));
+  } catch {}
+  let file3 = resolve21(SKILLS, rel);
+  if (!rel || !skillFiles().includes(rel) || relative16(realpathSync5(SKILLS), realpathSync5(file3)).startsWith(".."))
+    throw { code: -32002, message: `no resource ${uri}: resources/list names each one`, data: { uri } };
+  return { contents: [{ uri, mimeType: mime(rel), text: skillText(file3) }] };
+}
 async function handle(method, params) {
   switch (method) {
     case "initialize":
-      return client = [params?.clientInfo?.name, params?.clientInfo?.version].filter(Boolean).join("/") || client, installed(client), { protocolVersion: params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "paprika3d", title: "paprika3d", version: "0.4.2" }, instructions: INSTRUCTIONS };
+      return client = [params?.clientInfo?.name, params?.clientInfo?.version].filter(Boolean).join("/") || client, installed(client), { protocolVersion: params?.protocolVersion ?? "2025-06-18", capabilities: { tools: COMPACT ? { listChanged: !0 } : {}, prompts: {}, resources: {} }, serverInfo: { name: "paprika3d", title: "paprika3d", version: "0.4.3" }, instructions: INSTRUCTIONS };
     case "ping":
       return {};
     case "tools/list":
-      return { tools: LISTED };
+      return { tools: listed() };
+    case "prompts/list":
+      return { prompts: [MAKE] };
+    case "prompts/get": {
+      let request4 = params?.arguments?.request;
+      if (params?.name !== MAKE.name)
+        throw { code: -32602, message: `no prompt named ${params?.name}: the one prompt is ${MAKE.name}` };
+      if (typeof request4 !== "string" || !request4.trim())
+        throw { code: -32602, message: `${MAKE.name} takes request, what to build in the person's words` };
+      let skill = skillText(join27(SKILLS, "paprika-make/SKILL.md")).replace(/^---\n[\s\S]*?\n---\n+/, "");
+      return { description: MAKE.description, messages: [{ role: "user", content: { type: "text", text: `Follow these instructions for this request: ${request4.trim()}
+
+Each paprika3d:// path below is an MCP resource of the paprika3d server: read it with resources/read (resources/list names them all, the files of a folder included), not from disk.
+
+${skill}` } }] };
+    }
+    case "resources/list":
+      return { resources: skillFiles().map((f) => ({ uri: SKILL_URI + f, name: f, mimeType: mime(f) })) };
+    case "resources/templates/list":
+      return { resourceTemplates: [] };
+    case "resources/read":
+      return skillResource(params?.uri);
     case "tools/call": {
       let name = params?.name, args = params?.arguments ?? {}, start = Date.now();
       log(`${name} ${JSON.stringify(args).slice(0, 300)}`);
-      let r = await call2(name, args).catch((e) => {
+      let more = COMPACT && name === MORE_TOOL.name, r = more ? moreTools(args) : await call2(name, args).catch((e) => {
         throw event(name, args, null, Date.now() - start), e;
-      }), props = { ...LISTED.find((t) => t.name === name)?.inputSchema?.properties, ...name === "perf" && { budget: { enum: Object.keys(BUDGETS) } } };
+      }), props = { ...more && MORE_TOOL.inputSchema.properties, ...LISTED.find((t) => t.name === name)?.inputSchema?.properties, ...name === "perf" && { budget: { enum: Object.keys(BUDGETS) } } };
       return event(name, args, r, Date.now() - start, { properties: props }), r;
     }
     default:
@@ -63938,7 +65655,9 @@ async function serve() {
   let send = (msg) => {
     process.stdout.write(JSON.stringify(msg) + `
 `);
-  }, stop = async () => {
+  };
+  listChanged = () => send({ jsonrpc: "2.0", method: "notifications/tools/list_changed" });
+  let stop = async () => {
     await closeGame().catch(() => {});
     for (let v2 of slots.values())
       await v2.game?.close().catch(() => {});
@@ -63965,7 +65684,12 @@ async function serve() {
   }
   await stop();
 }
-var MAX_CHARS = 15000, TAIL = 2500, WORK_IS = "paused frames, each timed from its step to the end of its GPU work, with no wait for the display", workText = (w2) => `${w2.ms} ms ${w2.drew ? `a frame that drew (the median of ${w2.drew})` : `a frame (the median of ${w2.frames}; none called three's render)`}, ${w2.cpuMs} ms of it the frame's code; ${w2.meanMs} ms a frame on average over ${w2.frames} stepped, the slowest ${w2.maxMs} ms`, PACED = "headless Chrome runs frames back to back only while each one draws something new, and a frame that presents nothing new waits for the 60 Hz tick (a render skipped, or a canvas not drawn to every frame).", saidGpu = "", text = (body2) => ({ content: [{ type: "text", text: fit(body2) }] }), fail = (body2) => ({ ...text(body2), isError: !0 }), log = (s) => console.error(`paprika3d: ${s}`), LEAN = !1, SHORT2, short = (tool, t) => SHORT2 ? shortText(tool, t) : t, CONTRACT = !1, CWD, VIDEO = !1, RECORD, NETWORK, TOOLS, GAME, HIDDEN, LOOP_NOTES, LISTED, described, client = "unknown", game = null, cwd = "", control = null, shots = 0, chrome2, opened, loadedPrint = "", slots, current = "main", MAX_GAMES = 4, slotOf = (name) => current === name ? { game, cwd, opened } : slots.get(name) ?? { game: null, cwd: "", opened: {} }, mainGame = () => slotOf("main"), token, RUNTIME, BUNDLES, contractOrNull = (dir, ci = !1) => {
+var MAX_CHARS = 15000, TAIL2 = 2500, WORK_IS = "paused frames, each timed from its step to the end of its GPU work, with no wait for the display", workText = (w2) => `${w2.ms} ms ${w2.drew === 1 ? "the one frame that drew (WORK's 1 s held no other, so this is one frame, not a median)" : w2.drew ? `a frame that drew (the median of ${w2.drew})` : `a frame (the median of ${w2.frames}; none called three's render)`}, ${w2.cpuMs} ms of it the frame's code; ${w2.meanMs} ms a frame on average over ${w2.frames} stepped, the slowest ${w2.maxMs} ms`, PACED = "headless Chrome runs frames back to back only while each one draws something new, and a frame that presents nothing new waits for the 60 Hz tick (a render skipped, or a canvas not drawn to every frame).", saidGpu = "", text = (body2) => ({ content: [{ type: "text", text: fit(body2) }] }), fail = (body2) => ({ ...text(body2), isError: !0 }), log = (s) => console.error(`paprika3d: ${s}`), LEAN = !1, SHORT2, short = (tool, t) => SHORT2 ? shortText(tool, t) : t, CONTRACT = !1, CWD, VIDEO = !1, RECORD, NETWORK, TOOLS, GAME, READ_ONLY, CLOSED_WORLD, HIDDEN, LOOP_NOTES, LISTED, COMPACT, GROUPS, shown2, MORE_TOOL, listed = () => !COMPACT ? LISTED : [...LISTED.filter((t) => !Object.entries(GROUPS).some(([k, g]) => g.tools.includes(t.name) && !shown2.has(k))), MORE_TOOL], listChanged = () => {}, described, client = "unknown", control = null, shots = 0, chrome2, slots, MAX_GAMES = 4, chromeCheck, sharedChrome = () => chromeCheck ??= (async () => {
+  if (!(await chrome2?.catch(() => null))?.connected)
+    chrome2 = launchChrome2();
+})().finally(() => {
+  chromeCheck = void 0;
+}), running, S = () => running.getStore() ?? slotOf("main"), mainGame = () => slotOf("main"), slotFor = (g) => [...slots.values()].find((s) => s.game === g), token, RUNTIME, BUNDLES, STATE_DIST, contractOrNull = (dir, ci = !1) => {
   if (!CONTRACT)
     return null;
   try {
@@ -63979,40 +65703,65 @@ var MAX_CHARS = 15000, TAIL = 2500, WORK_IS = "paused frames, each timed from it
   } catch {
     return null;
   }
-}, lastFull, hookReset, hookFaults, lookPrint, edited = (g) => lookPrint.has(g) && lookPrint.get(g) !== loadedPrint, owed, selfFresh = (name, a2) => name === "test" || name === "look" && !!(a2.sheet || a2.viewports || a2.scroll || a2.opening), waiting = null, netArg = (n) => {
-  if (n !== void 0 && !Object.hasOwn(NETWORKS, String(n)))
-    throw Error(`network: one of ${Object.keys(NETWORKS).join(", ")}`);
-  return n;
+}, lastFull, hookReset, hookPaused, hookFaults, lookPrint, edited = (g) => lookPrint.has(g) && lookPrint.get(g) !== slotFor(g)?.loadedPrint, owed, selfFresh = (name, a2) => name === "test" || name === "look" && !!(a2.sheet || a2.viewports || a2.scroll || a2.opening), waiting = null, netArg = (n) => {
+  if (n === void 0 || typeof n === "string" && Object.hasOwn(NETWORKS, n))
+    return n;
+  let o = n, num4 = (v2, min) => typeof v2 === "number" && Number.isFinite(v2) && v2 >= min;
+  if (o && typeof o === "object" && !Array.isArray(o) && Object.keys(o).every((k) => ["downKbps", "upKbps", "latencyMs"].includes(k)) && num4(o.downKbps, 1) && (o.upKbps === void 0 || num4(o.upKbps, 1)) && num4(o.latencyMs, 0) && o.latencyMs <= 60000)
+    return n;
+  throw Error(`network: one of ${Object.keys(NETWORKS).join(", ")}, or { downKbps, upKbps, latencyMs } (kbps of at least 1, upKbps optional, latency 0 to 60000 ms)`);
 }, slowed = (t) => t && t > 1 ? `
 Measured with the page's JavaScript slowed ${t}× (a weak laptop); the GPU was not slowed.` : "", hostLoad = () => {
-  let l = loadavg2()[0], n = cpus3().length;
+  let l = loadavg4()[0], n = cpus5().length;
   return `Host load ${l.toFixed(1)} on ${n} cores${l > n * 0.75 ? ": a busy host, so these numbers are noisy; measure again when it is quieter" : ""}.`;
 }, need = () => {
-  if (game)
-    return game;
-  let open3 = [...slots].filter(([, v2]) => v2.game).map(([k]) => k);
+  let g = S().game;
+  if (g)
+    return g;
+  let open3 = [...slots].filter(([, v2]) => v2.game).map(([k]) => k), by = closedFor.get(S().name);
+  if (by)
+    throw Error(`game "${S().name}" was closed when game "${by}" opened: at most ${MAX_GAMES} games are open at once, and the one used longest ago closes. Call \`open\` with game "${S().name}" to open it again.`);
   if (open3.length)
-    throw Error(`no game "${current}" is open; open games: ${open3.join(", ")}. Pass game: "${open3[0]}" or call \`open\` with game "${current}".`);
-  throw Error(current === "main" ? "no game is open; call `open` first" : `no game "${current}" is open; call \`open\` with game "${current}" first`);
-}, evicted = "", saveName = (s) => {
+    throw Error(`no game "${S().name}" is open; open games: ${open3.join(", ")}. Pass game: "${open3[0]}" or call \`open\` with game "${S().name}".`);
+  throw Error(S().name === "main" ? "no game is open; call `open` first" : `no game "${S().name}" is open; call \`open\` with game "${S().name}" first`);
+}, closedFor, saveName = (s) => {
   if (s !== void 0 && (typeof s !== "string" || !/^[\w-]{1,64}$/.test(s)))
     throw Error('save: a name of letters, digits, - or _, as "pickup"');
 }, savedVerb = (dir, name) => {
   try {
-    return (JSON.parse(readFileSync22(join25(dir, "game-tests.json"), "utf8")).keypoints ?? []).some((k) => k?.id === name) ? "Replaced" : "Saved";
+    return (JSON.parse(readFileSync24(join27(dir, "game-tests.json"), "utf8")).keypoints ?? []).some((k) => k?.id === name) ? "Replaced" : "Saved";
   } catch {
     return "Saved";
   }
-}, TOOL_FNS, INSTRUCTIONS = "Use these tools, the `paprika` server's, rather than a Playwright or Chrome DevTools script, to run, see, test, play or profile any three.js, React Three Fiber or other WebGL page, new or existing, in Chrome or Firefox: a game, a viewer, a product configurator, a simulation, a shader or post-processing demo. `open` runs the page in headless Chrome (by default) on a paused, seeded clock, so the same inputs always give the same frames and state; `look` shows what a viewer sees and lists what is on screen and what never appears (a model loaded at the wrong scale, out of view or not loaded at all shows only there). `look`'s `Lighting:` and `Surfaces:` lines name the object, where it is and the number that fixes it. Search for the tool by what you need: `look` to see the page, `interact` to play it, `observe` to read its state, `eval` to run code in it, `feel` to measure how an event reacts, `perf` to time it against a budget, `model_run` to build a model in code (three and Manifold, as in Blender) and `model_look` to see it from four sides, saved as a .glb the page loads, `asset_search` for a ready-made model (57,732, CC BY or CC0), PBR texture or HDRI sky from the hosted library. Calls run one at a time: a call made while another still runs, one moved to the background included, waits for it to finish, and its reply starts with how long it waited.", calls, running = null, HOOK = "after-edit hook", FRESH, reloaded = (ms) => `Reloaded (sources changed), ran on the new code from frame 0 (ready in ${(ms / 1000).toFixed(1)} s).
-`, HOOK_RESET = `The after-edit hook reran its checks since your last call, so the page restarted at frame 0.
+}, TOOL_FNS, INSTRUCTIONS = "Use these tools, the `paprika` server's, rather than a Playwright or Chrome DevTools script, to run, see, test, play or profile any three.js, React Three Fiber or other WebGL page, new or existing, in Chrome or Firefox: a game, a viewer, a product configurator, a simulation, a shader or post-processing demo. `open` runs the page in headless Chrome (by default) on a paused, seeded clock, so the same inputs always give the same frames and state; `look` shows what a viewer sees and lists what is on screen and what never appears (a model loaded at the wrong scale, out of view or not loaded at all shows only there). `look`'s `Lighting:` and `Surfaces:` lines name the object, where it is and the number that fixes it. Search for the tool by what you need: `look` to see the page, `interact` to play it, `observe` to read its state, `eval` to run code in it, `feel` to measure how an event reacts, `perf` to time it against a budget, `model_run` to build a model in code (three and Manifold, as in Blender) and `model_look` to see it from four sides, saved as a .glb the page loads, `unity_export` to hand the scene to Unity as a project, `asset_search` for a ready-made model (84,249, CC BY or CC0), PBR texture or HDRI sky from the hosted library. Before building a character, creature, vehicle, building, prop, surface texture or sky in code, search `asset_search` for it, as paprika-make's picking round does (https://github.com/Keeno-Corp/paprika3d/blob/main/skills/paprika-make/sheets.md#the-picking-round): `pick` a close hit (it writes the loading code and the credit line in CREDITS.md) and build in code only what no search finds. Calls run one at a time: a call made while another still runs, one moved to the background included, waits for it to finish, and its reply starts with how long it waited.", HOOK = "after-edit hook", HOOK_BARE = "after-edit hook recheck", savedChecks = (dir) => existsSync18(join27(dir, "game-tests.json")) || existsSync18(join27(dir, "game-contract.json")), BARE = "the after-edit hook's recheck of the reloaded page's Lighting and Surfaces lines (the project has no saved checks)", unqueue = (s, q2) => {
+  let i = s.queued.indexOf(q2);
+  if (i >= 0)
+    s.queued.splice(i, 1);
+}, FRESH, reloaded = (ms) => `Reloaded (sources changed), ran on the new code from frame 0 (ready in ${(ms / 1000).toFixed(1)} s).
+`, devReload = (g) => g.queue(() => g.page.evaluate("window.__harness?.devReload ?? null")).catch(() => null), HOOK_RESET = `The after-edit hook reran its checks since your last call, so the page restarted at frame 0.
+`, HOOK_PAUSED = `The after-edit hook's rerun of the saved checks paused between checks for this call and goes on after it; the page restarted at frame 0.
+`, HOOK_RESET_BARE = `The after-edit hook reloaded the page since your last call to recheck its Lighting and Surfaces lines (the project has no saved checks), so the page restarted at frame 0.
 `, REOPENED = `Reopened first: the game's page had closed (a call before this one hung, or Chrome was killed or crashed), so the game was opened again and this ran from frame 0.
-`, newRun = () => `Run folder: ${game.runDir}`, gone2 = () => !!game && (game.page.isClosed() || !game.page.browser().connected), keyFramesOf = (steps = [], ran) => !steps.some((s) => ("key" in s) || ("mouse" in s) || ("touch" in s) || ("wheel" in s) || ("scroll" in s)) ? 0 : ran ?? steps.reduce((n, s) => n + Number(("wait" in s ? s.wait : ("frames" in s) ? s.frames : 1) ?? 1), 0), LIMIT_MS, BOUND_MS, LONG, Hung, hung = (name, what) => {
-  let load = loadavg2()[0], cores = cpus3().length, busy = load > cores * 2;
-  return new Hung(`\`${name}\` ${what}, so the harness closed its page: the next call opens the game again at frame 0. ${busy ? `The host is busy (load ${load.toFixed(0)} on ${cores} cores), which can starve the page: run the call again before looking for a loop. If it hangs again, find` : "Find"} what never ends before running it again: an endless loop in the game or in code you ran, or a frame that waits on something that never comes (a network request, audio, a worker).`);
-}, sleep5 = (ms) => new Promise((r) => setTimeout(r, ms)), told3, OWN_ERRORS, NAVIGATED = `
+`, newRun = () => `Run folder: ${S().game.runDir}`, gone2 = () => {
+  let g = S().game;
+  return !!g && (g.page.isClosed() || !g.page.browser().connected);
+}, keyFramesOf = (steps = [], ran) => !steps.some((s) => ("key" in s) || ("mouse" in s) || ("touch" in s) || ("wheel" in s) || ("scroll" in s)) ? 0 : ran ?? steps.reduce((n, s) => n + Number(("wait" in s ? s.wait : ("frames" in s) ? s.frames : 1) ?? 1), 0), LIMIT_MS, BOUND_MS, LONG, Hung, hung = (name, what, software = !1, ran) => {
+  let load = loadavg4()[0], cores = cpus5().length, busy = load > cores * 2;
+  if (ran)
+    return new Hung(`\`${name}\` ${what}, so the harness closed its page: the next call opens the game again at frame 0. ${ran}`);
+  return new Hung(`\`${name}\` ${what}, so the harness closed its page: the next call opens the game again at frame 0. ${busy ? `The host is busy (load ${load.toFixed(0)} on ${cores} cores), which can starve the page: run the call again before looking for a loop. If it hangs again, find` : software ? "On this software renderer (no GPU) one frame or load of a heavy page can take that long: ask for less in one call (fewer variants, lower counts, fewer frames, a smaller viewport) before looking for a loop. If it hangs again, find" : "Find"} what never ends before running it again: an endless loop in the game or in code you ran, or a frame that waits on something that never comes (a network request, audio, a worker).`);
+}, sleep5 = (ms) => new Promise((r) => setTimeout(r, ms)), told3, BETWEEN, OWN_ERRORS, NO_TEXT = "an error with no text (an empty throw, rejection or console.error; the page gave nothing more)", shaderLog = (e) => {
+  let wgsl = e.match(/^THREE\.WebGPURenderer \[(\S+) \/ (\w+) error\] at line [\d:]+: (.+)\n\s*(.*)/);
+  if (wgsl)
+    return `${wgsl[1].match(/_(\w+)_\d+$/)?.[1] ?? wgsl[1]} ${wgsl[2]}: ${wgsl[3].trim()}${wgsl[4]?.trim() ? ` at \`${wgsl[4].trim().slice(0, 160)}\`` : ""}`.slice(0, 300);
+  let mat = e.match(/^Material Name: (.+)$/m)?.[1]?.trim(), type = e.match(/^Material Type: (.+)$/m)?.[1]?.trim(), err = e.match(/^(?:ERROR|error): .+$/m)?.[0]?.trim() ?? e.match(/^Program Info Log: (.+)$/m)?.[1]?.trim(), at = e.match(/^> \d+: (.+)$/m)?.[1]?.trim();
+  if (!err && !mat)
+    return "";
+  return `${mat || type ? `${[mat, type].filter(Boolean).join(" ")}: ` : ""}${err ?? ""}${at ? ` at \`${at.slice(0, 160)}\`` : ""}`.slice(0, 300);
+}, NAVIGATED = `
 The page navigated while this ran, so the harness reloaded it: paused at frame 0. Run the call again. Do not reload the page yourself: after an edit, the next call reloads it.`, NAVIGATED_TWICE = `
 The page navigated under this call twice, and the harness reloaded it each time: paused at frame 0. Something reloads the page: your own code (location.reload, location.href, a redirect), a dev server's live reload after an edit (edit first, then call, not both in one turn), or Vite optimizing a dependency the page imported late. Find it before running the call again.`, RERAN = `The page navigated during the first try of this call, so the harness reloaded it and ran the call again.
-`, body2 = (r) => r.content[0]?.type === "text" ? r.content[0].text : "", withText = (r, t) => ({ ...r, content: [{ type: "text", text: t }, ...r.content.slice(r.content[0]?.type === "text" ? 1 : 0)] }), ALIASES, kind = (v2) => Array.isArray(v2) ? "array" : v2 === null ? "null" : typeof v2, an = (t) => `${/^[aeiou]/.test(t) ? "an" : "a"} ${t}`, about = (p) => p.description ? `: ${p.description}` : "", NOTES_RAN, heard;
+`, since = (log2, from2) => from2.last === void 0 ? 0 : log2.length > from2.length && log2[from2.length - 1] === from2.last ? from2.length : log2.lastIndexOf(from2.last) + 1, body2 = (r) => r.content[0]?.type === "text" ? r.content[0].text : "", withText = (r, t) => ({ ...r, content: [{ type: "text", text: t }, ...r.content.slice(r.content[0]?.type === "text" ? 1 : 0)] }), ALIASES, kind = (v2) => Array.isArray(v2) ? "array" : v2 === null ? "null" : typeof v2, an = (t) => `${/^[aeiou]/.test(t) ? "an" : "a"} ${t}`, about = (p) => p.description ? `: ${p.description}` : "", NOTES_RAN, heard, heardBefore, SKILLS, MAKE, SKILL_URI = "paprika3d://skills/", MIME3, mime = (f) => MIME3[f.slice(f.lastIndexOf(".") + 1)] ?? "text/plain", skillText = (file3) => readFileSync24(file3, "utf8").replace(/^Outside Claude Code \(an `npx skills add` install.*\n+/m, "").replaceAll("${CLAUDE_PLUGIN_ROOT}/skills/", SKILL_URI).replaceAll("${CLAUDE_PLUGIN_ROOT}", dirname18(SKILLS)), skillFiles = () => readdirSync8(SKILLS, { recursive: !0 }).filter((f) => statSync13(join27(SKILLS, f)).isFile()).map((f) => f.replaceAll("\\", "/")).sort();
 var init_server = __esm(() => {
   init_browser2();
   init_record();
@@ -64033,14 +65782,16 @@ var init_server = __esm(() => {
   init_usd();
   init_reference();
   init_model();
+  init_unity();
   init_assets();
   init_fingerprint();
   init_lint();
   init_pacing();
+  init_response();
   init_open();
   init_state();
   init_telemetry();
-  SHORT2 = process.env.PAPRIKA3D_REPLY === "short", CWD = { type: "string", description: "The game project's folder." }, RECORD = `true: plays the steps in real time (1/60 s a frame, ${RECORD_MAX_S} s at most) into a GIF in the run folder; the reply has four moments and the real frame intervals.`, NETWORK = { type: "string", enum: ["slow-4g", "fast-4g", "3g"], description: "Also time a first visit on this network (Chrome DevTools' presets), in real time with no cache: when the first scene frame came, which bytes came before it by kind (as sent: the harness's own server does not compress, a CDN does) and when an overlay over the canvas went." }, TOOLS = [
+  SHORT2 = process.env.PAPRIKA3D_REPLY === "short", CWD = { type: "string", description: "The game project's folder." }, RECORD = `true: plays the steps in real time (1/60 s a frame, ${RECORD_MAX_S} s at most) into a GIF in the run folder; the reply has four moments and the real frame intervals.`, NETWORK = { type: ["string", "object"], description: "Also time a first visit on this network, in real time with no cache: slow-4g, fast-4g or 3g (Chrome DevTools' presets), broadband (20 Mbps both ways, 40 ms), or { downKbps, upKbps, latencyMs } (upKbps defaults to downKbps). The reply names its numbers and whether a software renderer drew it, and says when the first scene frame came, which bytes came before it by kind (as sent: the harness's own server does not compress, a CDN does) and when an overlay over the canvas went." }, TOOLS = [
     {
       name: "contract",
       description: "For a game with exact rules (scoring, collisions, matching, turn order, stated numbers) or when the user asks for a locked spec or tests, call it before writing game code: it turns the user's prompt into a game contract (keypoints the game must pass). It writes a brief for a fresh subagent that has seen no game code and tells you how to start it; that subagent drafts and issues the contract and replies with the keypoints. Never edit game-contract.json by hand.",
@@ -64048,7 +65799,7 @@ var init_server = __esm(() => {
     },
     {
       name: "open",
-      description: 'Opens a three.js, React Three Fiber or WebGL page (a game, viewer, configurator, simulation or shader demo) in headless Chrome (or the `browser` given) on a paused, seeded clock, closing any page already open under the same `game` name, and lists the asset files (models, textures, sounds) it fetched and any fetch that failed, what a dev-server `command` printed as an error or warning, a canvas with no height, and the page\'s text outside the canvas. Open once: after an edit, the next `interact`, `look`, `observe`, `eval` or `feel` reloads the page by itself. Use it when such a page has been written or changed. Give a file or folder to serve (`url`, relative to cwd), an http URL, or a dev-server `command` run in cwd. Up to 4 games can be open at once, each under its own `game` name: a subagent opens its own (`game: "tester"`) and passes that name to every call.',
+      description: 'Opens a three.js, React Three Fiber or WebGL page (a game, viewer, configurator, simulation or shader demo) in headless Chrome (or the `browser` given) on a paused, seeded clock, closing any page already open under the same `game` name, and lists the asset files (models, textures, sounds) it fetched and any fetch that failed, what a dev-server `command` printed as an error or warning, a canvas with no height, and the page\'s text outside the canvas. Open once: after an edit, the next `interact`, `look`, `observe`, `eval` or `feel` reloads the page by itself. Use it when such a page has been written or changed. Give a file or folder to serve (`url`, relative to cwd), an http URL, or a dev-server `command` run in cwd. It writes geo.js and fx.js into a served folder, never over a newer copy. Up to 4 games can be open at once, each under its own `game` name: a subagent opens its own (`game: "tester"`) and passes that name to every call.',
       inputSchema: { type: "object", properties: {
         url: { type: "string", description: "A file or folder to serve (relative to cwd), an http URL, or, with `command`, the path and query to open on the server it starts (its origin is the one the command prints)." },
         command: { type: "string", description: "A dev-server command run in cwd, as `npx vite --port 0`; the first localhost URL it prints is the page. Closing or reopening this game stops it; an `open` with a url on its origin restarts it on that url." },
@@ -64058,6 +65809,7 @@ var init_server = __esm(() => {
         size: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2, description: "The page's width and height in CSS pixels until the next open, 1280 × 800 by default, as [1920, 1080]." },
         dpr: { type: "number", description: "Device pixel ratio, 1 by default. `look` boxes stay in CSS pixels." },
         reducedMotion: { type: "boolean", description: "The page gets prefers-reduced-motion: reduce; `look` then says how much of the picture changed since the last look." },
+        device: { type: "string", enum: ["phone"], description: "phone: a phone's user agent, touch points, coarse pointer and no hover, at 390 × 844, DPR 3 unless `size` and `dpr` say otherwise, for a game that picks its mobile path at load." },
         network: NETWORK
       }, required: ["cwd"] },
       _meta: { "anthropic/alwaysLoad": !0 }
@@ -64079,12 +65831,16 @@ var init_server = __esm(() => {
       name: "interact",
       description: "Plays `steps` on the open page frame by frame and returns what changed in the state (the whole state when nothing did), the console lines and errors the steps raised, a Motion line when the subject turned or stopped under a held key or would stutter on a 100 Hz screen, and a Sound line on a page that makes sound. Each mouse and touch step names the object under it and its distance. `expect` adds one ✓ or ✗ line per path; `save` keeps the play as a check `test` reruns, only when every entry holds. A malformed step fails the call before anything plays; a failing `expect` entry is reported, not raised. Use `feel` to measure how an event reacts on screen, `observe` to read the state without playing, and `eval` to set it with code. Options in full: the skill's references/tools.md.",
       inputSchema: { type: "object", properties: {
-        steps: { type: "array", items: { type: "object" }, description: 'Steps, in order: { key, frames? } (held, then released); { key, down: true|false } (held across steps); { mouse: click|dblclick|down|up|move, x, y }; { mouse: move, relative: [dx, dy] } (pointer lock); { wheel: deltaY, x?, y? }; { resize: [w, h] }; { scroll: px | { progress: 0..1 } | { to: "#id" } }; { touch: start|move|end|tap, x, y }; { wait: frames, draw? }; { action, ...args } (window.__game.act); { state: {...} } (window.__game.setState, then one frame); { until: {...}, max? } (until the state holds, values as `expect`\'s; `max` 600 frames by default); { clock: { timescale?, paused? } } (paused: false plays in real time; the clock reads 60 s at frame 0 on purpose). Each step advances `frames` (default 1) and draws only its last (draw: true draws each); `frames: 0` sends it on the same frame as the next.' },
+        steps: { type: "array", items: { type: "object" }, description: 'Steps, in order: { key, frames? } (held, then released); { key, down: true|false } (held across steps); { mouse: click|dblclick|down|up|move, x, y, button?: "left"|"right"|"middle" } (left by default); { mouse: move, relative: [dx, dy] } (pointer lock); { wheel: deltaY, x?, y? }; { resize: [w, h] }; { scroll: px | { progress: 0..1 } | { to: "#id" } }; { touch: start|move|end|tap, x, y }; { wait: frames, draw? }; { action, ...args } (window.__game.act); { state: {...} } (window.__game.setState, then one frame); { until: {...}, max? } (until the state holds, values as `expect`\'s; `max` 600 frames by default); { clock: { timescale?, paused? } } (paused: false plays in real time; the clock reads 60 s at frame 0 on purpose). Each step advances `frames` (default 1) and draws only its last (draw: true draws each); `frames: 0` sends it on the same frame as the next.' },
         look: { type: "boolean", description: "Also return `look`'s picture after the steps." },
         record: VIDEO ? { anyOf: [{ type: "boolean" }, { type: "string", enum: ["video"] }], description: `${RECORD} "video": a 60 fps MP4 for a person, on the paused clock, ${VIDEO_MAX_S} s of game time at most, no sound.` } : { type: "boolean", description: RECORD },
+        ...VIDEO && {
+          fps: { type: "number", enum: [30, 60], description: 'With record: "video": 60 (the default) films every frame, 30 every other one.' },
+          size: { type: "number", description: `With record: "video": the longest side at most, in px (the page's full size by default), as 1280 for a promo clip.` }
+        },
         trace: { type: "array", maxItems: 6, items: { type: "string" }, description: "Up to 6 dotted paths into observe(), read each frame (the first 600): first and last value, peak or low, and first change, with frames." },
-        expect: { type: "object", description: 'Checked against the state after the steps, keyed by dotted paths into observe() ("coins.0.x"): a number, string or boolean (equal), [min, max] (a range; two numbers always are), a list of other values (one of them) or null (exists).' },
-        save: { type: "string", description: "Save the steps and `expect` as a check of this name in game-tests.json when every Expect entry holds; the call plays from a fresh reload, its leading state steps as setup." },
+        expect: { type: "object", description: 'Checked against the state after the steps, keyed by dotted paths into observe() ("coins.0.x"): a number, string or boolean (equal), [min, max] (a range; two numbers always are), a list of other values (one of them; [null] is null), [] (an empty list) or null (exists, whatever its value).' },
+        save: { type: "string", description: "Save the steps and `expect` as a check of this name (letters, digits, - or _) in game-tests.json when every Expect entry holds; the call plays from a fresh reload, its leading state steps as setup." },
         hover: { type: "array", items: { type: "string" }, description: "After the steps, the mouse moves to each named object's centre; one diff per name after `frames`." },
         frames: { type: "number", description: "Frames to wait at each hovered object (default 1)." }
       } }
@@ -64093,7 +65849,7 @@ var init_server = __esm(() => {
       name: "look",
       description: "Screenshot of the open page in the reply, an ID image beside it (one colour per object, the path with -ids before .png), and a list of what is on screen and the named objects no look has seen, with size and place. It sends no input; sheet, scroll, viewports and compare reload the page for their pictures. One mode a call: cameras, viewports, scroll, sheet, opening, zoom, at, target, save or compare. It ends with the lines the skill's references/lighting.md explains, the `Lighting:` and `Surfaces:` setup faults among them. A post-processed page is pictured as of its last drawn frame, so state set since shows after a step. Use `observe` for the state as numbers, `reference` to read or match a picture the page should look like, and `interact` with `look: true` for the picture after input. Modes in full: references/tools.md.",
       inputSchema: { type: "object", properties: {
-        camera: { anyOf: [{ type: "string" }, { type: "object", properties: { position: { type: "array", items: { type: "number" } }, lookAt: { type: "array", items: { type: "number" } } }, required: ["position"] }], description: "This look's camera, { position, lookAt }, or a name: a refs/cameras.json picture's file name or a `cameras` label." },
+        camera: { anyOf: [{ type: "string" }, { type: "object", properties: { position: { type: "array", items: { type: "number" } }, lookAt: { type: "array", items: { type: "number" } } }, required: ["position"] }], description: "This look's camera, { position, lookAt }, or a name: a refs/cameras.json picture's file name or a `cameras` label; for the plain look, zoom, at, save and compare." },
         cameras: { type: "array", maxItems: 9, description: "Up to 9 cameras ({ position, lookAt, label } or a name) in one grid, no reload; a label is kept as a `camera` name.", items: { anyOf: [{ type: "string" }, { type: "object", properties: { position: { type: "array", items: { type: "number" } }, lookAt: { type: "array", items: { type: "number" } }, label: { type: "string" } }, required: ["position"] }] } },
         target: { type: "string", description: "An object in the main scene, alone from front, right, top and three-quarter views." },
         opening: { type: "boolean", description: "Picture the first 5 s after load in real time, as a viewer meets them (`open` pauses at frame 0)." },
@@ -64119,7 +65875,7 @@ var init_server = __esm(() => {
     },
     {
       name: "perf",
-      description: 'Measures the open page\'s frame time (fps), draw calls, triangles and asset size against a budget (desktop by default): it is for a frame a reply reports over budget, or a user who asks about performance (stutter, low fps). To find what costs the frame, give `variants`: each is measured on a fresh page against the baseline, in this one call, with named objects hidden, a pixel ratio, code run with `renderer` and `scene` (shadows or antialias off, a material swapped), or a `query` the page loads with ("noshadow&pr=0.5", for switches the game reads at load); no reopening or reload code needed. Sampling waits until no element covers the canvas (a loading screen), up to 5 s of the page running, and the load line says what it waited for or sampled under. With `optimize: true` it instead tries the @paprika3d/three-runtime switches one at a time: `resolution` (lowers the pixel ratio while frames run over budget), `defaults` (pixel ratio capped at 2, shaders compiled up front, shadow maps redrawn only when a caster moves), `instancing` (still meshes that share a geometry and material drawn as one), `lod` (simpler versions of meshes over 10,000 triangles at a distance) and `dispose` (frees the GPU memory of removed objects). `instancing` and `lod` stay only when frames get faster, the others unless they slow frames. A switch is reverted if a saved test that passed without it fails with it, and `defaults`, `instancing` and `dispose` also if they change the picture; a kept `resolution` or `lod` that changes it comes with before and after pictures. What it keeps goes in the project\'s game-runtime.json, which the runtime reads at every load, so it lasts until that file changes; it ends with the final `test` of game-tests.json when the project has one. On a game without the runtime it changes nothing and says how to import it.',
+      description: 'Measures the open page\'s frame time (fps), draw calls, triangles and asset size against a budget (desktop by default): it is for a frame a reply reports over budget, or a user who asks about performance (stutter, low fps). To find what costs the frame, give `variants`: each is measured on a fresh page against the baseline, in this one call, with named objects hidden, a pixel ratio, code run with `renderer` and `scene` (shadows or antialias off, a material swapped), or a `query` the page loads with ("noshadow&pr=0.5", for switches the game reads at load); no reopening or reload code needed. Sampling waits until no element covers the canvas (a loading screen), up to 15 s of the page running, and the load line says what it waited for or sampled under. With `optimize: true` it instead tries the @paprika3d/three-runtime switches one at a time: `resolution` (lowers the pixel ratio while frames run over budget), `defaults` (pixel ratio capped at 2, shaders compiled up front, shadow maps redrawn only when a caster moves), `instancing` (still meshes that share a geometry and material drawn as one), `lod` (simpler versions of meshes over 10,000 triangles at a distance) and `dispose` (frees the GPU memory of removed objects). `instancing` and `lod` stay only when frames get faster, the others unless they slow frames. A switch is reverted if a saved test that passed without it fails with it, and `defaults`, `instancing` and `dispose` also if they change the picture; a kept `resolution` or `lod` that changes it comes with before and after pictures. What it keeps goes in the project\'s game-runtime.json, which the runtime reads at every load, so it lasts until that file changes; it ends with the final `test` of game-tests.json when the project has one. On a game without the runtime it changes nothing and says how to import it.',
       inputSchema: { type: "object", properties: {
         budget: { type: ["string", "object"], description: "desktop, mobile, quest, site (a 3D website: first scene frame within 3 s on fast-4g unless `network` says otherwise, 1 MB of script, 4 MB of assets), or limits to override: { frameMs, assetMB, triangles, drawCalls, textureMax, pixelRatioMax, firstSceneFrameMs, scriptMB }." },
         variants: { type: "array", maxItems: 8, items: { type: "object", properties: { label: { type: "string" }, hide: { type: "array", items: { type: "string" }, description: "Object names to hide: any object's name, nested or not; a group's hides its children." }, pixelRatio: { type: "number" }, code: { type: "string" }, query: { type: "string" } } } },
@@ -64131,17 +65887,17 @@ var init_server = __esm(() => {
     },
     {
       name: "model_audit",
-      description: "Inspects 3D model files (.glb, .gltf, and USD: .usd, .usda, .usdc, .usdz): megabytes, triangles, materials, each texture's size and format, and whether it uses Draco, meshopt and KTX2, for one file or every one under a folder (`path`, relative to cwd; the whole project when left out), read from the file itself with no decoder, so Draco and meshopt files report too. Then a one-line verdict on what a website or a Shopify listing judges a model on, against `target`: `site` (the site budget: 4 MB of assets, 200,000 triangles, 2048 px textures by area) or `shopify` (a GLB of about 4 MB with textures at most 2048 px on a side). `shrink` rewrites one .glb or .gltf smaller, without its textures or with each capped at a size (WebP), and replies with before and after (a USD file is converted to GLB first); a failing file gets the shrink call that fixes it: save a look first (`look` `save`), shrink, point the page at the new file, then `look` `compare`.",
+      description: "Inspects 3D model files (.glb, .gltf, and USD: .usd, .usda, .usdc, .usdz): megabytes, triangles, materials, each texture's size and format, and whether it uses Draco, meshopt and KTX2, for one file or every one under a folder (`path`, relative to cwd; the whole project when left out), read from the file itself with no decoder, so Draco and meshopt files report too. Then a one-line verdict on what a website or a Shopify listing judges a model on, against `target`: `site` (the site budget: 4 MB of assets, 200,000 triangles, 2048 px textures by area) or `shopify` (a GLB of about 4 MB with textures at most 2048 px on a side). `shrink` rewrites one .glb or .gltf smaller, without its textures or with each capped at a size (WebP), decimated to about a triangle count (welded or not), or without nodes named in `drop`, and replies with before and after (a USD file is converted to GLB first); a failing file gets the shrink call that fixes it: save a look first (`look` `save`), shrink, point the page at the new file, then `look` `compare`.",
       inputSchema: { type: "object", properties: {
         cwd: CWD,
         path: { type: "string", description: "A .glb, .gltf or USD file, or a folder to report every one under, relative to cwd." },
         target: { type: "string", enum: ["site", "shopify"], description: "What to judge the files against (site by default)." },
-        shrink: { type: "object", properties: { textures: { anyOf: [{ const: !1 }, { type: "number" }] }, out: { type: "string" } }, description: "Rewrite the file smaller: textures false drops them all (geometry only), a number caps each texture's longer side at that many pixels (WebP); out is the new file (<name>-opt.glb by default). Replies with before and after." }
+        shrink: { type: "object", properties: { textures: { anyOf: [{ const: !1 }, { type: "number" }] }, triangles: { type: "number" }, drop: { type: "array", items: { type: "string" } }, out: { type: "string" } }, description: "Rewrite the file smaller: textures false drops them all (geometry only), a number caps each texture's longer side at that many pixels (WebP); triangles decimates the whole file to about that many (meshoptimizer, sloppy where the mesh's triangles share no vertex; lossy, so compare a look after); drop removes the nodes with those names and their children (a fence, a plinth); out is the new file (<name>-opt.glb by default). Replies with before and after." }
       }, required: ["cwd"] }
     },
     {
       name: "model_run",
-      description: "Runs JavaScript against the modelling scene: a three.js scene this server keeps between calls, apart from any page, for building a model in code as in Blender, then saving it as a .glb the page loads. The code is an async function body with THREE, scene, geo (Manifold, started: geo.Manifold, geo.CrossSection, geo.toGeometry(manifold), geo.toManifold(geometry), geo.boolean(op, a, ...b)), scatter, find(name), stats(target) (vertices, triangles, bounds, closed, volume, genus per mesh), load(path) (a .glb, .obj or .fbx from the project, an asset_search pick included, added to the scene and returned), save(path, object = scene) (a GLB under cwd; replies with its size and the line that loads it) and clear() in scope, and returns what it returns, as JSON, with up to 5 lines it logged. What it adds to scene stays for the next call and is saved to paprika3d/model/scene.glb after each run that changed it, so a restart loads it back; variables (a Manifold) do not last between calls. Manifold works in metres with Z up and angles in degrees; three is Y up. Name every object you make: model_look lists them by name.",
+      description: "Runs JavaScript against the modelling scene: a three.js scene this server keeps between calls, apart from any page, for building a model in code as in Blender, then saving it as a .glb the page loads. The code is an async function body with THREE, BufferGeometryUtils (mergeGeometries, mergeVertices), scene, geo (Manifold, started: geo.Manifold, geo.CrossSection, geo.toGeometry(manifold), geo.toManifold(geometry), geo.boolean(op, a, ...b)), scatter, find(name), stats(target) (vertices, triangles, bounds, closed, volume, genus per mesh), load(path) (a .glb, .obj or .fbx from the project, an asset_search pick included, added to the scene and returned), save(path, object = scene) (a GLB under cwd; replies with its size and the line that loads it) and clear() in scope, and returns what it returns, as JSON, with up to 5 lines it logged. What it adds to scene stays for the next call and is saved to paprika3d/model/scene.glb after each run that changed it, so a restart loads it back; variables (a Manifold) do not last between calls. Manifold works in metres with Z up and angles in degrees; three is Y up. Name every object you make: model_look lists them by name. Search `asset_search` first for a character, vehicle, building, plant or prop; build here what no search finds or the design makes by rule, saying why in `searched`.",
       inputSchema: { type: "object", properties: {
         cwd: CWD,
         code: { type: "string", description: 'An async function body, e.g. `const { Manifold, toGeometry } = geo; const m = Manifold.cube([1, 1, 1], true).subtract(Manifold.sphere(0.65, 48)); const mesh = new THREE.Mesh(toGeometry(m), new THREE.MeshStandardMaterial({ color: 0xb08050 })); mesh.name = "block"; scene.add(mesh); return stats(mesh)`.' },
@@ -64159,13 +65915,21 @@ var init_server = __esm(() => {
       }, required: ["cwd"] }
     },
     {
+      name: "unity_export",
+      description: "Writes the open page's three.js scene, at the frame it is on, as a Unity 6 project: the GLB (three's GLTFExporter: meshes, hierarchy, names, PBR materials and textures, lights, animations, skins, instancing, the camera), glTFast as its importer, an editor script that builds the Unity scene from it on the first open (hidden objects, background, fog, ambient light), GameState.cs from __game.observe(), and PORTING.md: what does not carry over (custom shaders, sprites, compressed and canvas textures, environment maps; named in the reply) and what to port by hand (game loop, input, physics, UI, sound). Gameplay code is not converted. The GLB is loaded back in the page and counted; Unity is not run.",
+      inputSchema: { type: "object", properties: {
+        out: { type: "string", description: "The Unity project's folder, relative to the open project's folder (paprika3d/unity/<Name> by default); exporting again replaces the GLB and scripts and keeps the rest." },
+        name: { type: "string", description: "The Unity asset folder and scene name (describe().name, or the project folder's, by default)." }
+      } }
+    },
+    {
       name: "invariants",
       description: "Runs built-in checks any game must pass, no contract needed: the window.__game convention, plain-JSON observe(), setState round-trip, inputs change the state, no console errors, and the same inputs give the same state twice. Call it once the game opens and after any change to the game's state handling.",
       inputSchema: { type: "object", properties: {} }
     },
     {
       name: "test",
-      description: "Reruns every check saved with `interact` `save` (game-tests.json), each from a fresh reload at frame 0, one line each: `✓ pickup` or `✗ jump: player.y 1.4, expected ≥ 2`. Use it after an edit that could break earlier features.",
+      description: "Reruns every check saved with `interact` `save` (game-tests.json) on the open page, each from a fresh reload at frame 0, one line each: `✓ pickup` or `✗ jump: player.y 1.4, expected ≥ 2`. Use it after an edit that could break earlier features.",
       inputSchema: { type: "object", properties: {} }
     },
     {
@@ -64188,16 +65952,16 @@ var init_server = __esm(() => {
     },
     {
       name: "asset_search",
-      description: "Searches the hosted paprika3d asset library over the network (assets.keeno.dev) for a ready-made model (57k, CC BY or CC0, as GLB and some as USD), PBR texture or HDRI sky, and puts the one you pick in the project with its loading code. A search answers one numbered line per hit (id, name, size, licence, preview image) and a contact sheet: the hits' thumbnails in one row, numbered as the lines are. `pick` an id from it (or its start, when no other hit shown in this project starts so) to download the file into assets/ (public/assets/ with vite) and get the code that loads it, a model at real size (or `height` units tall) and credited in CREDITS.md. `not` lists ids that missed, which the library learns from, and searches again without them; `more` searches the same query again for the next hits. `image` (a picture in the project, with `crop` to cut one thing out of it) ranks models by how alike they look, for the thing a reference picture shows that words miss. The library logs model searches, picks and rejections with the agent's name.",
+      description: "Searches the hosted paprika3d asset library over the network (assets.keeno.dev) for a ready-made model (84,249, CC BY or CC0, as GLB and some as USD), PBR texture or HDRI sky, and puts the one you pick in the project with its loading code. A search answers one numbered line per hit (id, name, size, licence, preview image) and a contact sheet: the hits' thumbnails in one row, numbered as the lines are. `pick` an id from it (or its start, when no other hit shown in this project starts so) to download the file into assets/ (public/assets/ with vite) and get the code that loads it, a model at real size (or `height` units tall) and credited in CREDITS.md. `not` lists ids that missed, which the library learns from, and searches again without them; `more` searches the same query again for the next hits. `image` (a picture in the project, with `crop` to cut one thing out of it) ranks models by how alike they look, for the thing a reference picture shows that words miss. Search it before building any character, creature, vehicle, building, prop, surface texture or sky in code (paprika-make's picking round). Detailed models (scans, PBR packs) rank above blocky low-poly and voxel kits unless the query or `style` asks for low-poly, flat-shaded or voxel. The library logs model searches, picks and rejections with the agent's name.",
       inputSchema: { type: "object", properties: {
         cwd: CWD,
         query: { type: "string", description: 'What you need, e.g. "wooden barrel", "mossy cobblestone", "sunset sky".' },
         kind: { type: "string", enum: ["model", "texture", "hdri"], description: "model by default." },
-        style: { type: "string", enum: ["stylized", "realistic", "low-poly", "sci-fi", "scanned", "toon", "voxel"], description: "Models only." },
+        style: { type: "string", enum: ["stylized", "realistic", "low-poly", "sci-fi", "scanned", "toon", "voxel"], description: "Models only. low-poly or voxel (or those words in the query) puts the blocky kits first; otherwise they rank last." },
         type: { type: "string", enum: ["character-humanoid", "creature-animal", "container", "decoration", "prop", "vehicle", "sci-fi-tech", "food", "weapon", "interior-furniture", "building", "architecture-part", "clothing-accessory", "foliage-plant", "tree", "rock-terrain", "environment-scene", "tool", "electronics", "sign-ui"], description: "Models only." },
         maxTris: { type: "integer" },
-        animated: { type: "boolean" },
-        rigged: { type: "boolean" },
+        animated: { type: "boolean", description: "Models only: true for models with animation clips." },
+        rigged: { type: "boolean", description: "Models only: true for models with a skeleton, which a character that must sit, hold something or move its limbs needs. A hit's line says rigged or animated; one that says neither is a static mesh whose pose cannot change." },
         not: { type: "array", items: { type: "string" }, description: "Ids from the last search to reject." },
         more: { type: "boolean", description: "With the same query: the next hits, past every one it has shown, none of them rejected." },
         image: { type: "string", description: "Models only: a picture under cwd (refs/01.jpg) or a look baseline's name, to rank models by how alike they look to it (with query, by both); the reply shows the image searched with." },
@@ -64213,10 +65977,10 @@ var init_server = __esm(() => {
     },
     {
       name: "sheet",
-      description: "Picture sheets for paprika-make's brief, and which image and 3D model keys this machine has. `check: true` names the keys found (never a value) and the running jobs; `pictures` with no provider composes a free sheet in Chrome (refs/sheets/LOOK.png, or `out`); `provider` and `prompt` make a look board, or start a turnaround or GLB model job, billed to the person's key. Details: skills/paprika-make/sheets.md.",
+      description: "Picture sheets for paprika-make's brief, and which image and 3D model keys this machine has. `check: true` names the keys found (never a value), the running jobs and, once the project has a BRIEF.md, what it and its sheets lack; `pictures` with no provider composes a free sheet in Chrome (refs/sheets/LOOK.png, or `out`); `provider` and `prompt` make a look board, or start a turnaround or GLB model job, billed to the person's key. Details: skills/paprika-make/sheets.md.",
       inputSchema: { type: "object", properties: {
         cwd: CWD,
-        check: { type: "boolean", description: "Name the keys found, the recommendations and the jobs; nothing else is done." },
+        check: { type: "boolean", description: "Name the keys found, the recommendations, the jobs and, for a project with a brief, what the brief and its sheets lack (read from the project's files); nothing is made or sent." },
         remember: { type: "string", enum: ["yes", "ask"], description: `"yes" keeps the person's yes to picture sheets across projects; "ask" forgets it.` },
         pictures: { type: "array", maxItems: 12, items: { type: "object", properties: { file: { type: "string" }, crop: { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4 }, label: { type: "string" } }, required: ["file"] }, description: "Files under cwd, each with an optional crop [left, top, right, bottom] and label." },
         palette: { type: "array", maxItems: 12, items: { anyOf: [{ type: "string" }, { type: "object", properties: { hex: { type: "string" }, label: { type: "string" } }, required: ["hex"] }] }, description: "#rrggbb swatches, each with an optional name." },
@@ -64227,40 +65991,64 @@ var init_server = __esm(() => {
         kind: { type: "string", enum: ["look", "board", "turnaround", "model"], description: "look (free) without a provider; board, turnaround or model with one." },
         prompt: { type: "string", description: "With a provider: what to make." },
         name: { type: "string", description: "With a provider: the file's name." },
+        rig: { type: "boolean", description: "With kind model and a provider that rigs (meshy): once the model lands, bind a skeleton to it and add walk and run clips (<name>-rigged.glb, <name>-walk.glb, <name>-run.glb), for a humanoid character." },
+        height: { type: "number", description: "With rig: the character's height in metres, 1.7 by default." },
         model: { type: "string", description: "With a provider: a model other than the table's." }
       }, required: ["cwd"] }
     },
     {
       name: "publish",
       description: "Publishes the project at https://<slug>.paprika3d.app (public; preview, invite-only), only when the person asks; never for another host. Never read or print ~/.config/paprika3d/credentials.json: this tool reads the key.",
-      inputSchema: { type: "object", properties: { cwd: CWD, slug: { type: "string", description: "Subdomain (default: project name)." }, model: { type: "string", description: "Your model id." }, rotate: { type: "boolean", description: "Only replace this install's key." } }, required: ["cwd"] }
+      inputSchema: { type: "object", properties: {
+        cwd: CWD,
+        slug: { type: "string", description: "Subdomain (default: project name)." },
+        model: { type: "string", description: "Your model id." },
+        rotate: { type: "boolean", description: "Only replace this install's key." },
+        playtest: { type: "boolean", description: "Also a 7-day link to this build for friends, with a Feedback button." },
+        feedback: { type: "boolean", description: "Only read that feedback." }
+      }, required: ["cwd"] }
     }
   ], GAME = { type: "string", description: 'The name the game was opened under with the `open` tool, to act on ("main" by default; a subagent uses its own).' };
   for (let t of TOOLS)
     if (!["contract", "asset_search", "model_audit", "model_run", "model_look", "sheet", "publish"].includes(t.name))
       t.inputSchema.properties.game = GAME;
+  READ_ONLY = ["observe", "model_look"], CLOSED_WORLD = ["contract", "model_audit"];
+  for (let t of TOOLS)
+    t.annotations = { readOnlyHint: READ_ONLY.includes(t.name), openWorldHint: !CLOSED_WORLD.includes(t.name) };
   HIDDEN = [...CONTRACT ? [] : ["contract", "check"], ...LEAN ? [] : ["invariants"]], LOOP_NOTES = CONTRACT ? { open: " When cwd holds a game contract, the result ends with its first check.", perf: " With optimize, it ends with the final `check` of the whole contract." } : {}, LISTED = TOOLS.filter((t) => !HIDDEN.includes(t.name)).map((t) => LOOP_NOTES[t.name] ? { ...t, description: t.description + LOOP_NOTES[t.name] } : t);
-  if (FEEDBACK)
+  if (PUBLISHED)
     LISTED.push(REPORT_TOOL);
-  described = /* @__PURE__ */ new Map, opened = {}, slots = /* @__PURE__ */ new Map;
-  token = randomBytes(24).toString("hex");
-  RUNTIME = resolve19(import.meta.dirname, "../runtime/dist/index.js");
-  BUNDLES = ["geo/dist/geo.js", "fx/dist/fx.js"].map((f) => resolve19(import.meta.dirname, "..", f));
-  TESTS = { ci: !0, file: "game-tests.json" }, lastFull = /* @__PURE__ */ new WeakMap, hookReset = /* @__PURE__ */ new WeakSet, hookFaults = /* @__PURE__ */ new WeakMap, lookPrint = /* @__PURE__ */ new WeakMap, owed = /* @__PURE__ */ new WeakSet;
-  TOOL_FNS = {
+  COMPACT = process.env.PAPRIKA3D_TOOLS === "core", GROUPS = {
+    tune: { tools: ["feel", "perf"], for: "how the controls feel in numbers, and frame time, draw calls and triangles against a budget" },
+    models: { tools: ["model_audit", "model_run", "model_look"], for: "a GLB's size and triangles, and building a model in code and looking at it" },
+    assets: { tools: ["reference", "asset_search", "sheet"], for: "reading reference pictures, the library of free models, textures and skies, picture sheets and generated models" },
+    export: { tools: ["unity_export"], for: "the scene as a Unity project" }
+  }, shown2 = /* @__PURE__ */ new Set, MORE_TOOL = {
+    name: "more_tools",
+    title: "More tools",
+    description: `This list holds the paprika3d tools every page needs; the others come in groups, and \`group\` adds one to the list: ${Object.entries(GROUPS).map(([k, g]) => `${k} (${g.tools.join(", ")}: ${g.for})`).join("; ")}.`,
+    inputSchema: { type: "object", properties: { group: { type: "string", enum: Object.keys(GROUPS), description: "The group to add to the tool list." } }, required: ["group"] },
+    annotations: { readOnlyHint: !0, openWorldHint: !1 }
+  };
+  described = /* @__PURE__ */ new Map, slots = /* @__PURE__ */ new Map;
+  running = new AsyncLocalStorage3, token = randomBytes3(24).toString("hex");
+  RUNTIME = resolve21(import.meta.dirname, "../runtime/dist/index.js");
+  BUNDLES = ["geo/dist/geo.js", "fx/dist/fx.js"].map((f) => resolve21(import.meta.dirname, "..", f)), STATE_DIST = resolve21(import.meta.dirname, "..", "state/dist");
+  TESTS = { ci: !0, file: "game-tests.json" }, lastFull = /* @__PURE__ */ new WeakMap, hookReset = /* @__PURE__ */ new WeakSet, hookPaused = /* @__PURE__ */ new WeakSet, hookFaults = /* @__PURE__ */ new WeakMap, lookPrint = /* @__PURE__ */ new WeakMap, owed = /* @__PURE__ */ new WeakSet;
+  closedFor = /* @__PURE__ */ new Map, TOOL_FNS = {
     async contract(a2) {
-      let dir = resolve19(a2.cwd), brief = join25(dir, "paprika3d", "contract-brief.md"), draft = join25(dir, "paprika3d", "contract-draft.json"), src = existsSync17(draft) ? readFileSync22(draft, "utf8") : null, raw = null;
+      let dir = resolve21(a2.cwd), brief = join27(dir, "paprika3d", "contract-brief.md"), draft = join27(dir, "paprika3d", "contract-draft.json"), src = existsSync18(draft) ? readFileSync24(draft, "utf8") : null, raw = null;
       try {
         raw = src === null ? null : JSON.parse(src);
       } catch (e) {
         if (src.includes(JSON.stringify(String(a2.prompt).trim())))
           throw Error(`${draft} is not JSON (${e.message}); fix it and call \`contract\` again with the same prompt.`);
-        rmSync7(draft);
+        rmSync9(draft);
       }
       if (typeof raw?.prompt === "string" && raw.prompt.trim() !== String(a2.prompt).trim())
-        rmSync7(draft), raw = null;
+        rmSync9(draft), raw = null;
       if (!raw)
-        return harnessDir(dir), writeFileSync14(brief, `${contractInstructions(a2.prompt)}
+        return harnessDir(dir), writeFileSync15(brief, `${contractInstructions(a2.prompt)}
 
 Write the JSON to ${draft} (nothing else). Then call the \`contract\` tool with cwd ${JSON.stringify(dir)} and, as prompt, the PROMPT text above, and reply with exactly the text it returns, nothing else.
 `), text(`Brief written to ${brief}. Start a fresh subagent with the Agent tool, in the foreground (not in the background), model sonnet, with exactly this prompt and nothing else:
@@ -64272,15 +66060,15 @@ It issues the contract and replies with the keypoints and the observe() schema; 
       } catch (e) {
         let keep = typeof raw.prompt === "string";
         if (!keep)
-          rmSync7(draft, { force: !0 });
+          rmSync9(draft, { force: !0 });
         throw Error(`${e.message}
 ${keep ? `Fix ${draft}` : `Write ${draft} again, with the prompt in "prompt",`} and call \`contract\` again with the same prompt.`);
       }
-      rmSync7(draft, { force: !0 });
-      let hash = createHash7("sha256").update(readFileSync22(join25(dir, "game-contract.json"))).digest("hex"), state = issueContract(dir, hash, c.issued), runDir = join25(dir, "paprika3d", "runs", c.issued.replace(/[:.]/g, "-"));
-      mkdirSync13(runDir, { recursive: !0 });
-      let copy = join25(runDir, "game-contract.json");
-      return writeFileSync14(copy, JSON.stringify(c, null, 2) + `
+      rmSync9(draft, { force: !0 });
+      let hash = createHash7("sha256").update(readFileSync24(join27(dir, "game-contract.json"))).digest("hex"), state = issueContract(dir, hash, c.issued), runDir = join27(dir, "paprika3d", "runs", c.issued.replace(/[:.]/g, "-"));
+      mkdirSync14(runDir, { recursive: !0 });
+      let copy = join27(runDir, "game-contract.json");
+      return writeFileSync15(copy, JSON.stringify(c, null, 2) + `
 `), recordRun({
         cwd: dir,
         kind: "contract",
@@ -64302,127 +66090,145 @@ Open it with \`open\`, then call \`check\` after each change: a failure says whi
 ${projectSummary(dir)}`);
     },
     async open(a2) {
-      let again = !!game && resolve19(a2.cwd) === cwd;
-      if (again && !a2.command && opened.command && typeof a2.url === "string" && /^https?:\/\//.test(a2.url) && new URL(a2.url).origin === new URL(game.url).origin)
-        a2 = { ...a2, command: opened.command };
-      let repeat = again && JSON.stringify(a2) === JSON.stringify(opened), size = a2.size;
+      let s = S(), again = !!s.game && resolve21(a2.cwd) === s.cwd;
+      if (again && !a2.command && s.opened.command && typeof a2.url === "string" && /^https?:\/\//.test(a2.url) && new URL(a2.url).origin === new URL(s.game.url).origin)
+        a2 = { ...a2, command: s.opened.command };
+      let repeat = again && JSON.stringify(a2) === JSON.stringify(s.opened), size = a2.size;
       if (size && !(size.length === 2 && size.every((n) => Number.isInteger(n) && n >= 200 && n <= 4096)))
         throw Error("size: width and height from 200 to 4096, whole CSS pixels, as [width, height]");
       let dpr = a2.dpr;
       if (dpr !== void 0 && !(typeof dpr === "number" && dpr >= 1 && dpr <= 4))
         throw Error("dpr: a device pixel ratio from 1 to 4");
-      let network = netArg(a2.network);
+      if (a2.device !== void 0 && a2.device !== "phone")
+        throw Error('device: "phone" is the one device');
+      let phone = a2.device === "phone", network = netArg(a2.network);
       if (a2.browser !== void 0 && !Object.hasOwn(BROWSERS, a2.browser))
         throw Error(`browser: one of ${Object.keys(BROWSERS).join(", ")}`);
       if (a2.browser !== void 0)
         refuse(a2.browser, a2);
       let engine2 = a2.browser === void 0 ? void 0 : BROWSERS[a2.browser];
-      if (!existsSync17(resolve19(a2.cwd)))
-        throw Error(`cwd ${resolve19(a2.cwd)} does not exist; pass the game project's folder`);
+      if (!existsSync18(resolve21(a2.cwd)))
+        throw Error(`cwd ${resolve21(a2.cwd)} does not exist; pass the game project's folder`);
       await closeGame();
-      let others = [...slots].filter(([k, v2]) => v2.game && k !== "main");
-      if (others.length + (current !== "main" && slots.get("main")?.game ? 1 : 0) + 1 > MAX_GAMES && others.length) {
-        let [k, v2] = others.sort((x2, y) => x2[1].used - y[1].used)[0];
-        slots.delete(k), evicted = k, await v2.game.queue(() => v2.game.close()).catch(() => {});
+      let others = [...slots].filter(([k, v2]) => v2.game && !v2.closing && k !== "main"), evicted = "";
+      if ([...slots.values()].filter((v2) => v2 !== s && (v2.game || v2.opening) && !v2.closing).length + 1 > MAX_GAMES) {
+        if (!others.length)
+          throw Error(`at most ${MAX_GAMES} games are open at once, and ${MAX_GAMES} others are opening now; call \`open\` again when one has opened.`);
+        let idle = others.filter(([, v3]) => !v3.queued.length), [k, v2] = (idle.length ? idle : others).sort((x2, y) => x2[1].used - y[1].used)[0];
+        evicted = k, closedFor.set(k, s.name), v2.closing = !0, await (v2.calls = v2.calls.then(async () => {
+          let g = v2.game;
+          v2.game = null, await g?.queue(() => g.close()).catch(() => {});
+        }).finally(() => {
+          v2.closing = !1;
+        }));
       }
-      cwd = resolve19(a2.cwd), ensureBundles(cwd);
-      let inChrome = a2.browser === void 0 || a2.browser === "chrome";
-      if (inChrome && !a2.window && !(await chrome2?.catch(() => null))?.connected)
-        chrome2 = launchChrome2();
-      let viewport = size || dpr ? { width: size?.[0] ?? VIEWPORT.width, height: size?.[1] ?? VIEWPORT.height, deviceScaleFactor: dpr ?? 1 } : void 0;
+      closedFor.delete(s.name), s.cwd = resolve21(a2.cwd);
+      let served = !!a2.command || typeof a2.url !== "string" || !/^https?:\/\//.test(a2.url), { wrote, kept } = served ? ensureBundles(s.cwd) : { wrote: [], kept: [] }, inChrome = a2.browser === void 0 || a2.browser === "chrome";
+      if (inChrome && !a2.window)
+        await sharedChrome();
+      let [pw, ph, pd] = VIEWPORTS.phone, base2 = phone ? { width: pw, height: ph, deviceScaleFactor: pd } : { ...VIEWPORT, deviceScaleFactor: 1 }, viewport = size || dpr || phone ? { width: size?.[0] ?? base2.width, height: size?.[1] ?? base2.height, deviceScaleFactor: dpr ?? base2.deviceScaleFactor } : void 0;
       try {
-        game = await openGame2({ url: a2.url, command: a2.command, cwd, window: a2.window, browser: a2.window || !inChrome ? void 0 : chrome2, engine: engine2, viewport, reducedMotion: !!a2.reducedMotion }), loadedPrint = fingerprint(cwd);
+        s.game = await openGame2({ url: a2.url, command: a2.command, cwd: s.cwd, window: a2.window, browser: a2.window || !inChrome ? void 0 : chrome2, engine: engine2, viewport, reducedMotion: !!a2.reducedMotion, device: phone ? "phone" : void 0 }), s.loadedPrint = fingerprint(s.cwd);
       } catch (e2) {
         throw Error(`${e2.message}${again ? "\nThe game that was open is closed, so no game is open now: call `open` again." : ""}`);
       }
-      opened = { ...a2 };
-      let visit = network ? await firstFrame(game, network) : void 0;
+      s.opened = { ...a2 };
+      let visit = network ? await firstFrame(s.game, network) : void 0;
       control ??= await startControl();
       let port = control.address().port;
-      if (current === "main")
-        updateState(cwd, (s) => Object.assign(s, { url: a2.url ?? null, command: a2.command ?? null, server: { port, token } }));
-      log(`opened ${game.url}; control socket on 127.0.0.1:${port}`);
-      let errors = game.errors.length ? `
+      if (s.name === "main")
+        updateState(s.cwd, (s2) => Object.assign(s2, { url: a2.url ?? null, command: a2.command ?? null, server: { port, token } }));
+      log(`opened ${s.game.url}; control socket on 127.0.0.1:${port}`);
+      let errors = s.game.errors.length ? `
 Errors so far:
-${uniq2(game.errors, 10, !0).join(`
-`)}` : "", loads = game.loads, failed = loads.filter((l) => l.status >= 400 || l.status === 0).slice(0, 20).map((l) => `${l.name} (${l.error ?? l.status})`), ok = loads.filter((l) => l.status > 0 && l.status < 400).slice(0, 20).map((l) => `${l.name}${l.bytes ? ` ${(l.bytes / 1e6).toFixed(1)} MB` : ""}`), loaded = (ok.length ? `
+${uniq2(s.game.errors, 10, !0).join(`
+`)}` : "", loads = s.game.loads, failed = loads.filter((l) => l.status >= 400 || l.status === 0).slice(0, 20).map((l) => `${l.name} (${l.error ?? l.status})`), ok = loads.filter((l) => l.status > 0 && l.status < 400).slice(0, 20).map((l) => `${l.name}${l.bytes ? ` ${(l.bytes / 1e6).toFixed(1)} MB` : ""}`), loaded = (ok.length ? `
 Loaded: ${ok.join(", ")}` : "") + (failed.length ? `
-Failed to load: ${failed.join(", ")}` : ""), contract = !!contractOrNull(cwd), first2 = contract && !again ? await runCheck(game, cwd).then((c) => `
+Failed to load: ${failed.join(", ")}` : ""), contract = !!contractOrNull(s.cwd), first2 = contract && !again ? await runCheck(s.game, s.cwd).then((c) => `
 
 First check:
 ${c.text}`, (e2) => `
 
 First check failed: ${e2.message}`) : "", reopened = contract && again ? "\nReopened without a contract check: the hook checks each edit; `check` runs the whole contract." : "", next = first2 ? "" : "\nNext: `look` to see it, then `interact` for each interaction the request names.", geo = `
-geo.js and fx.js are here, written on the first open and replaced only when the plugin's copy changes (each starts with the plugin version that wrote it): they are the plugin's, part of the project like node_modules: leave them in place.
+geo.js and fx.js are here, written on the first open and replaced when the plugin's copy changes, never by an older version (each starts with the plugin version that wrote it): they are the plugin's, part of the project like node_modules: leave them in place.` + (existsSync18(join27(STATE_DIST, "game-state.js")) ? `
+game-state.js and physics-worker.js are in ${STATE_DIST}: copy them next to the entry file only for a game that uses game-state (the skill's Game state).` : "") + `
 Procedural geometry: import { geo, scatter } from "./geo.js" (see the skill's geometry reference).
-Effects: import { stage, tex, field, place, instances, sfx, burst, shake, uv, picture, bake, trace, heightfield } from "./fx.js" (lights and camera, canvas textures, terrain, placement, sound, particles, a reference picture's camera and pixel maps, a subtree as GLB bytes, a picture's outlines and heights; seeded, no files).
-picture({ position, lookAt?, fov?, size? }) returns { camera, at(px, py, depth), ground(px, py, y?), px(point), fit(width, height, cam?) }; bake(object, { animations? }) returns a Promise of GLB bytes (an ArrayBuffer, which eval { save } writes to a file); trace(src, { colour?, tolerance?, invert?, simplify?, minArea?, scale? }) returns a Promise of { shapes, mask, width, height }; heightfield(src, { size, height, base? }) returns a Promise of a Field like field()'s. Every option: references/fx.md in the threejs-game skill.`, { hasConvention: _3, ...shown2 } = game.info, info = JSON.stringify(shown2), same = described.get(`${cwd}\x00${game.url}`) === info;
-      described.set(`${cwd}\x00${game.url}`, info);
-      let secs = (game.loadMs / 1000).toFixed(1), over = await game.page.evaluate("__harness.covers()").catch(() => []), cover = over.length ? `
+Effects: import { stage, tex, field, place, instances, sfx, burst, shake, uv, picture, bake, handoff, unrealScript, trace, heightfield, water, foliage, sow, crown, post } from "./fx.js". Each one's signature and options: references/fx.md in the threejs-game skill, or \`function <name>(\` in fx.js.`, rewrote = (names, dir) => `
+Wrote ${names.join(", ")} in ${dir} again (open rewrites them when missing or different from the plugin's, unless newer): leave them in a source folder; a build folder whose page imports neither can drop them before a deploy.`, keptText = kept.length ? `
+Kept ${kept.map((k) => `${k.name} ${k.have}`).join(", ")} in ${s.cwd}: newer than this plugin's ${uniq2(kept.map((k) => k.ours ?? "copy"), 2).join(", ")}, so open left ${kept.length > 1 ? "them" : "it"} in place; what ${kept.length > 1 ? "they export" : "it exports"} can go past this plugin's references.` : "", { hasConvention: _3, ...shown3 } = s.game.info, info = JSON.stringify(shown3), same = described.get(`${s.cwd}\x00${s.game.url}`) === info;
+      described.set(`${s.cwd}\x00${s.game.url}`, info);
+      let secs = (s.game.loadMs / 1000).toFixed(1), over = await s.game.page.evaluate("__harness.covers()").catch(() => []), cover = over.length ? `
 ${coversText(over).join(`
-`)}${over.some((c) => c.over) ? " A visitor sees it first; `look` opening: true shows how long it stays." : ""}` : "", slow = visit ? `${visit.line} ${hostLoad()}` : slowStart(game.loadMs, game.software), stale = [...staleThree(cwd), ...uniq2(game.warned, 5).map((w2) => `three.js warned: ${w2}`)].map((l) => `
-${l}`).join(""), around = (await openText(game, cwd)).map((l) => `
-${l}`).join(""), lights = lightsText(await game.page.evaluate(LIGHTS).catch(() => null)), lit = lights && `
-${lights}`, spaces = (await game.page.evaluate(COLOUR_SPACES).catch(() => [])).map((l) => `
-${l}`).join(""), named2 = current === "main" ? "" : ` as game "${current}"${evicted ? ` (game "${evicted}" was closed: at most ${MAX_GAMES} games are open at once)` : ""}`;
-      evicted = "";
-      let at = viewport ? ` at ${viewport.width} × ${viewport.height}${dpr ? `, DPR ${dpr}` : ""}` : "";
+`)}${over.some((c) => c.over) ? " A visitor sees it first; `look` opening: true shows how long it stays." : ""}` : "", slow = visit ? `${visit.line} ${hostLoad()}` : slowStart(s.game.loadMs, s.game.software), stale = [...staleThree(s.cwd), ...uniq2(s.game.warned, 5).map((w2) => `three.js warned: ${w2}`)].map((l) => `
+${l}`).join(""), around = (await openText(s.game, s.cwd)).map((l) => `
+${l}`).join(""), lights = lightsText(await s.game.page.evaluate(LIGHTS).catch(() => null)), lit = lights && `
+${lights}`, spaces = (await s.game.page.evaluate(COLOUR_SPACES).catch(() => [])).map((l) => `
+${l}`).join(""), named2 = s.name === "main" ? "" : ` as game "${s.name}"${evicted ? ` (game "${evicted}" was closed: at most ${MAX_GAMES} games are open at once)` : ""}`, at = viewport ? `${phone ? " as a phone (touch, coarse pointer, a phone's user agent)" : ""} at ${viewport.width} × ${viewport.height}${dpr || phone ? `, DPR ${viewport.deviceScaleFactor}` : ""}` : "";
       if (ON) {
-        let page2 = await game.page.evaluate("({ three: window.__THREE__ ?? null, game: !!window.__game, webgpu: !!window.__harness?.renderers?.some(r => r.isWebGPURenderer) })").catch(() => ({})), models = game.loads.filter((l) => /\.(glb|gltf|usd[acz]?)(\?|$)/i.test(l.name)), r3f = (() => {
+        let page2 = await s.game.page.evaluate("({ three: window.__THREE__ ?? null, game: !!window.__game, webgpu: !!window.__harness?.renderers?.some(r => r.isWebGPURenderer) })").catch(() => ({})), models = s.game.loads.filter((l) => /\.(glb|gltf|usd[acz]?)(\?|$)/i.test(l.name)), r3f = (() => {
           try {
-            return readFileSync22(join25(cwd, "package.json"), "utf8").includes('"@react-three/fiber"');
+            return readFileSync24(join27(s.cwd, "package.json"), "utf8").includes('"@react-three/fiber"');
           } catch {
             return !1;
           }
         })();
-        noteOpen({ open: { via: a2.command ? "command" : "url", ...page2, r3f, models: models.length, mb: Math.round(game.loads.reduce((n, l) => n + (l.bytes ?? 0), 0) / 1e5) / 10, loadS: Math.round(game.loadMs / 1000), software: game.software } });
+        noteOpen({ open: { via: a2.command ? "command" : "url", ...page2, r3f, models: models.length, mb: Math.round(s.game.loads.reduce((n, l) => n + (l.bytes ?? 0), 0) / 1e5) / 10, loadS: Math.round(s.game.loadMs / 1000), software: s.game.software } });
       }
-      let reduced = a2.reducedMotion ? "\nReduced motion: the page gets prefers-reduced-motion: reduce. Look, step 60 frames (`interact` wait), look again: the Pixels line says whether animation stopped." : "", e = game.engine, said = e.name === "chromium" ? "" : `${SAID[e.name]} ${e.version}`, engineLine = e.instead ? `No Chrome at ${e.instead}: opened in ${said} instead. Set PAPRIKA3D_CHROME, or install Chrome, for the default engine.
-` : "", gpu = gpuLine2(game), gpuSaid = gpu === saidGpu ? "" : `
+      let spec = await s.game.page.evaluate(`[...document.querySelectorAll('script[type="speculationrules"]')].flatMap(s => { try { return (JSON.parse(s.textContent).prerender ?? []).flatMap(r => r.urls ?? (r.where ? ["(document rules)"] : [])); } catch { return []; } })`).catch(() => []), prerender = spec.length ? `
+Speculation rules: the page asks to prerender ${[...new Set(spec)].slice(0, 3).join(", ")}, but nothing is prerendered here (Chrome turns prerendering off under DevTools), so a click there is a full load; time that swap in a browser of your own.` : "", reduced = a2.reducedMotion ? "\nReduced motion: the page gets prefers-reduced-motion: reduce. Look, step 60 frames (`interact` wait), look again: the Pixels line says whether animation stopped." : "", e = s.game.engine, said = e.name === "chromium" ? "" : `${SAID[e.name]} ${e.version}`, engineLine = e.instead ? `No Chrome at ${e.instead}: opened in ${said} instead. Set PAPRIKA3D_CHROME, or install Chrome, for the default engine.
+` : "", gpu = gpuLine2(s.game), gpuSaid = gpu === saidGpu ? "" : `
 ${gpu}`;
-      return saidGpu = gpu, text(`${engineLine}Opened ${said && !e.instead ? `in ${said}: ` : ""}${game.url}${named2}${at} in ${secs} s, paused at frame 0.${repeat ? `
+      return saidGpu = gpu, text(`${engineLine}Opened ${said && !e.instead ? `in ${said}: ` : ""}${s.game.url}${named2}${at} in ${secs} s, paused at frame 0.${repeat ? `
 An open is needed only for a fresh frame 0: after an edit, the next tool call reloads by itself.` : ""}${gpuSaid}${slow && `
-${slow}`}${reduced}${stale}${cover}${around}${lit}${spaces}
-${same ? "describe(): unchanged since the last open" : info}${again ? "" : geo}${errors}${loaded}${next}${reopened}${first2}${told()}
+${slow}`}${reduced}${prerender}${stale}${cover}${around}${lit}${spaces}
+${same ? "describe(): unchanged since the last open" : info}${again || !served ? "" : geo}${again && wrote.length ? rewrote(wrote, s.cwd) : ""}${keptText}${errors}${loaded}${next}${reopened}${first2}${told()}
 
-Run folder: ${game.runDir}`);
+Run folder: ${s.game.runDir}`);
     },
     async observe() {
       let g = need();
       return text(JSON.stringify(await observe(g)));
     },
     async eval(a2) {
-      let g = need(), r = await evaluate(g, a2.code, a2.save, cwd);
+      let g = need(), r = await evaluate(g, a2.code, a2.save, S().cwd);
       if (r.stepped)
         noteTest(g, void 0, r.stepped);
       return r.failed ? fail(r.text) : text(r.text);
     },
     async interact(a2) {
       let g = need();
-      if (saveName(a2.save), a2.save !== void 0 && a2.expect === void 0)
+      if (saveName(a2.save), a2.record === "true" || a2.record === "false")
+        a2.record = a2.record === "true";
+      if (a2.save !== void 0 && a2.expect === void 0)
         throw Error("a saved check needs `expect`, or it passes whatever happens: add expect: { path: value } for what this play must reach");
       if (a2.record === "video" && !VIDEO)
         throw Error('record: "video" is not in this build; record: true keeps a GIF; nothing was played');
+      if ((a2.fps !== void 0 || a2.size !== void 0) && a2.record !== "video")
+        throw Error('fps and size are for record: "video"; nothing was played');
+      if (a2.fps !== void 0 && a2.fps !== 30 && a2.fps !== 60)
+        throw Error(`fps is 30 or 60, not ${JSON.stringify(a2.fps)}; nothing was played`);
+      if (a2.size !== void 0 && !(Number.isInteger(a2.size) && a2.size >= 64 && a2.size <= 4096))
+        throw Error(`size is a whole number of px from 64 to 4096, not ${JSON.stringify(a2.size)}; nothing was played`);
       if (a2.save !== void 0 && a2.record)
         throw Error(`${a2.record === "video" ? "a video films one play" : "record plays in real time"} and a saved check replays from a fresh reload: save the check in one call and record in another; nothing was played`);
-      let { r, hovered, errors, logs } = await g.queue(async () => {
+      let { r, hovered, unreal, errors, logs, restarted } = await g.queue(async () => {
+        let was = a2.save !== void 0 ? await g.page.evaluate(FRAME).catch(() => 0) : 0;
         if (a2.save !== void 0)
           await g.reload();
-        let n2 = g.errors.length, stop = printedLines2(g.page, !0);
+        let restarted2 = was > 0 ? `Played from a fresh reload at frame 0, as \`test\` reruns a saved check: the page was at frame ${was}, and what earlier calls did on it is gone.
+` : "", lead = a2.save !== void 0 ? leadState(a2.steps ?? []) : {}, unreal2 = Object.keys(lead).length ? (await gameUp(g, ["setState", "observe"]), await realize(g, lead)) : "", n2 = g.errors.length, stop = printedLines2(g.page, !0);
         try {
-          let r2 = await act(g, a2.steps ?? (a2.hover && []), { trace: a2.trace, expect: a2.expect, record: a2.record === "video" ? "video" : a2.record === !0 }), hovered2 = a2.hover && await hover(g, a2.hover, a2.frames);
-          return { r: r2, hovered: hovered2, errors: g.errors.slice(n2), logs: stop() };
+          let r2 = await act(g, a2.steps ?? (a2.hover && []), { trace: a2.trace, expect: a2.expect, record: a2.record === "video" ? "video" : a2.record === !0, video: { fps: a2.fps, size: a2.size } }), hovered2 = a2.hover && await hover(g, a2.hover, a2.frames);
+          return { r: r2, hovered: hovered2, unreal: unreal2, restarted: restarted2, errors: g.errors.slice(n2), logs: stop() };
         } finally {
           stop();
         }
       });
       noteTest(g, void 0, keyFramesOf(a2.steps, r.framesRun));
-      let paced = a2.record ? void 0 : await pacing(g, a2.steps, async () => {
-        if (!(await chrome2?.catch(() => null))?.connected)
-          chrome2 = launchChrome2();
-        return chrome2;
-      }, cwd), reply = capAct(r.after, r.changed), verb = a2.save !== void 0 ? savedVerb(cwd, a2.save) : "Saved", n = a2.save !== void 0 && r.passed ? saveTest(cwd, a2.save, a2.steps ?? [], predicates(a2.expect)) : 0, saved = a2.save === void 0 ? "" : !n ? "Not saved: an Expect entry failed, and a saved check must pass when it is saved." : `${verb} check "${a2.save}" in game-tests.json (${n === 1 ? "1 check" : `${n} checks`} now); \`test\` reruns them all, each from a fresh reload${n === 1 ? ", and the after-edit hook reruns them after each edit, speaking only when one starts or stops failing" : ""}.`, body2 = JSON.stringify({ ...reply, ...hovered && { hover: hovered }, ...logs.length > 0 && { logs }, ...errors.length > 0 && { errors: uniq2(errors.map((e) => e.split(`
-`)[0].slice(0, 300)), 5) } }) + [r.motion, paced, r.sound, r.hint, r.traceText, r.expect, saved, r.clip && clipText(r.clip, g), r.video && videoText(r.video)].map((l2) => l2 ? `
+      let probeChrome = sharedProbeChrome(async () => {
+        return await sharedChrome(), chrome2;
+      }), [paced, responded] = a2.record ? [] : await Promise.all([pacing(g, a2.steps, probeChrome, S().cwd), response(g, a2.steps, probeChrome, S().cwd)]), reply = capAct(r.after, r.changed), verb = a2.save !== void 0 ? savedVerb(S().cwd, a2.save) : "Saved", n = a2.save !== void 0 && r.passed && !unreal ? saveTest(S().cwd, a2.save, a2.steps ?? [], predicates(a2.expect), pageOf(g.url), drawnOn(g.info)) : 0, saved = a2.save === void 0 ? "" : unreal ? `Not saved: \`test\` sets the leading { state } steps and fails the check unless observe() reports each key back, and here ${unreal}. Have observe() report it, or set it with an { action } step.` : !n ? "Not saved: an Expect entry failed, and a saved check must pass when it is saved." : `${verb} check "${a2.save}" in ${join27(S().cwd, "game-tests.json")} (${n === 1 ? "1 check" : `${n} checks`} now); \`test\` reruns them all, each from a fresh reload${n === 1 ? ", and the after-edit hook reruns them after each edit, speaking only when one starts or stops failing" : ""}.`, body2 = restarted + JSON.stringify({ ...reply, ...hovered && { hover: hovered }, ...logs.length > 0 && { logs }, ...errors.length > 0 && { errors: uniq2(errors.map((e) => e.split(`
+`)[0].slice(0, 300)), 5) } }) + [r.motion, r.controls, r.contact, paced, responded, r.sound, r.hint, r.traceText, r.expect, saved, r.clip && clipText(r.clip, g), r.video && videoText(r.video)].map((l2) => l2 ? `
 ${l2}` : "").join(""), strip = r.clip?.strip ?? r.video?.strip;
       if (!a2.look)
         return strip ? withPicture(g, text(body2), strip) : text(body2);
@@ -64434,18 +66240,21 @@ The reply's pictures: look's after the steps, then the ${r.clip ? "clip" : "vide
       return strip ? withPicture(g, both, strip) : both;
     },
     async look(a2) {
-      let cam = (c) => namedOr(cwd, c), g = need(), start = Date.now(), modes = ["cameras", "viewports", "scroll", "sheet", "opening", "zoom", "at", "target", "save", "compare"].filter((k) => a2[k]);
+      let cam = (c) => namedOr(S().cwd, c), g = need(), start = Date.now(), modes = ["cameras", "viewports", "scroll", "sheet", "opening", "zoom", "at", "target", "save", "compare"].filter((k) => a2[k]);
       if (modes.length > 1)
-        throw Error(`look: one of ${modes.join(", ")} per call${modes.includes("sheet") && (modes.includes("save") || modes.includes("compare")) ? "; a sheet is several pictures, so it cannot be saved as a baseline (compare diffs one plain look)" : ""}.`);
+        throw Error(`look: one of ${modes.join(", ")} per call${modes.includes("save") || modes.includes("compare") ? "; a baseline is one picture at the page's own size" : ""}.`);
+      let own = modes.find((m) => ["cameras", "viewports", "scroll", "sheet", "opening", "target"].includes(m));
+      if (a2.camera && own)
+        throw Error(`look: camera is not used by ${own}, which ${own === "cameras" ? "gives each cell its own camera" : own === "target" ? "pictures the target from four cameras of its own" : "pictures from the game's own camera"}: give it in a look of its own${own === "cameras" ? "" : ", or use cameras for several views of one moment"}.`);
       if (a2.sample?.length && modes.length && !a2.zoom)
         throw Error(`look: sample reads the plain look or a zoom, not ${modes[0]}: give it in a look of its own`);
       let read2 = a2.sample?.length ? colours(a2.sample, g.page.viewport(), a2.zoom) : void 0;
       if (noteTest(g), a2.cameras) {
-        let v2 = await cameras(g, cwd, a2.cameras.map((c) => typeof c === "string" ? { ...namedCam(cwd, c), label: c } : c));
+        let v2 = await cameras(g, S().cwd, a2.cameras.map((c) => typeof c === "string" ? { ...namedCam(S().cwd, c), label: c } : c));
         return recordPlain("look", v2.picture, Date.now() - start), withPicture(g, text(`Picture: ${v2.picture} (${v2.cells.length} cameras, left to right, top to bottom, at frame ${v2.cells[0].look.frame ?? 0}, no reload; the game's own camera is not moved)
 ${short("look", sheetText(v2.cells).join(`
 `))}
-Each cell at full size: ${v2.cells.map((c) => `${c.label} ${basename5(c.look.picture)}`).join(", ")} (in the picture's folder).` + (v2.kept.length ? `
+Each cell at full size: ${v2.cells.map((c) => `${c.label} ${basename6(c.look.picture)}`).join(", ")} (in the picture's folder).` + (v2.kept.length ? `
 Kept as \`camera\` names for look, zoom and reference compare: ${v2.kept.map((n) => JSON.stringify(n)).join(", ")} (paprika3d/cameras.json).` : "")), v2.picture);
       }
       if (a2.viewports) {
@@ -64487,12 +66296,12 @@ ${read2(z2.picture)}` : ""}`), z2.picture);
 ${a2.target}: size ${v2.size.join(" × ")}, centre [${v2.center.join(", ")}]`), v2.picture);
       }
       if (a2.save) {
-        let v2 = await saveBaseline(g, cwd, a2.save);
+        let v2 = await saveBaseline(g, S().cwd, a2.save, a2.camera ? cam(a2.camera) : void 0);
         return recordPlain("look", v2.look.picture, Date.now() - start), withPicture(g, text(`Saved as baseline ${a2.save}: ${v2.file}
 ${noteTest(g, v2.look)}`), v2.look.picture);
       }
       if (a2.compare) {
-        let v2 = await compareBaseline(g, cwd, a2.compare);
+        let v2 = await compareBaseline(g, S().cwd, a2.compare, a2.camera);
         return recordPlain("look", v2.look.picture, Date.now() - start), withPicture(g, text(`${v2.text}
 ${noteTest(g, v2.look)}`), v2.look.picture);
       }
@@ -64505,8 +66314,8 @@ ${read2(l.picture)}` : "")), l.picture);
       return text((await feel(g, a2.steps, a2.frames)).text);
     },
     async check() {
-      let g = need(), r = await runCheck(g, cwd), fetched = await g.queue(() => pageAssets(g)).catch(() => null);
-      return text(r.text + (fetched ? assetsOver(fetched, { ...BUDGETS.desktop, ...contractOrNull(cwd)?.budget }) : ""));
+      let g = need(), r = await runCheck(g, S().cwd), fetched = await g.queue(() => pageAssets(g)).catch(() => null);
+      return text(r.text + (fetched ? assetsOver(fetched, { ...BUDGETS.desktop, ...contractOrNull(S().cwd)?.budget }) : ""));
     },
     async perf(a2) {
       let g = need(), named2 = typeof a2.budget === "string" ? BUDGETS[a2.budget] : a2.budget;
@@ -64517,15 +66326,15 @@ ${read2(l.picture)}` : "")), l.picture);
         if (extra2.length)
           return fail(`\`perf\` with optimize takes only \`budget\`: ${extra2.map((k) => `\`${k}\``).join(", ")} ${extra2.length > 1 ? "are" : "is"} for measuring, in a call without optimize.`);
         if (!await g.queue(() => g.page.evaluate("!!window.__threeRuntime")))
-          return text(`The runtime layer is not installed in this game, so no switch can be tried. ${ensureRuntime(cwd)} \`perf\` with optimize: true tries the switches once the reopened page imports it.`);
-        let issued = contractOrNull(cwd), contract = issued ?? testsOrNull(cwd), r = await optimize(g, { contract, budget: { ...BUDGETS.desktop, ...contract?.budget, ...named2 }, cwd }), c = issued ? await runCheck(g, cwd, { result: r.check }) : contract ? r.check ?? await check(g, contract, { cwd }) : null;
+          return text(`The runtime layer is not installed in this game, so no switch can be tried. ${ensureRuntime(S().cwd)} \`perf\` with optimize: true tries the switches once the reopened page imports it.`);
+        let issued = contractOrNull(S().cwd), saved = testsOrNull(S().cwd), contract = issued ?? (saved && onPage(saved, pageOf(g.url)).contract), r = await optimize(g, { contract, budget: { ...BUDGETS.desktop, ...contract?.budget, ...named2 }, cwd: S().cwd }), c = issued ? await runCheck(g, S().cwd, { result: r.check }) : contract ? r.check ?? await check(g, contract, { cwd: S().cwd }) : null;
         return text(c ? `${r.text}
 
 Final ${issued ? "check" : "test"}:
 ${c.text}` : r.text);
       }
-      let budget = { ...BUDGETS.desktop, ...contractOrNull(cwd)?.budget, ...named2 }, network = netArg(a2.network) ?? (budget.firstSceneFrameMs ? "fast-4g" : void 0), loaded = (p2) => (p2.firstFrame?.line ?? `Load to first frame: ${(g.loadMs / 1000).toFixed(1)} s.${slowStart(g.loadMs, g.software) && ` ${slowStart(g.loadMs, g.software)}`}`) + overlayText(p2.overlay), stuck = (p2) => p2.overlay && !p2.overlay.cleared ? 0 : void 0, costs = (p2) => p2.costs !== void 0 ? `
-${costsText(p2.costs, p2)}` : "", start = Date.now(), name = typeof a2.budget === "string" ? a2.budget : a2.budget ? "given" : contractOrNull(cwd)?.budget ? "contract" : "desktop", felt = (p2) => ({ frameMs: p2.work?.paced ? p2.work.ms : p2.median, assetMB: p2.assetMB, ...p2.firstFrame && { scriptMB: p2.firstFrame.scriptMB, firstSceneFrameMs: p2.firstFrame.ms ?? 1 / 0 } }), proxy = budget.proxy ? `
+      let budget = { ...BUDGETS.desktop, ...contractOrNull(S().cwd)?.budget, ...named2 }, network = netArg(a2.network) ?? (budget.firstSceneFrameMs ? "fast-4g" : void 0), loaded = (p2) => (p2.firstFrame?.line ?? `Load to first frame: ${(g.loadMs / 1000).toFixed(1)} s.${slowStart(g.loadMs, g.software) && ` ${slowStart(g.loadMs, g.software)}`}`) + overlayText(p2.overlay), stuck = (p2) => p2.overlay && !p2.overlay.cleared ? 0 : void 0, costs = (p2) => p2.costs !== void 0 ? `
+${costsText(p2.costs, p2)}` : "", start = Date.now(), name = typeof a2.budget === "string" ? a2.budget : a2.budget ? "given" : contractOrNull(S().cwd)?.budget ? "contract" : "desktop", felt = (p2) => ({ frameMs: p2.work?.paced ? p2.work.ms : p2.median, assetMB: p2.assetMB, ...p2.firstFrame && { scriptMB: p2.firstFrame.scriptMB, firstSceneFrameMs: p2.firstFrame.ms ?? 1 / 0 } }), proxy = budget.proxy ? `
 Only the limits are a ${name === "quest" ? "headset" : "phone"}'s: the frame ran on this host's GPU, which is faster than a ${name === "quest" ? "headset" : "phone"}'s, so GPU work (shadows, post-processing, a high pixel ratio) costs more there than this says.` : "";
       if (a2.variants?.length) {
         let throttle = a2.throttle, home2 = g.page.url(), short2 = { throttle, work: !0, seconds: RUN_S, warmMs: RUN_WARM_MS }, vs = a2.variants.slice(0, 8).map((v2, i) => ({
@@ -64541,14 +66350,14 @@ Only the limits are a ${name === "quest" ? "headset" : "phone"}'s: the frame ran
           } finally {
             slowest = Math.max(slowest, Date.now() - t);
           }
-        }, room = () => Date.now() - start + 2 * slowest < CALL_CAP_S * 1000;
+        }, room = () => Date.now() - start + 2 * slowest < CALL_CAP_S * 1000, soft = !!g.software;
         for (let round3 = 0;round3 < RUNS_CAP; round3++) {
           let todo = vs.filter((x2) => !x2.settled && !x2.error);
           if (!todo.length)
             break;
           let order = [null, ...todo];
           for (let k = round3 ? 0 : 1;k < order.length; k++) {
-            if (!room())
+            if (!soft && !room())
               break;
             let x2 = order[(k + round3) % order.length];
             if (!x2) {
@@ -64565,7 +66374,7 @@ Only the limits are a ${name === "quest" ? "headset" : "phone"}'s: the frame ran
           if (round3 + 1 >= RUNS_FLOOR)
             for (let x2 of todo)
               x2.settled = !!x2.runs.length && compare(stats(bases), stats(x2.runs)).settled;
-          if (!room())
+          if (soft || !room())
             break;
         }
         let nearest = (ps) => {
@@ -64574,11 +66383,18 @@ Only the limits are a ${name === "quest" ? "headset" : "phone"}'s: the frame ran
         }, near = nearest(bases), net = first2.overBudget.filter((k) => k === "scriptMB" || k === "firstSceneFrameMs"), base2 = near === first2 ? first2 : { ...near, firstFrame: first2.firstFrame, overlay: first2.overlay, costs: first2.costs, overBudget: [...near.overBudget, ...net] }, change = (n2, b2, what) => {
           let pct = Math.round((n2 - b2) / Math.max(b2, 1) * 100);
           return Math.abs(pct) > 2 ? `${pct < 0 ? "−" : "+"}${Math.abs(pct)}% ${what}` : "";
-        }, counts = (p2) => [change(p2.calls, base2.calls, "draw calls"), change(p2.triangles, base2.triangles, "triangles")].filter(Boolean).join(", "), line2 = (label, p2, verdict2) => `${label}: ${p2.median} ms median (p95 ${p2.p95})${p2.work ? `, work ${p2.work.ms} ms` : ""}, ${p2.calls} draw calls, ${p2.triangles} triangles; ${verdict2}`, rows = [
+        }, mb3 = (n2) => Math.round(n2 * 10) / 10, assetChange = (p2) => mb3(p2.assetMB) !== mb3(base2.assetMB) ? `${mb3(base2.assetMB)} → ${mb3(p2.assetMB)} MB of assets` : "", counts = (p2) => [
+          change(p2.calls, base2.calls, "draw calls"),
+          change(p2.triangles, base2.triangles, "triangles"),
+          assetChange(p2),
+          p2.fillMpx !== base2.fillMpx && `${base2.fillMpx} → ${p2.fillMpx} Mpx filled`,
+          mb3(p2.targetMB) !== mb3(base2.targetMB) && `${mb3(base2.targetMB)} → ${mb3(p2.targetMB)} MB of render targets`
+        ].filter(Boolean).join(", "), line2 = (label, p2, verdict2) => `${label}: ${p2.median} ms median (p95 ${p2.p95})${p2.work ? `, work ${p2.work.ms} ms` : ""}, ${p2.calls} draw calls, ${p2.triangles} triangles; ${verdict2}`, rows = [
           line2("baseline", base2, budgetText(base2.overBudget, budget, felt(base2), name)),
           ...vs.map((x2) => x2.runs.length ? line2(x2.label, nearest(x2.runs), [compare(stats(bases), stats(x2.runs), paced).text, counts(nearest(x2.runs))].filter(Boolean).join("; ")) : `${x2.label}: ${x2.error || "not measured: the call reached its time limit first"}`)
         ], bc = stats(bases), mean = bc.reduce((s, c) => s + c, 0) / bc.length, sd = Math.sqrt(bc.reduce((s, c) => s + (c - mean) ** 2, 0) / Math.max(1, bc.length - 1)), spread = `Baseline over ${bc.length} load${bc.length > 1 ? "s" : ""}: ${bc.sort((x2, y) => x2 - y)[bc.length >> 1]} ms median${paced ? " work" : ""}, runs spread ${Math.round(sd / mean * 100)}%.`;
-        return await g.reload(void 0, home2), recordPlain("perf", await shot(g, "perf"), Date.now() - start, { perf: base2 }), text(`${rows.join(`
+        return await g.reload(void 0, home2), recordPlain("perf", await shot(g, "perf"), Date.now() - start, { perf: base2 }), text(`${soft ? `Software renderer (no GPU): its frame times say nothing of a GPU's, so each variant ran once and is compared on its counted draw calls and triangles; time them on a machine with a GPU.
+` : ""}${rows.join(`
 `)}${slowed(throttle)}${proxy}
 Work: the median of the frames that drew, of ${WORK_IS}.${paced ? ` The baseline's ${base2.median} ms is pacing, not work, so each variant is compared on its work: ${PACED}` : ""}
 ${spread} ${loaded(base2)}
@@ -64590,7 +66406,7 @@ The page is reloaded as it was.${costs(base2)}`);
       let thrown = g.errors.length - n, over = budgetText(p.overBudget, budget, felt(p), name) + (thrown ? `, but the page threw ${thrown} errors while measuring (below), so this may be a frame cut short` : "") + (g.software && p.overBudget.includes("frameMs") ? `; ${SOFTWARE_NOTE}` : ""), hitch = !p.overBudget.includes("frameMs") && p.p95 > 2 * budget.frameMs ? `; but p95 ${p.p95} ms: 1 frame in 20 takes over two budget frames, a hitch a viewer sees` : "", scripts = p.overBudget.includes("scriptMB") && p.firstFrame?.scripts.length ? `
 Largest scripts: ${p.firstFrame.scripts.map((s) => `${s.name} ${s.MB} MB`).join(", ")}. Fix: serve a production build (vite build minifies three.js and drops what the page does not import), compressed.` : "", lights = await g.queue(() => g.page.evaluate(LIGHTS)).catch(() => null), lightLine = "", home = g.page.url();
       if (manyLights(lights)) {
-        let many = lights.point + lights.spot > 8, what = many ? "point and spot lights" : "shadows", code = many ? "scene.traverse(o => { if (o.isPointLight || o.isSpotLight || o.isRectAreaLight) o.visible = false; })" : "scene.traverse(o => { if (o.isLight) o.castShadow = false; })";
+        let many = lights.point + lights.spot > 8, what = many ? "point and spot lights" : "shadows", code = many ? `scene.traverse(o => { if (o.isPointLight${lights.clustered ? " && o.castShadow" : ""} || o.isSpotLight || o.isRectAreaLight) o.visible = false; })` : "scene.traverse(o => { if (o.isLight) o.castShadow = false; })";
         try {
           let off2 = await perf(g, budget, { setup: variantSetup({ code }), url: home, throttle: a2.throttle, work: !0, overlayMs: stuck(p) }), cost = (q2) => p.work?.paced ? q2.work?.ms ?? q2.median : q2.median;
           lightLine = `
@@ -64604,12 +66420,13 @@ ${lightsText(lights)}`;
       let more = `Textures ${p.textureMB} MB on the GPU (largest ${p.textureMax} px), ${p.programs} shader programs, pixel ratio ${p.pixelRatio}, heap ${p.heapMB ?? "unknown"} MB, ${p.longTasks} long tasks, ${p.gcPauses} frames over 3× the median (GC-like pauses); noise between two samples ${p.noiseMs} ms.`, work = p.work ? `
 Work per frame: ${workText(p.work)}; ${WORK_IS}.${p.work.paced ? ` The ${p.median} ms between frames is pacing, not work, so the budget judged the work: ${PACED}` : ""}` : "", fetched = p.assets.length || p.unsized ? `
 Assets are the files this load fetched${p.assets.length ? `, largest ${p.assets.map((x2) => `${x2.name} ${x2.MB} MB`).join(", ")}` : ""}${p.unsized ? `; ${p.unsized} more gave no size (from another origin without Timing-Allow-Origin, or cached), so the total leaves them out` : ""}.` : "", big = p.overBudget.includes("assetMB") ? p.assets[0]?.file : void 0, fix = !big ? "" : /\.(gl(b|tf)|usd[acz]?)$/i.test(big) ? `
-${shrinkFix(relative14(cwd, big), Math.min(1024, budget.textureMax))}` : /\.(png|jpe?g|webp|avif|gif|bmp|ktx2|hdr|exr)$/i.test(big) ? `
-Fix: resize or compress ${relative14(cwd, big)}.` : "";
+${shrinkFix(relative16(S().cwd, big), Math.min(1024, budget.textureMax))}` : /\.(png|jpe?g|webp|avif|gif|bmp|ktx2|hdr|exr)$/i.test(big) ? `
+Fix: resize or compress ${relative16(S().cwd, big)}.` : "";
       return text(`${p.median} ms median frame (p95 ${p.p95} ms, ${p.fps} fps on average), ${p.calls} draw calls, ${p.triangles} triangles, ${p.assetMB} MB assets; ${over}${hitch}${slowed(a2.throttle)}${proxy}${scripts}${lightLine}${work}${fetched}${fix}
 ${loaded(p)}
 ${hostLoad()} ${gpuLine2(g)}
-${more}${p.passes ? `
+${more}
+${fillText(p)}${p.passes ? `
 ${passesText(p.passes)}` : ""}${costs(p)}`);
     },
     async invariants() {
@@ -64618,65 +66435,64 @@ ${passesText(p.passes)}` : ""}${costs(p)}`);
     },
     async test() {
       let g = need();
-      return text((await runCheck(g, cwd, { tests: !0, reload: !1 })).text);
+      return text((await runCheck(g, S().cwd, { tests: !0, reload: !1 })).text);
     },
     async model_audit(a2) {
-      let dir = resolve19(a2.cwd);
+      let dir = resolve21(a2.cwd);
       if (!a2.shrink)
         return text(assetsText(dir, a2.path ?? ".", a2.target ?? "site"));
-      let file3 = resolve19(dir, a2.path ?? "");
+      let file3 = resolve21(dir, a2.path ?? "");
       if (a2.path && USD.test(file3))
         throw Error(`model_audit: shrink rewrites .glb and .gltf files only: ${CONVERT(a2.path)}`);
-      if (!a2.path || !existsSync17(file3) || !/\.gl(b|tf)$/i.test(file3))
+      if (!a2.path || !existsSync18(file3) || !/\.gl(b|tf)$/i.test(file3))
         throw Error("model_audit: shrink rewrites one .glb or .gltf file: give it as path");
       let resize = typeof a2.shrink.textures === "number";
-      if (resize && !(await chrome2?.catch(() => null))?.connected)
-        chrome2 = launchChrome2();
-      let s = await shrink(file3, { textures: a2.shrink.textures, out: a2.shrink.out && resolve19(dir, a2.shrink.out) }, resize ? chrome2 : void 0);
+      if (resize)
+        await sharedChrome();
+      let s = await shrink(file3, { textures: a2.shrink.textures, triangles: a2.shrink.triangles, drop: a2.shrink.drop, out: a2.shrink.out && resolve21(dir, a2.shrink.out) }, resize ? chrome2 : void 0);
       return text(shrinkText(dir, file3, s, a2.target ?? "site"));
     },
     async model_run(a2) {
-      if (!(await chrome2?.catch(() => null))?.connected)
-        chrome2 = launchChrome2();
-      let r = await modelRun(chrome2, resolve19(a2.cwd), a2.code, a2.searched);
+      await sharedChrome();
+      let r = await modelRun(chrome2, resolve21(a2.cwd), a2.code, a2.searched);
       return r.failed ? fail(r.text) : text(r.text);
     },
     async model_look(a2) {
-      if (!(await chrome2?.catch(() => null))?.connected)
-        chrome2 = launchChrome2();
-      let r = await modelLook(chrome2, resolve19(a2.cwd), { object: a2.object, cameras: a2.cameras, size: a2.size });
+      await sharedChrome();
+      let r = await modelLook(chrome2, resolve21(a2.cwd), { object: a2.object, cameras: a2.cameras, size: a2.size });
       return { content: [{ type: "text", text: r.text }, ...r.jpeg ? [{ type: "image", data: r.jpeg, mimeType: "image/jpeg" }] : []] };
     },
+    async unity_export(a2) {
+      let r = await unityExport(need(), S().cwd, { out: a2.out, name: a2.name });
+      return r.failed ? fail(r.text) : text(r.text);
+    },
     async reference(a2) {
-      let dir = resolve19(a2.cwd), { file: file3, name } = pictureFile(dir, a2.file), lookPng, kept = !1;
+      let dir = resolve21(a2.cwd), { file: file3, name } = pictureFile(dir, a2.file), lookPng, kept = !1;
       if (a2.compare) {
-        if (!game)
+        if (!S().game)
           throw Error("reference: compare needs the page open: call `open` first, or leave compare out to read the picture alone");
         let cam = a2.camera ? namedOr(dir, a2.camera) : viewpoint(dir, file3);
         kept = !a2.camera && !!cam;
         let quiet = { peek: !0, surfaces: !1 };
-        lookPng = (await (cam ? lookFrom(game, cam, quiet) : look(game, quiet))).picture;
+        lookPng = (await (cam ? lookFrom(S().game, cam, quiet) : look(S().game, quiet))).picture;
       }
-      if (!(await chrome2?.catch(() => null))?.connected)
-        chrome2 = launchChrome2();
+      await sharedChrome();
       let r = await reference(chrome2, { file: file3, crop: a2.crop, grid: a2.grid, sample: a2.sample, look: lookPng, cells: a2.cells }, name);
-      return { content: [{ type: "text", text: (kept ? `The page's look is from cameras.json's viewpoint for ${basename5(file3)}.
+      return { content: [{ type: "text", text: (kept ? `The page's look is from cameras.json's viewpoint for ${basename6(file3)}.
 ` : "") + r.text }, { type: "image", data: r.jpeg, mimeType: "image/jpeg" }] };
     },
     async asset_search(a2) {
       let { search: search2, pick: pick3 } = await Promise.resolve().then(() => (init_asset(), exports_asset)), agent = a2.model || client;
       if (a2.pick)
-        return text(await pick3(a2.pick, a2.kind ?? "model", resolve19(a2.cwd), agent, a2.height, a2.textures, a2.format));
+        return text(await pick3(a2.pick, a2.kind ?? "model", resolve21(a2.cwd), agent, a2.height, a2.textures, a2.format));
       let shared = async () => {
-        if (!(await chrome2?.catch(() => null))?.connected)
-          chrome2 = launchChrome2();
-        return chrome2;
+        return await sharedChrome(), chrome2;
       }, cut;
       if (a2.image) {
-        let { file: file3, name } = pictureFile(resolve19(a2.cwd), a2.image);
+        let { file: file3, name } = pictureFile(resolve21(a2.cwd), a2.image);
         cut = (await reference(shared(), { file: file3, crop: a2.crop }, name)).jpeg;
       }
-      let s = await search2({ ...a2, image: cut }, agent, a2.cwd && resolve19(a2.cwd), a2.sheet === !1 ? void 0 : shared), jpeg = (data) => ({ type: "image", data, mimeType: "image/jpeg" });
+      let s = await search2({ ...a2, image: cut }, agent, a2.cwd && resolve21(a2.cwd), a2.sheet === !1 ? void 0 : shared), jpeg = (data) => ({ type: "image", data, mimeType: "image/jpeg" });
       return { content: [{ type: "text", text: s.text }, ...cut ? [jpeg(cut)] : [], ...s.sheet ? [jpeg(s.sheet)] : []] };
     },
     async sheet(a2) {
@@ -64687,20 +66503,39 @@ ${passesText(p.passes)}` : ""}${costs(p)}`);
       }, a2);
       return { content: [{ type: "text", text: r.text }, ...r.jpeg ? [{ type: "image", data: r.jpeg, mimeType: "image/jpeg" }] : []] };
     }
-  }, calls = Promise.resolve(), FRESH = /* @__PURE__ */ new Set(["observe", "eval", "interact", "look", "feel"]);
-  if (FEEDBACK)
-    TOOL_FNS[REPORT_TOOL.name] = async (a2) => text(await reportTool(a2, game?.runDir));
+  };
+  FRESH = /* @__PURE__ */ new Set(["observe", "eval", "interact", "look", "feel"]);
+  {
+    let open3 = TOOL_FNS.open;
+    TOOL_FNS.open = async (a2) => {
+      let s = S();
+      s.opening = !0;
+      try {
+        return await open3(a2);
+      } finally {
+        s.opening = !1;
+      }
+    };
+  }
+  if (PUBLISHED)
+    TOOL_FNS[REPORT_TOOL.name] = async (a2) => text(await reportTool(a2, S().game?.runDir));
   TOOL_FNS.publish = async (a2) => {
     let { publish: publish2 } = await Promise.resolve().then(() => (init_publish(), exports_publish));
-    return text(await publish2(resolve19(a2.cwd), { client, model: a2.model }, { slug: a2.slug, rotate: a2.rotate === !0 }));
+    return text(await publish2(resolve21(a2.cwd), { client, model: a2.model }, { slug: a2.slug, rotate: a2.rotate === !0, playtest: a2.playtest === !0, feedback: a2.feedback === !0 }));
   };
   LIMIT_MS = Number(process.env.PAPRIKA3D_CALL_LIMIT_MS) || 600000, BOUND_MS = Number(process.env.PAPRIKA3D_BOUND_MS) || 30000, LONG = /* @__PURE__ */ new Set(["open", "check", "contract", "test"]);
   Hung = class Hung extends Error {
   };
-  told3 = /* @__PURE__ */ new WeakMap, OWN_ERRORS = /* @__PURE__ */ new Set(["open", "observe", "interact", "eval", "check", "invariants", "test", "contract", "asset_search", "model_audit", "model_run", "model_look", "sheet", "publish"]);
+  told3 = /* @__PURE__ */ new WeakMap, BETWEEN = /* @__PURE__ */ new Set(["interact", "eval"]), OWN_ERRORS = /* @__PURE__ */ new Set(["open", "observe", "interact", "eval", "check", "invariants", "test", "contract", "asset_search", "model_audit", "model_run", "model_look", "sheet", "publish"]);
   ALIASES = { expression: "code", js: "code", script: "code", width: "size", height: "size", path: "file", q: "query", prompt: "query" };
-  NOTES_RAN = /* @__PURE__ */ new Set(["look", "interact", "eval"]);
-  heard = /* @__PURE__ */ new WeakMap;
+  NOTES_RAN = /* @__PURE__ */ new Set(["look", "interact", "eval", "test"]);
+  heard = /* @__PURE__ */ new WeakMap, heardBefore = /* @__PURE__ */ new WeakMap;
+  SKILLS = resolve21(import.meta.dirname, "../skills"), MAKE = {
+    name: "paprika-make",
+    title: "Make a three.js page",
+    description: "Builds a new three.js, React Three Fiber or WebGL page with the paprika3d tools: a short brief first, then the build start to finish.",
+    arguments: [{ name: "request", description: "What to build, in the person's words.", required: !0 }]
+  }, MIME3 = { md: "text/markdown", html: "text/html", ts: "text/typescript", tsx: "text/typescript" };
 });
 
 var exports_tested_with = {};
@@ -64725,12 +66560,12 @@ __export(exports_loop, {
   loop: () => loop
 });
 import { spawn as spawn7, spawnSync as spawnSync4 } from "node:child_process";
-import { createWriteStream as createWriteStream3, existsSync as existsSync18, mkdirSync as mkdirSync14, readFileSync as readFileSync23, renameSync as renameSync3, rmSync as rmSync8, unwatchFile, watchFile, writeFileSync as writeFileSync15 } from "node:fs";
+import { createWriteStream as createWriteStream3, existsSync as existsSync19, mkdirSync as mkdirSync15, readFileSync as readFileSync25, renameSync as renameSync3, rmSync as rmSync10, unwatchFile, watchFile, writeFileSync as writeFileSync16 } from "node:fs";
 import { createHash as createHash8 } from "node:crypto";
-import { join as join26, sep as sep7 } from "node:path";
+import { join as join28, sep as sep7 } from "node:path";
 function latestOf(progress) {
-  let sections = progress.split(/^(?=## Iteration \d|### Judge \d|## The request changed)/m), last4 = (head) => sections.findLastIndex((s) => s.startsWith(head)), builder = last4("## Iteration"), judge = last4("### Judge"), note = last4("## The request changed");
-  return ["The last builder's section and the last judge's verdict; paprika-loop/PROGRESS.md holds every session's.", ...[builder, judge, note > judge ? note : -1].filter((i) => i >= 0).sort((a2, b2) => a2 - b2).map((i) => sections[i].trim())].join(`
+  let sections2 = progress.split(/^(?=## Iteration \d|### Judge \d|## The request changed)/m), last4 = (head) => sections2.findLastIndex((s) => s.startsWith(head)), builder = last4("## Iteration"), judge = last4("### Judge"), note = last4("## The request changed");
+  return ["The last builder's section and the last judge's verdict; paprika-loop/PROGRESS.md holds every session's.", ...[builder, judge, note > judge ? note : -1].filter((i) => i >= 0).sort((a2, b2) => a2 - b2).map((i) => sections2[i].trim())].join(`
 
 `) + `
 `;
@@ -64770,7 +66605,7 @@ function session(o, prompt, systemFile, turns, file3, judge, killAt, resume) {
     ...plugin && o.pluginDir ? ["--plugin-dir", o.pluginDir] : [],
     ...resume ? ["--resume", resume] : []
   ], { CLAUDECODE, CLAUDE_CODE_ENTRYPOINT, ...env2 } = process.env;
-  return new Promise((resolve20) => {
+  return new Promise((resolve22) => {
     let [bin, ...pre] = claude.split(" ").filter(Boolean), proc = spawn7(bin, [...pre, ...args], { cwd: o.cwd, env: env2, stdio: ["ignore", "pipe", "pipe"] }), out = createWriteStream3(file3), buf = "", text2 = "", scored = null, result = null, err = "", done = !1, exit, sessionId, line2 = (l) => {
       let msg;
       try {
@@ -64810,7 +66645,7 @@ function session(o, prompt, systemFile, turns, file3, judge, killAt, resume) {
       if (out.end(), !result && err.trim())
         console.error(`paprika-loop: ${err.trim().split(`
 `).at(-1)}`);
-      resolve20({
+      resolve22({
         ok: !!result,
         text: text2,
         scored,
@@ -64834,38 +66669,38 @@ async function loop(opts) {
     minIterationMinutes: 5,
     claude: "claude",
     idleStop: !1,
-    builderPrompt: join26(ROOT, "skills", "paprika-loop", "builder.md"),
-    judgePrompt: join26(ROOT, "skills", "paprika-loop", "judge.md"),
+    builderPrompt: join28(ROOT, "skills", "paprika-loop", "builder.md"),
+    judgePrompt: join28(ROOT, "skills", "paprika-loop", "judge.md"),
     pluginDir: ROOT.includes(`${sep7}plugins${sep7}cache${sep7}`) ? void 0 : ROOT,
     ...opts
-  }, dir = join26(o.cwd, "paprika-loop"), progress = join26(dir, "PROGRESS.md"), status = join26(dir, "loop.json"), promptFile = join26(dir, "PROMPT.md"), handoff = () => writeFileSync15(join26(dir, "LATEST.md"), latestOf(readFileSync23(progress, "utf8"))), brief = () => existsSync18(promptFile) ? readFileSync23(promptFile, "utf8") : "";
-  mkdirSync14(dir, { recursive: !0 });
-  let ignore = join26(dir, ".gitignore"), ignored = existsSync18(ignore) ? readFileSync23(ignore, "utf8") : `*.jsonl
+  }, dir = join28(o.cwd, "paprika-loop"), progress = join28(dir, "PROGRESS.md"), status = join28(dir, "loop.json"), promptFile = join28(dir, "PROMPT.md"), handoff = () => writeFileSync16(join28(dir, "LATEST.md"), latestOf(readFileSync25(progress, "utf8"))), brief = () => existsSync19(promptFile) ? readFileSync25(promptFile, "utf8") : "";
+  mkdirSync15(dir, { recursive: !0 });
+  let ignore = join28(dir, ".gitignore"), ignored = existsSync19(ignore) ? readFileSync25(ignore, "utf8") : `*.jsonl
 `;
   if (!/^\.revision\*$/m.test(ignored))
-    writeFileSync15(ignore, ignored.trimEnd() + `
+    writeFileSync16(ignore, ignored.trimEnd() + `
 .revision*
 `);
-  let before = existsSync18(status) ? JSON.parse(readFileSync23(status, "utf8")) : {}, previous2 = existsSync18(promptFile) ? readFileSync23(promptFile, "utf8") : null;
+  let before = existsSync19(status) ? JSON.parse(readFileSync25(status, "utf8")) : {}, previous2 = existsSync19(promptFile) ? readFileSync25(promptFile, "utf8") : null;
   if (previous2?.trim() !== o.prompt.trim())
-    writeFileSync15(promptFile, o.prompt.trim() + `
+    writeFileSync16(promptFile, o.prompt.trim() + `
 `);
-  if (!existsSync18(progress))
-    writeFileSync15(progress, "# Progress\n\nThe request is in PROMPT.md. Each session of the loop appends one section here: a builder's `## Iteration n` (Did, Saw, Next, Open) and the judge's `### Judge n` (its scores, Next). LATEST.md holds the last of each, rewritten by the loop after every session; the next builder reads the latest Judge's Next there first.\n");
+  if (!existsSync19(progress))
+    writeFileSync16(progress, "# Progress\n\nThe request is in PROMPT.md. Each session of the loop appends one section here: a builder's `## Iteration n` (Did, Saw, Next, Open) and the judge's `### Judge n` (its scores, Next). LATEST.md holds the last of each, rewritten by the loop after every session; the next builder reads the latest Judge's Next there first.\n");
   handoff();
-  let revision = join26(dir, ".revision"), lastPrompt = before.brief ?? previous2 ?? brief(), seen2 = "", written = null, fresh = () => {
-    rmSync8(revision, { force: !0 }), seen2 = brief(), written = null;
+  let revision = join28(dir, ".revision"), lastPrompt = before.brief ?? previous2 ?? brief(), seen2 = "", written = null, fresh = () => {
+    rmSync10(revision, { force: !0 }), seen2 = brief(), written = null;
   };
   if (watchFile(promptFile, { interval: 1000 }, () => {
     let now = brief();
-    if (written !== null && !existsSync18(revision))
+    if (written !== null && !existsSync19(revision))
       seen2 = written;
     let changes = diffLines(seen2, now);
     if (!changes) {
-      rmSync8(revision, { force: !0 }), written = null;
+      rmSync10(revision, { force: !0 }), written = null;
       return;
     }
-    writeFileSync15(revision, `paprika-loop/PROMPT.md changed while this session runs; what changed is what the person wants next:
+    writeFileSync16(revision, `paprika-loop/PROMPT.md changed while this session runs; what changed is what the person wants next:
 ${changes}
 `), written = now;
   }).unref(), spawnSync4("git", ["rev-parse", "--is-inside-work-tree"], { cwd: o.cwd, stdio: "ignore" }).status !== 0)
@@ -64878,7 +66713,7 @@ ${changes}
   for (let n = (iterations.at(-1)?.n ?? 0) + 1;(deadline - Date.now()) / 60000 >= o.minIterationMinutes; n++) {
     let t0 = Date.now(), left = Math.round((deadline - t0) / 60000), head0 = spawnSync4("git", ["rev-parse", "-q", "--verify", "HEAD"], { cwd: o.cwd, encoding: "utf8" }).stdout.trim() || EMPTY_TREE(o.cwd), now = brief(), changes = diffLines(lastPrompt, now);
     if (lastPrompt = now, changes)
-      writeFileSync15(progress, readFileSync23(progress, "utf8").trimEnd() + `
+      writeFileSync16(progress, readFileSync25(progress, "utf8").trimEnd() + `
 
 ## The request changed
 
@@ -64889,7 +66724,7 @@ ${changes}
       briefFrom = iterations.length;
     let last32 = iterations.slice(briefFrom).filter((i) => i.score !== null).slice(-3), flat = last32.length === 3 && last32.every((i) => i.score === last32[0].score) ? ` The last three judges (iterations ${last32[0].n} to ${last32[2].n}) each scored ${last32[0].score}: what those sessions changed did not move the score.` : "";
     fresh();
-    let b2 = await session(o, BUILDER_PROMPT(n, left, iterations.length === 0, !!changes, flat), o.builderPrompt, o.builderTurns, join26(dir, `stream-${n}.jsonl`), !1, deadline + GRACE_MS);
+    let b2 = await session(o, BUILDER_PROMPT(n, left, iterations.length === 0, !!changes, flat), o.builderPrompt, o.builderTurns, join28(dir, `stream-${n}.jsonl`), !1, deadline + GRACE_MS);
     if (b2.ok)
       crashes = 0;
     else if (++crashes > 1) {
@@ -64900,16 +66735,16 @@ ${changes}
       stopped = b2.limit;
       break;
     }
-    if (!new RegExp(`^## Iteration ${n}\\b`, "m").test(readFileSync23(progress, "utf8")))
-      writeFileSync15(progress, readFileSync23(progress, "utf8").trimEnd() + `
+    if (!new RegExp(`^## Iteration ${n}\\b`, "m").test(readFileSync25(progress, "utf8")))
+      writeFileSync16(progress, readFileSync25(progress, "utf8").trimEnd() + `
 
 ## Iteration ${n}
 
 ${b2.text.trim() || "(no reply)"}
 `);
-    if (handoff(), existsSync18(join26(o.cwd, "node_modules")) && spawnSync4("git", ["check-ignore", "-q", "node_modules"], { cwd: o.cwd }).status !== 0)
-      writeFileSync15(join26(o.cwd, ".gitignore"), (existsSync18(join26(o.cwd, ".gitignore")) ? readFileSync23(join26(o.cwd, ".gitignore"), "utf8").trimEnd() + `
-` : "") + `node_modules/
+    if (handoff(), existsSync19(join28(o.cwd, "node_modules")) && spawnSync4("git", ["check-ignore", "-q", "node_modules"], { cwd: o.cwd }).status !== 0)
+      writeFileSync16(join28(o.cwd, ".gitignore"), (existsSync19(join28(o.cwd, ".gitignore")) ? readFileSync25(join28(o.cwd, ".gitignore"), "utf8").trimEnd() + `
+` : "") + `node_modules
 `);
     if (spawnSync4("git", ["ls-files", "--error-unmatch", "node_modules"], { cwd: o.cwd, stdio: "ignore" }).status === 0)
       git(o.cwd, "rm", "-r", "-q", "--cached", "node_modules");
@@ -64929,10 +66764,10 @@ ${b2.text.trim() || "(no reply)"}
     }
     if (changed) {
       stale = 0, fresh();
-      let judged = briefKey(brief()), j2 = await session(o, JUDGE_PROMPT(n), o.judgePrompt, o.judgeTurns, join26(dir, `judge-stream-${n}.jsonl`), !0, deadline + GRACE_MS);
+      let judged = briefKey(brief()), j2 = await session(o, JUDGE_PROMPT(n), o.judgePrompt, o.judgeTurns, join28(dir, `judge-stream-${n}.jsonl`), !0, deadline + GRACE_MS);
       if (j2.ok && !j2.limit && j2.sessionId && !j2.scored) {
         fresh();
-        let more = await session(o, VERDICT_PROMPT, o.judgePrompt, 2, join26(dir, `judge-stream-${n}-verdict.jsonl`), !0, deadline + GRACE_MS, j2.sessionId), keep = !more.scored && SCORE_LINE.test(j2.text) ? { text: j2.text } : {};
+        let more = await session(o, VERDICT_PROMPT, o.judgePrompt, 2, join28(dir, `judge-stream-${n}-verdict.jsonl`), !0, deadline + GRACE_MS, j2.sessionId), keep = !more.scored && SCORE_LINE.test(j2.text) ? { text: j2.text } : {};
         if (more.text.trim())
           j2 = { ...more, ok: !0, turns: j2.turns + more.turns, ...more.ok ? {} : { tokens: j2.tokens, costUsd: j2.costUsd }, ...keep };
       }
@@ -64941,8 +66776,8 @@ ${b2.text.trim() || "(no reply)"}
         break;
       }
       let verdict2 = (j2.scored ?? j2.text).replace(/^#+\s*Judge[^\n]*\n/, "").trim();
-      if (writeFileSync15(join26(dir, `judge-${n}.md`), verdict2 + `
-`), writeFileSync15(progress, readFileSync23(progress, "utf8").trimEnd() + `
+      if (writeFileSync16(join28(dir, `judge-${n}.md`), verdict2 + `
+`), writeFileSync16(progress, readFileSync25(progress, "utf8").trimEnd() + `
 
 ### Judge ${n}
 
@@ -64954,7 +66789,7 @@ ${verdict2 || "(no reply)"}
     }
     it.minutes = Math.round((Date.now() - t0) / 6000) / 10, save();
   }
-  unwatchFile(promptFile), rmSync8(revision, { force: !0 });
+  unwatchFile(promptFile), rmSync10(revision, { force: !0 });
   let run3 = iterations.slice(earlier), cost = run3.reduce((s, i) => s + i.costUsd, 0), latest = iterations.findLast((i) => i.commit)?.commit, text2 = [
     "# paprika-loop report",
     "",
@@ -64971,26 +66806,26 @@ ${verdict2 || "(no reply)"}
 `);
   if (stopped)
     console.error(`paprika-loop: stopped, usage limit: ${stopped}`);
-  return writeFileSync15(join26(dir, "REPORT.md"), text2 + `
+  return writeFileSync16(join28(dir, "REPORT.md"), text2 + `
 `), { iterations, best, text: text2 };
 }
-var PLUGIN_TOOL = "mcp__plugin_paprika3d_paprika__", ALLOWED, NO_PUBLISH, JUDGE_DISALLOWED, NO_PLUGIN, GRACE_MS = 300000, EXIT_MS = 1e4, ROOT, HOOK2, SETTINGS = (plugin) => JSON.stringify({ ...plugin ? {} : NO_PLUGIN, hooks: { PostToolUse: [{ hooks: [{ type: "command", command: `test -f "\${CLAUDE_PROJECT_DIR:-.}/paprika-loop/.revision" && exec ${HOOK2} || true`, timeout: 5 }] }] } }), BUILDER_PROMPT = (n, left, first2, changed, flat = "") => `This is session ${n} of a loop that builds the request in paprika-loop/PROMPT.md; about ${left} minutes of the loop are left, and this session does as many of the improvements as fit in it. First read paprika-loop/LATEST.md (the last builder's section and the last judge's verdict; PROGRESS.md holds every session's, for history) and run \`git log --oneline -5\`. ${first2 ? "Nothing is built yet: write the page whole and as impressive as you can make it from the request, risks welcome, then run and polish it with the tools." : `The latest "Judge" section's Next list is the judge's three next improvements; the tools show what each change did.`}${changed ? " paprika-loop/PROMPT.md changed since the last session: LATEST.md shows the changed lines, and the Judge's Next list was written before them." : ""}${flat} Then append a section \`## Iteration ${n}\` to paprika-loop/PROGRESS.md with four short parts: Did, Saw (the look's numbers and fault lines), Next, Open. Write it while you still have room, then stop: no summary.`, JUDGE_PROMPT = (n) => `You judge session ${n} of a loop that builds the request in paprika-loop/PROMPT.md. Read it and paprika-loop/LATEST.md (PROGRESS.md holds every session's section), open the page with the \`open\` tool and judge it as your instructions say. Reply with a section the next builder will read: the scores from 1 to 10, one line each with the evidence in the page's own object names; then "Next:" and the three improvements your instructions ask for, concrete enough to start on (each checked against the last Iteration's Did and Open: what was done there is not asked again, and what its Open records as found nothing or impossible needs a different way); then, on its own last line, \`SCORE: n\` with the mean to one decimal.`, VERDICT_PROMPT = "Your turns are up. Write the verdict now from what you saw: the score lines, Next, and `SCORE: n` on the last line.", SCORE_LINE, VERDICT_END, EMPTY_TREE = (cwd2) => spawnSync4("git", ["hash-object", "-t", "tree", "--stdin"], { cwd: cwd2, input: "", encoding: "utf8" }).stdout.trim(), lines2 = (s) => s.split(`
+var PLUGIN_TOOL = "mcp__plugin_paprika3d_paprika__", ALLOWED, NO_PUBLISH, JUDGE_DISALLOWED, NO_PLUGIN, GRACE_MS = 300000, EXIT_MS = 1e4, ROOT, HOOK2, SETTINGS = (plugin) => JSON.stringify({ ...plugin ? {} : NO_PLUGIN, hooks: { PostToolUse: [{ hooks: [{ type: "command", command: `test -f "\${CLAUDE_PROJECT_DIR:-.}/paprika-loop/.revision" && exec ${HOOK2} || true`, timeout: 5 }] }] } }), BUILDER_PROMPT = (n, left, first2, changed, flat = "") => `This is session ${n} of a loop that builds the request in paprika-loop/PROMPT.md; about ${left} minutes of the loop are left, and this session does as many of the improvements as fit in it. First read paprika-loop/LATEST.md (the last builder's section and the last judge's verdict; PROGRESS.md holds every session's, for history) and run \`git log --oneline -5\`. ${first2 ? "Nothing is built yet: write the page whole and as impressive as you can make it from the request, risks welcome, then run and polish it with the tools." : `The latest "Judge" section's Next list is the judge's three next improvements; the tools show what each change did.`}${changed ? " paprika-loop/PROMPT.md changed since the last session: LATEST.md shows the changed lines, and the Judge's Next list was written before them." : ""}${flat} Then append a section \`## Iteration ${n}\` to paprika-loop/PROGRESS.md with four short parts: Did, Saw (the look's numbers and fault lines), Next, Open. Write it while you still have room, then stop: no summary.`, JUDGE_PROMPT = (n) => `You judge session ${n} of a loop that builds the request in paprika-loop/PROMPT.md. Read it and paprika-loop/LATEST.md (PROGRESS.md holds every session's section), open the page with the \`open\` tool and judge it as your instructions say. Reply with a section the next builder will read: the scores from 1 to 10, one line each with the evidence in the page's own object names; then "Next:" and the three improvements your instructions ask for, concrete enough to start on (each checked against the last Iteration's Did and Open: what was done there is not asked again, and what its Open records as found nothing or impossible needs a different way); then, on its own last line, \`SCORE: n\` with the mean to one decimal.`, VERDICT_PROMPT = "Your turns are up. Write the verdict now from what you saw: the score lines, Next, and `SCORE: n` on the last line.", SCORE_LINE, VERDICT_END, EMPTY_TREE = (cwd) => spawnSync4("git", ["hash-object", "-t", "tree", "--stdin"], { cwd, input: "", encoding: "utf8" }).stdout.trim(), lines2 = (s) => s.split(`
 `).map((l) => l.trimEnd()).filter(Boolean), briefKey = (s) => createHash8("sha1").update(lines2(s).join(`
-`)).digest("hex").slice(0, 12), sum = (usage2 = {}) => Object.values(usage2).reduce((n, u) => n + (u.inputTokens ?? 0) + (u.outputTokens ?? 0) + (u.cacheReadInputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0), 0), git = (cwd2, ...args) => {
-  let r = spawnSync4("git", args, { cwd: cwd2, encoding: "utf8" });
+`)).digest("hex").slice(0, 12), sum = (usage2 = {}) => Object.values(usage2).reduce((n, u) => n + (u.inputTokens ?? 0) + (u.outputTokens ?? 0) + (u.cacheReadInputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0), 0), git = (cwd, ...args) => {
+  let r = spawnSync4("git", args, { cwd, encoding: "utf8" });
   if (r.status !== 0)
     throw Error(`git ${args[0]}: ${r.stderr.trim()}`);
   return r.stdout.trim();
 }, writeJson = (file3, data) => {
-  writeFileSync15(`${file3}.tmp`, JSON.stringify(data, null, 2) + `
+  writeFileSync16(`${file3}.tmp`, JSON.stringify(data, null, 2) + `
 `), renameSync3(`${file3}.tmp`, file3);
 };
 var init_loop = __esm(() => {
-  ALLOWED = `Bash,Edit,Write,Read,Glob,Grep,${PLUGIN_TOOL}*`, NO_PUBLISH = `${PLUGIN_TOOL}publish`, JUDGE_DISALLOWED = `Edit,Write,NotebookEdit,Bash,${NO_PUBLISH}`, NO_PLUGIN = { enabledPlugins: { "paprika3d@paprika3d": !1, "paprika3d@paprika3d-dev": !1 } }, ROOT = join26(import.meta.dirname, ".."), HOOK2 = existsSync18(join26(ROOT, "hooks", "revision.js")) ? `node '${join26(ROOT, "hooks", "revision.js")}'` : `bun run '${join26(ROOT, "hooks", "revision.ts")}'`, SCORE_LINE = /^[\s*_`]*SCORE:\**\s*(\d+(?:\.\d+)?)/m, VERDICT_END = /^[\s*_`]*SCORE:\**\s*\d+(?:\.\d+)?(?:\s*\/\s*10)?[\s*_`.]*$/;
+  ALLOWED = `Bash,Edit,Write,Read,Glob,Grep,${PLUGIN_TOOL}*`, NO_PUBLISH = `${PLUGIN_TOOL}publish`, JUDGE_DISALLOWED = `Edit,Write,NotebookEdit,Bash,${NO_PUBLISH}`, NO_PLUGIN = { enabledPlugins: { "paprika3d@paprika3d": !1, "paprika3d@paprika3d-dev": !1 } }, ROOT = join28(import.meta.dirname, ".."), HOOK2 = existsSync19(join28(ROOT, "hooks", "revision.js")) ? `node '${join28(ROOT, "hooks", "revision.js")}'` : `bun run '${join28(ROOT, "hooks", "revision.ts")}'`, SCORE_LINE = /^[\s*_`]*SCORE:\**\s*(\d+(?:\.\d+)?)/m, VERDICT_END = /^[\s*_`]*SCORE:\**\s*\d+(?:\.\d+)?(?:\s*\/\s*10)?[\s*_`.]*$/;
 });
 
-import { existsSync as existsSync19, readFileSync as readFileSync24 } from "fs";
-import { join as join27, resolve as resolve20 } from "path";
+import { existsSync as existsSync20, readFileSync as readFileSync26 } from "fs";
+import { join as join29, resolve as resolve22 } from "path";
 import { spawnSync as spawnSync5 } from "child_process";
 
 init_state();
@@ -65047,9 +66882,9 @@ function validateContract(c, { tests = !1 } = {}) {
       errs.push(`${at}: actions must be a list (may be empty)`);
     else
       k.actions.forEach((a, j) => {
-        let kind = isObj(a) ? kinds.filter((n) => (n in a)) : [];
+        let kind = !isObj(a) ? [] : ("action" in a) ? ["action"] : kinds.filter((n) => (n in a));
         if (kind.length !== 1)
-          errs.push(`${at}: action ${j + 1} needs exactly one of ${kinds.join(", ")}`);
+          errs.push(`${at}: action ${j + 1} ${show(a)} needs exactly one of ${kinds.join(", ")}${kind.length ? `; it has ${kind.join(" and ")}` : ""}`);
         else if (kind[0] === "wait" && !isCount(a.wait))
           errs.push(`${at}: action ${j + 1} wait must be a frame count`);
         else if ((kind[0] === "state" || kind[0] === "until") && !isObj(a[kind[0]]))
@@ -65075,6 +66910,10 @@ function validateContract(c, { tests = !1 } = {}) {
     }
   }), errs;
 }
+var show = (v) => {
+  let s = v === void 0 ? "nothing" : JSON.stringify(v) ?? String(v);
+  return s.length > 200 ? `${s.slice(0, 200)}…` : s;
+};
 
 init_state();
 async function askServer(dir, body, s = readState(dir).server) {
@@ -65103,19 +66942,19 @@ function readState2(cwd) {
 }
 
 function selfInstall() {
-  let root = join27(import.meta.dirname, ".."), run3 = (cmd) => {
+  let root = join29(import.meta.dirname, ".."), run3 = (cmd) => {
     if (spawnSync5(cmd[0], cmd.slice(1), { cwd: root, stdio: ["ignore", 2, 2] }).status !== 0)
       console.error(`paprika3d: ${cmd.join(" ")} failed in ${root}`), process.exit(1);
   };
-  if (!existsSync19(join27(root, "node_modules", "puppeteer-core")))
+  if (!existsSync20(join29(root, "node_modules", "puppeteer-core")))
     run3([process.execPath, "install", "--frozen-lockfile"]);
-  if (!existsSync19(join27(root, "runtime", "dist", "index.js")))
+  if (!existsSync20(join29(root, "runtime", "dist", "index.js")))
     run3([process.execPath, "runtime/build.ts"]);
-  if (!existsSync19(join27(root, "geo", "dist", "studio.js")))
+  if (!existsSync20(join29(root, "geo", "dist", "studio.js")))
     run3([process.execPath, "geo/build.ts"]);
-  if (!existsSync19(join27(root, "fx", "dist", "fx.js")))
+  if (!existsSync20(join29(root, "fx", "dist", "fx.js")))
     run3([process.execPath, "fx/build.ts"]);
-  if (!existsSync19(join27(root, "state", "dist", "physics-worker.js")))
+  if (!existsSync20(join29(root, "state", "dist", "physics-worker.js")))
     run3([process.execPath, "state/build.ts"]);
 }
 if (import.meta.filename.endsWith(".ts"))
@@ -65154,13 +66993,17 @@ switch (REPO || !["contract-lint", "bench"].includes(cmd) ? cmd : void 0) {
     await serve2();
     break;
   case "check": {
-    let dir = resolve20(value("--cwd") ?? "."), url2 = value("--url"), command2 = value("--command"), ci = flag("--ci"), json3 = flag("--json"), ref = value("--edit-ref"), edit = ref ? { ref, file: value("--edit-file") ?? "", time: value("--edit-time") ?? (/* @__PURE__ */ new Date()).toISOString(), session: value("--session") ?? "" } : void 0;
+    let dir = resolve22(value("--cwd") ?? "."), url2 = value("--url"), command2 = value("--command"), ci = flag("--ci"), json3 = flag("--json"), ref = value("--edit-ref"), edit = ref ? { ref, file: value("--edit-file") ?? "", time: value("--edit-time") ?? (/* @__PURE__ */ new Date()).toISOString(), session: value("--session") ?? "" } : void 0;
     try {
-      let s = readState2(dir), r = (!url2 || url2 === s.url) && (!command2 || command2 === s.command) ? await askServer(dir, { edit, ci }, s.server) : null, footer = process.env.PAPRIKA3D_TESTED_WITH ? (await Promise.resolve().then(() => exports_tested_with)).testedWith(process.env, json3) : "", print = (r2) => console.log(json3 ? JSON.stringify({ passed: r2.passed, failed: r2.failed, changed: r2.changed, text: r2.text }) : r2.text + footer);
+      let s = readState2(dir), footer = process.env.PAPRIKA3D_TESTED_WITH ? (await Promise.resolve().then(() => exports_tested_with)).testedWith(process.env, json3) : "", print = (r2) => console.log(json3 ? JSON.stringify({ passed: r2.passed, failed: r2.failed, changed: r2.changed, text: r2.text }) : r2.text + (r2.drew ? `
+${r2.drew}` : "") + footer);
+      if (!existsSync20(join29(dir, "game-tests.json")) && !existsSync20(join29(dir, "game-contract.json")))
+        print({ passed: 0, failed: 0, changed: !1, text: `No saved checks in ${dir}: no game-tests.json to rerun. \`interact\` with \`expect\` and \`save\` keeps a play as a check that this reruns.` }), process.exit(0);
+      let r = (!url2 || url2 === s.url) && (!command2 || command2 === s.command) ? await askServer(dir, { edit, ci }, s.server) : null;
       if (r)
         print(r), process.exit(r.failed ? 1 : 0);
-      let game2 = await openGame3({ url: url2 ?? (command2 ? void 0 : s.url ?? void 0), command: command2 ?? (url2 ? void 0 : s.command ?? void 0), cwd: dir, engine: "chromium" }), own = await guarded3(runCheck2(game2, dir, { edit, ci, reload: !1 }), "check", () => game2).catch(async (e) => {
-        throw await game2.close(), e;
+      let game = await openGame3({ url: url2 ?? (command2 ? void 0 : s.url ?? void 0), command: command2 ?? (url2 ? void 0 : s.command ?? void 0), cwd: dir, engine: "chromium" }), own = await guarded3(runCheck2(game, dir, { edit, ci, reload: !1 }), "check", () => game).catch(async (e) => {
+        throw await game.close(), e;
       });
       print(own), process.exit(own.failed ? 1 : 0);
     } catch (e) {
@@ -65175,7 +67018,7 @@ switch (REPO || !["contract-lint", "bench"].includes(cmd) ? cmd : void 0) {
     for (let f of args) {
       let errs;
       try {
-        errs = validateContract(JSON.parse(readFileSync24(f, "utf8")));
+        errs = validateContract(JSON.parse(readFileSync26(f, "utf8")));
       } catch (e) {
         errs = [e.message];
       }
@@ -65207,14 +67050,14 @@ switch (REPO || !["contract-lint", "bench"].includes(cmd) ? cmd : void 0) {
     break;
   }
   case "loop": {
-    let file3 = value("--prompt-file"), prompt = value("--prompt") ?? (file3 ? readFileSync24(file3, "utf8") : void 0), minutes = Number(value("--minutes"));
+    let file3 = value("--prompt-file"), prompt = value("--prompt") ?? (file3 ? readFileSync26(file3, "utf8") : void 0), minutes = Number(value("--minutes"));
     if (!prompt || !(minutes > 0))
       console.error(USAGE), process.exit(1);
     let { loop: loop2 } = await Promise.resolve().then(() => (init_loop(), exports_loop)), path14 = (name) => {
       let v2 = value(name);
-      return v2 ? resolve20(v2) : void 0;
+      return v2 ? resolve22(v2) : void 0;
     }, opts = {
-      cwd: resolve20(value("--cwd") ?? "."),
+      cwd: resolve22(value("--cwd") ?? "."),
       prompt,
       minutes,
       model: value("--model"),

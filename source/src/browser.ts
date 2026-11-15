@@ -9,7 +9,8 @@
 // async function; only its first frame runs before it returns.
 import { createReadStream, readFileSync, readdirSync, mkdirSync, rmSync, statSync, existsSync, type Dirent } from "node:fs";
 import { join, resolve, relative, isAbsolute, dirname, extname, posix, win32 } from "node:path";
-import { homedir } from "node:os";
+import { cpus, homedir, loadavg } from "node:os";
+import { randomBytes } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -54,9 +55,12 @@ export function findChrome(platform: NodeJS.Platform = process.platform, env: No
 export const CHROME = findChrome();
 export const CHROME_ARGS = [`--window-size=${VIEWPORT.width},${VIEWPORT.height}`, "--disable-frame-rate-limit",
   // Linux is the AA-3D sandbox image: a container with no user namespaces for Chrome's sandbox, and no GPU, so WebGL runs on SwiftShader.
-  // No WebGPU flag: headless Linux cannot present a WebGPU canvas (the page loses its device), and the judges' Chrome has none
-  // either, so a WebGPURenderer page runs on three's WebGL 2 backend here as it does for them.
-  ...(process.platform === "linux" ? ["--no-sandbox", "--enable-unsafe-swiftshader"] : []),
+  // With no GPU (no /dev/dri), WebGPU runs on SwiftShader too: --enable-unsafe-webgpu alone gives a device whose canvas
+  // cannot present (no shared-image backing for its swap chain: "A valid external Instance reference no longer exists"),
+  // and Vulkan compositing on SwiftShader gives it one, so a WebGPURenderer page draws on WebGPU (#268). A Linux GPU is
+  // left as before (untested): there three uses its WebGL 2 backend.
+  ...(process.platform === "linux" ? ["--no-sandbox", "--enable-unsafe-swiftshader",
+    ...existsSync("/dev/dri") ? [] : ["--enable-unsafe-webgpu", "--enable-features=Vulkan", "--use-vulkan=swiftshader", "--use-angle=swiftshader"]] : []),
   // a benchmark's judging browser (AA-3D gives the gate's), so pages start and draw here as they will there
   ...(process.env.PAPRIKA3D_CHROME_ARGS ?? "").split(/\s+/).filter(Boolean)];
 
@@ -79,6 +83,15 @@ export function uniq(l: string[], n: number, last = false): string[] {
   return (last ? s.slice(-n) : s.slice(0, n)).map(([e, k]) => k > 1 ? `${e} (×${k})` : e);
 }
 
+/** Waits for the errors a WebGPU frame raises after it ends: a failed shader or pipeline is reported a GPU round trip
+    later (popErrorScope, then three's getCompilationInfo lines), so they landed between calls, where only observe
+    counted them (dev #332). A page with no WebGPU device returns at once. */
+export const gpuSettled = (page: HarnessPage) => page.evaluate(`(async () => { const h = window.__harness, d = (h?.renderers ?? []).map(r => r.backend?.isWebGPUBackend && r.backend.device).filter(Boolean);
+  if (!d.length) return; await Promise.all(d.map(d => d.queue.onSubmittedWorkDone())); for (let i = 0; i < 3; i++) await __clock.realTick(); })()`).catch(() => {});
+
+/** URLs the harness itself asks a page to load (look's probe of the project's three, `threeUrl`): a page that refuses
+    one (a CSP, a remote origin's loopback rule) logs it, and that is not the game's error (dev #327). */
+export const harnessLoads = new Set<string>();
 export const NOT_GAME = /\/(node_modules|runtime\/dist)\/|\/(three|three\.module|three\.core|three-runtime|geo)\.js$/;
 /** " (file:line:col)" of a thrown error's first stack frame in the game's own files on the page's origin (not three.js,
     the harness's runtime or geo, or node_modules; query dropped), so the agent opens the line instead of grepping. "" when none. */
@@ -121,6 +134,8 @@ export interface OpenOptions {
   viewport?: { width: number; height: number; deviceScaleFactor?: number };
   /** prefers-reduced-motion: reduce, until the next open. */
   reducedMotion?: boolean;
+  /** A phone's user agent, touch points and coarse pointer, until the next open (Chrome only: engines.ts refuse()). */
+  device?: "phone";
   config?: Partial<HarnessConfig>;
   /** A running headless Chrome (launchChrome()) to open the game in, in a browser context of its own that close() closes,
       leaving Chrome up for the next game: a launch and a close are ~0.4 s of every `open`. Ignored with `window`. */
@@ -195,8 +210,15 @@ export interface Game {
   held: Set<string>;
   /** The steps `act` played since the last load, which `pacing` plays again on a page of its own. */
   played: Step[];
+  /** While `act` plays: the frames its steps ask for and the frames stepped so far, for the reply of a call cut at its limit (dev #316). */
+  stepping?: { asked: number; most?: { at: number; step: Step; frames: number }; now: () => number };
   /** The size an `interact` resize set and the size before it, put back by the next reload when nothing else changed it. */
   resized?: { width: number; height: number; back: { width: number; height: number } };
+  /** True while reload() loads the page again: the watchdog gives that load an open's bound (dev #371). */
+  loading?: boolean;
+  /** What the page told the server while its main thread may be too busy for a ping (a CDP binding, heard mid-task): when
+      it last stepped a frame or started or ended a compile, and the GPU shader and pipeline compiles in flight (dev #404). */
+  progress?: { at: number; compiles: number };
   /** WebGL runs on a software renderer (SwiftShader on a machine with no GPU), so frame times say nothing of a real one. */
   software: boolean;
   /** The WebGL renderer string (the GPU), which `perf` names: an M3's frame time says little of a phone's (opinion-3). */
@@ -235,9 +257,16 @@ export const NAV_LOST = /Execution context was destroyed|Cannot find context wit
 /** Polls from the server (5 ms, backing off to 50) until clock.js's endBoot() ends boot, so nothing moves until a step: at once when
     window.__game exists, or when a renderer or WebGL canvas exists, the game has asked for a frame or drawn one (or stayed quiet without
     either for 3 s), and the page stayed idle with no request in flight across two polls.
-    After 10 s a page with a renderer or WebGL canvas is booted anyway (a request that never ends, like a long poll); one without throws. */
+    After 10 s (`readyWait`: longer on a busy host) a page with a renderer or WebGL canvas is booted anyway (a request that never ends, like a long poll); one without throws. */
+/** How long `ready` waits for a page, and what its failure says of the host: 10 s, stretched by the load per core (4x at
+    most) as `guarded()`'s bound is. On a host still busy after long software-rendered runs a page that only loaded
+    slowly failed every saved check with "game not ready after 10 s" and nothing named the load (dev #399, public #361). */
+export function readyWait(load = loadavg()[0]!, cores = cpus().length): { ms: number; busy: string } {
+  const per = load / cores, ms = Math.round(10_000 * Math.min(4, Math.max(1, per)));
+  return { ms, busy: per > 1 ? ` (the machine is busy: load ${load.toFixed(1)} on ${cores} cores, so the page may only have loaded slowly; try again once other work on it has stopped)` : "" };
+}
 async function ready(page: HarnessPage, errors: string[], requests: Set<unknown>) {
-  const end = Date.now() + 10_000;
+  const { ms, busy } = readyWait(), end = Date.now() + ms;
   let quiet = false, idleSince = 0, unframedSince = 0, wait = 5;
   for (;;) {
     const late = unframedSince > 0 && Date.now() - unframedSince >= 3_000;
@@ -257,7 +286,7 @@ async function ready(page: HarnessPage, errors: string[], requests: Set<unknown>
       // hooks/after-batch.ts matches "game not ready" (after cli.ts's prefix) to stay silent while no game is open
       // what the page itself says (ocean-noniv: "WebGPU is not available in this browser."), so a page that needs what headless has not is not read as broken (#44)
       const says = String(await page.evaluate("(document.body?.innerText ?? '').trim().slice(0, 300)").catch(() => "")).replace(/\s+/g, " ");
-      throw new Error(`game not ready after 10 s: no window.__game, three.js renderer or WebGL canvas on ${page.url()}${says ? `\nThe page shows: "${says}"` : ""}${errors.length ? `\n${errors.join("\n")}` : ""}`);
+      throw new Error(`game not ready after ${Math.round(ms / 1000)} s: no window.__game, three.js renderer or WebGL canvas on ${page.url()}${busy}${says ? `\nThe page shows: "${says}"` : ""}${errors.length ? `\n${errors.join("\n")}` : ""}`);
     }
     if (quiet) continue; // the poll that ends boot follows at once
     await sleep(idle ? Math.max(1, Math.min(wait, idleSince + 50 - Date.now())) : wait); // idle: wake when it turns quiet
@@ -284,10 +313,19 @@ export function gpuLine(g: Pick<Game, "gpu" | "adapter" | "software">): string {
   return `GPU: ${what}${g.software ? ". A software renderer (no GPU): frame times here say nothing of a real GPU's." : "."}`;
 }
 
+/** What a check's run.json and the CLI's plain report say the page drew on (dev #432): a passing `paprika3d check` named
+    neither the backend nor the GPU, so a run folder could not show that its checks ran on WebGPU. */
+export const drewOn = (g: Pick<Game, "gpu" | "adapter" | "software" | "info">) => {
+  const renderer = typeof g.info?.renderer === "string" ? g.info.renderer : "";
+  return { renderer, gpu: g.gpu, adapter: g.adapter, software: g.software, line: `Drawn on: ${renderer ? `${renderer}. ` : ""}${gpuLine(g)}` };
+};
+
 const DESCRIBE = `(() => {
   const g = window.__game, h = window.__harness;
-  // which backend a WebGPURenderer page drew with: Linux Chrome has no WebGPU, so three falls back to WebGL 2 there
-  const gpu = h.renderers.find(r => r.isWebGPURenderer), renderer = gpu ? { renderer: gpu.backend?.isWebGPUBackend ? "WebGPURenderer on WebGPU" : "WebGPURenderer on its WebGL 2 backend (this browser has no WebGPU)" } : {};
+  // which backend a WebGPURenderer page drew with: where Chrome has no WebGPU (Linux with a GPU), three falls back to WebGL 2,
+  // and a page's forceWebGL picks it whatever the browser has (dev #333)
+  const gpu = h.renderers.find(r => r.isWebGPURenderer), renderer = gpu ? { renderer: gpu.backend?.isWebGPUBackend ? "WebGPURenderer on WebGPU"
+    : "WebGPURenderer on its WebGL 2 backend (" + (gpu.backend?.parameters?.forceWebGL ? "the page set forceWebGL" : "this browser has no WebGPU") + ")" } : {};
   // a describe() that returns a string, not an object, is kept whole: spread, it printed one key per character (#62)
   if (g?.describe) { const d = g.describe(); return { ...(d && typeof d === "object" ? d : { description: String(d) }), ...renderer, hasConvention: true }; }
   const scene = h.mainScene();
@@ -347,6 +385,11 @@ const TYPES: Record<string, string> = { ".html": "text/html", ".js": "text/javas
 // with ERR_CONNECTION_REFUSED after a reopen, and agents ran their own http.server instead (AA-3D N12).
 let staticPort = 0;
 
+// PAPRIKA3D_PRIVATE=1 (a Harbor task image, #230): the static server answers only requests carrying this process's key,
+// which the harness's own pages send, so another user on the box cannot read the game's files (held-out levels) over 127.0.0.1.
+let staticKey = "";
+const privateKey = () => process.env.PAPRIKA3D_PRIVATE ? (staticKey ||= randomBytes(16).toString("hex")) : "";
+
 /** Serves root over 127.0.0.1; folders serve their index.html. Files under THREE_DIR get CORS; with threeOnly,
     nothing else is served, so a page on any origin cannot read the project's other files (.env and the like).
     Resolves with the server's base URL once it listens. */
@@ -360,7 +403,7 @@ async function serveStatic(root: string, threeOnly = false): Promise<{ server: S
     // posix: a URL's path on every system; node's own normalize gives backslashes on Windows, which THREE_DIR never matches
     const url = posix.normalize(decodeURIComponent(new URL(req.url ?? "/", "http://127.0.0.1").pathname)), three = url.startsWith(THREE_DIR);
     const path = join(root, url);
-    if (relative(root, path).startsWith("..") || (threeOnly && !three)) return res.writeHead(403).end("forbidden");
+    if (relative(root, path).startsWith("..") || (threeOnly && !three) || (privateKey() && req.headers["x-paprika3d-key"] !== privateKey())) return res.writeHead(403).end("forbidden");
     let file = path, st = statSync(path, { throwIfNoEntry: false });
     if (st?.isDirectory()) st = statSync(file = join(path, "index.html"), { throwIfNoEntry: false });
     if (!st?.isFile()) return res.writeHead(404).end("not found");
@@ -435,8 +478,9 @@ export async function openGame(opts: OpenOptions): Promise<Game> {
       // command printed, so a port Vite moved to is followed and a stale port cannot land on another project's server (dev #121, #133)
       if (opts.url) {
         const u = new URL(opts.url, url), file = opts.url.match(/^[^?#]*/)![0];
-        // a file named beside the command (index.html, public/index.html, an absolute path) is not a path on its server: the server's own URL opens, with the url's query
-        if (file && existsSync(resolve(cwd, file)) && !/^https?:\/\//.test(opts.url)) { fileNote = `url names the file ${file}, which is not a path on the command's server, so its own URL opened${u.search || u.hash ? " with the url's query" : ""}`; url = new URL(u.search + u.hash, url).href; }
+        // a file named beside the command (index.html, public/index.html, an absolute path) is not a path on its server: the server's own URL opens, with the url's query;
+        // a folder ("/", which every disk has) is a path on the server (dev #329)
+        if (file && statSync(resolve(cwd, file), { throwIfNoEntry: false })?.isFile() && !/^https?:\/\//.test(opts.url)) { fileNote = `url names the file ${file}, which is not a path on the command's server, so its own URL opened${u.search || u.hash ? " with the url's query" : ""}`; url = new URL(u.search + u.hash, url).href; }
         else url = new URL(u.pathname + u.search + u.hash, url).href;
       }
     } else if (opts.url && /^https?:\/\//.test(opts.url)) url = opts.url;
@@ -465,7 +509,13 @@ export async function openGame(opts: OpenOptions): Promise<Game> {
     if (other) racked = got as Rack; else browser = got as Browser;
     if (shared) context = await browser!.createBrowserContext();
     const page: HarnessPage = racked?.page ?? (shared ? await context!.newPage() : (await browser!.pages())[0] ?? await browser!.newPage());
-    if (shared) await page.setViewport(viewport);
+    if (shared || opts.device) await page.setViewport({ ...viewport, ...opts.device && { isMobile: true, hasTouch: true } }); // hasTouch: maxTouchPoints, pointer: coarse, hover: none
+    if (opts.device && !racked) {
+      const v = (await (page as Page).browser().version()).match(/\/([\d.]+)/)?.[1] ?? "131.0.0.0";
+      await (page as Page).setUserAgent(`Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${v} Mobile Safari/537.36`,
+        { platform: "Android", platformVersion: "14", architecture: "", model: "Pixel 8", mobile: true });
+    }
+    if (privateKey() && !racked) await (page as Page).setExtraHTTPHeaders({ "x-paprika3d-key": privateKey() });
     // Firefox's is a launch pref (rack()), since BiDi has no media emulation
     if (opts.reducedMotion && !racked) await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
     // a server of the agent's own (python3 -m http.server) sends no cache-control, so Chrome reused edited modules on a
@@ -482,7 +532,7 @@ export async function openGame(opts: OpenOptions): Promise<Game> {
     page.on("console", m => {
       const at = m.type() === "error" ? m.location().url ?? "" : "/favicon.ico";
       // a failed load's location is the resource itself; name it, relative to the page, since the text alone names no file
-      if (!at.endsWith("/favicon.ico")) errors.push(m.text() + (/^Failed to load resource/.test(m.text()) && at
+      if (!at.endsWith("/favicon.ico") && !harnessLoads.has(at) && ![...harnessLoads].some(u => m.text().includes(u))) errors.push(m.text() + (/^Failed to load resource/.test(m.text()) && at
         ? ` ${at.replace(page.url().replace(/[^/]*([?#].*)?$/, ""), "")}${at.includes("/node_modules/three/") ? " (run bun add three in cwd)" : ""}` : ""));
       // capped: an old getter read every frame warns every frame, and only boot's are read (`open`)
       if (m.type() === "warn" && m.text().startsWith("THREE.") && warned.length < 200) warned.push(m.text().slice(0, 300));
@@ -560,6 +610,17 @@ export async function openGame(opts: OpenOptions): Promise<Game> {
     const b = browser;
     // pings and terminateExecution go on a session of their own, so nothing the page's own session waits on is ahead of them
     const watch = racked ? null : await page.createCDPSession();
+    // clock.js calls the binding on each frame (a quarter second apart at most) and each compile it starts or ends
+    const progress = { at: 0, compiles: 0 };
+    if (watch) {
+      watch.on("Runtime.bindingCalled", (e: { name: string; payload: string }) => {
+        if (e.name !== "__paprika3dProgress") return;
+        progress.at = Date.now();
+        const c = /^c(\d+)$/.exec(e.payload);
+        if (c) progress.compiles = Number(c[1]);
+      });
+      await watch.send("Runtime.addBinding", { name: "__paprika3dProgress" }).catch(() => {});
+    }
     // the page's browser as the game's alive, abandon and close see it: another engine's from rack(), else Chrome's
     const seat: Pick<Rack, "alive" | "abandon" | "close"> & { version: string | Promise<string> } = racked ?? {
       version: chromeVersion(b!),
@@ -590,6 +651,7 @@ export async function openGame(opts: OpenOptions): Promise<Game> {
       loadMs,
       gpu, adapter, software: SOFTWARE_GL.test(gpu) || /fallback|swiftshader/i.test(adapter),
       alive: seat.alive,
+      ...watch && { progress },
       // a second caller (the control socket's check and a call both saw it hang) waits on the first
       abandon: () => dropped ??= (async () => {
         clearTimeout(idle);
@@ -629,7 +691,10 @@ export async function openGame(opts: OpenOptions): Promise<Game> {
           game.resized = undefined;
           if (v && r && v.width === r.width && v.height === r.height) await page.setViewport({ ...v, ...r.back });
           const t0 = Date.now();
-          await load(() => to ? page.goto(to) : page.reload());
+          game.loading = true;
+          progress.compiles = 0;
+          try { await load(() => to ? page.goto(to) : page.reload()); }
+          finally { game.loading = false; }
           game.loadMs = Date.now() - t0; // `perf` reports this reload's load-to-first-frame time (warm cache)
         });
       },

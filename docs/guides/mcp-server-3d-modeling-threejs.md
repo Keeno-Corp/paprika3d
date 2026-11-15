@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-28
 review: weekly
+reviewed: 2026-11-09
 ---
 # MCP server for 3D modeling with three.js: build a model in code, see it from four sides, save a GLB
 
@@ -28,7 +29,7 @@ No Blender install is involved, and the model is three.js geometry from the firs
 paprika3d needs Google Chrome and Node 20.11 or later, and the Claude Code plugin needs Claude Code 2.1.118 or later.
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 npm install three
 ```
@@ -179,12 +180,14 @@ The replies are cut to the lines discussed here, with nothing reworded. The top 
 
 ## Blender or the modelling scene
 
+Before either, the agent searches `asset_search` for the thing: a chair, a car or a character is often in the library ready-made, at its real size and with its credit line, and the plugin's skill has it search first. `model_run` builds what no search finds.
+
 They suit different parts of the work. Blender has sculpting, UV unwrapping, rigging, animation, modifiers and its own renderers, and the Blender MCP lets an agent use them; the result comes into a three.js page through the glTF exporter. `model_run` suits parts that are easier to write than to draw: furniture, buildings, props made of measured pieces, cut-outs with booleans, repeated parts placed by a rule. It shares the page's coordinate system and units, and `stats` and `model_look` read the same numbers the page will.
 
 ## What paprika3d does not do
 
 - **It does not drive Blender, Unity or another 3D application,** and it does not open `.blend` files. It works with three.js and GLB.
-- **It does not generate a model from a sentence or a picture.** The agent writes the code that builds it. For an existing model, `asset_search` finds one in a hosted library of CC0 models, and `load` brings a `.glb` from the project into the modelling scene to measure or combine.
+- **It does not generate a model from a sentence or a picture.** The agent writes the code that builds it. For an existing model, `asset_search` finds one in a hosted library of CC0 and CC BY models, and `load` brings a `.glb` from the project into the modelling scene to measure or combine.
 - **It does not sculpt, unwrap UVs or rig.** three.js's own primitives come with texture coordinates; geometry from Manifold's booleans has none.
 - **Its pictures use a studio light of its own.** `model_look` shows shape and arrangement, not how the page lights the model; `look` on the page shows that.
 - **It does not change the page.** The page changes when the agent writes the loading code into it.

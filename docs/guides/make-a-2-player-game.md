@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a 2 player game on one keyboard in three.js
 
@@ -260,7 +261,7 @@ Online play, where the second player is on another computer, is a different proj
 Testing a two-player game alone means pressing both players' keys at once and watching two things move. paprika3d is a plugin for Claude Code, and an MCP server (the standard way to give tools to other coding agents), that opens the game in a hidden Chrome browser so the agent can do that and read the result as numbers. Install it in Claude Code with these two lines in a terminal (the window where you type commands):
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

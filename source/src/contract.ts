@@ -13,7 +13,12 @@ import { createHash } from "node:crypto";
 /** One check over observe(): `path` is dotted (`head.x`, `body.length`, `body.0.x`). */
 export interface Predicate { path: string; op: Op; value?: unknown }
 /** A Hoare-style triple: set `state`, run `actions` (`interact` steps), step `frames` (default 60), then every `expect` must hold. */
-export interface Keypoint { id: string; title: string; state: Record<string, unknown>; actions: Record<string, unknown>[]; frames?: number; expect: Predicate[] }
+/** `page`: a saved check's page (`pageOf`), so it reruns only there; a check saved before it was recorded runs on any page. */
+export interface Keypoint { id: string; title: string; state: Record<string, unknown>; actions: Record<string, unknown>[]; frames?: number; expect: Predicate[]; page?: string;
+  /** the backend a WebGPURenderer page drew with when the check was saved (`drawnOn`), so a failure on the other one says so */ drawn?: Drawn }
+export type Drawn = "webgpu" | "webgl2";
+/** Which backend a WebGPURenderer page draws with, from `info.renderer` (DESCRIBE in browser.ts); undefined for a WebGLRenderer page. */
+export const drawnOn = (info: Record<string, any> | undefined): Drawn | undefined => { const r = String(info?.renderer ?? ""); return /on WebGPU$/.test(r) ? "webgpu" : /WebGL 2 backend/.test(r) ? "webgl2" : undefined; };
 /** The whole game-contract.json. `schema` mirrors observe(): leaves are type strings, arrays hold one item shape. */
 export interface Contract { v: 1; prompt: string; issued: string; schema: Record<string, unknown>; keypoints: Keypoint[]; budget?: Record<string, unknown> }
 
@@ -70,8 +75,9 @@ export function validateContract(c: unknown, { tests = false } = {}): string[] {
     else if (!tests) for (const key of Object.keys(k.state)) if (!inSchema(schema, [key])) errs.push(`${at}: state key "${key}" is not in schema`);
     if (!Array.isArray(k.actions)) errs.push(`${at}: actions must be a list (may be empty)`);
     else k.actions.forEach((a: unknown, j: number) => {
-      const kind = isObj(a) ? kinds.filter(n => n in a) : [];
-      if (kind.length !== 1) errs.push(`${at}: action ${j + 1} needs exactly one of ${kinds.join(", ")}`);
+      // as play() picks a kind: a step with `action` is an action, its other fields act()'s args whatever their names
+      const kind = !isObj(a) ? [] : "action" in a ? ["action"] : kinds.filter(n => n in a);
+      if (kind.length !== 1) errs.push(`${at}: action ${j + 1} ${show(a)} needs exactly one of ${kinds.join(", ")}${kind.length ? `; it has ${kind.join(" and ")}` : ""}`);
       else if (kind[0] === "wait" && !isCount((a as Record<string, unknown>).wait)) errs.push(`${at}: action ${j + 1} wait must be a frame count`);
       else if ((kind[0] === "state" || kind[0] === "until") && !isObj((a as Record<string, unknown>)[kind[0]])) errs.push(`${at}: action ${j + 1} ${kind[0]} must be an object`);
     });
@@ -132,8 +138,8 @@ export function loadContract(cwd: string, opts: { ci?: boolean; file?: string } 
 }
 
 /** `interact`'s shorthand for one expected value: a number, string or boolean is ==, [min, max] a range, any other list
-    one of its values, null exists. Two numbers are always a range. */
-export type Expected = number | string | boolean | null | [min: number, max: number] | (number | string | boolean)[];
+    one of its values, [] an empty list, null exists. Two numbers are always a range. */
+export type Expected = number | string | boolean | null | [min: number, max: number] | (number | string | boolean | null)[];
 
 /** The predicates a shorthand object (`expect`, `until`) stands for; throws on a value the shorthand cannot hold. */
 export function predicates(e: unknown, field = "expect"): Predicate[] {
@@ -142,8 +148,9 @@ export function predicates(e: unknown, field = "expect"): Predicate[] {
     if (v === null) return [{ path, op: "exists" }];
     if (Array.isArray(v) && v.length === 2 && v.every(n => typeof n === "number")) return [{ path, op: ">=", value: v[0] }, { path, op: "<=", value: v[1] }];
     if (Array.isArray(v) && v.length) return [{ path, op: "in", value: v }];
+    if (Array.isArray(v)) return [{ path, op: "==", value: [] }]; // a list with nothing in it has no "one of": the list itself is empty (dev #436)
     if (["number", "string", "boolean"].includes(typeof v)) return [{ path, op: "==", value: v }];
-    throw new Error(`${field} "${path}": use a number, string or boolean (equal), [min, max] (a range; two numbers are always a range), a list of other values (one of them) or null (exists)`);
+    throw new Error(`${field} "${path}": use a number, string or boolean (equal), [min, max] (a range; two numbers are always a range), a list of other values (one of them; [null] is null), [] (an empty list) or null (exists)`);
   });
 }
 
@@ -181,14 +188,48 @@ export function verdicts(preds: Predicate[], state: unknown) {
 /** Writes one `interact` call as a keypoint of `<cwd>/game-tests.json` (made when missing), replacing one of the same id,
     and returns how many checks the file holds. Its leading { state } steps become the keypoint's state (their frames a
     wait after it) and the rest its actions, so it replays the call from a fresh reload. */
-export function saveTest(cwd: string, id: string, steps: Record<string, unknown>[], expect: Predicate[]): number {
+/** The page a check is saved on: the open URL's path and query, so a fresh port or a dev server's restart is the same
+    page and a check saved on `?webgl` is not one of the default page (public #334). */
+export function pageOf(url: string): string {
+  const u = new URL(url), path = u.pathname.replace(/\/index\.html$/, "/");
+  return (["127.0.0.1", "localhost"].includes(u.hostname) ? path : u.origin + path) + u.search;
+}
+
+const pathOf = (page: string) => /^https?:/.test(page) ? new URL(page).pathname : page.replace(/\?.*$/, "");
+const queryOf = (page: string) => { const i = page.indexOf("?"); return i < 0 ? "" : page.slice(i); };
+
+/** The checks saved on `page`'s path or on no page in particular, and how many were saved on each other page: the same
+    path is the same page wherever the project is served, so a check saved locally reruns on its deployment (dev #365).
+    A check saved with a query runs only where the same query is open; one saved with none (or before the query was
+    kept) runs on the path whatever the query. */
+export function onPage(c: Contract, page: string): { contract: Contract; elsewhere: Record<string, number> } {
+  const elsewhere: Record<string, number> = {}, here = (k: Keypoint) => !k.page || pathOf(k.page) === pathOf(page) && (!queryOf(k.page) || queryOf(k.page) === queryOf(page));
+  for (const k of c.keypoints) if (!here(k)) elsewhere[k.page!] = (elsewhere[k.page!] ?? 0) + 1;
+  const keypoints = c.keypoints.filter(here);
+  return { contract: { ...c, keypoints }, elsewhere };
+}
+
+/** One line for the checks `onPage` left out, or "". */
+export function elsewhereLine(elsewhere: Record<string, number>, page: string): string {
+  const at = Object.entries(elsewhere);
+  if (!at.length) return "";
+  const n = at.reduce((t, [, c]) => t + c, 0);
+  return `${n === 1 ? "1 check was" : `${n} checks were`} saved on ${at.map(([p]) => p).join(", ")}, not the open page (${page}), so ${n === 1 ? "it was" : "they were"} not run; open ${at.length === 1 ? "that page" : "each page"} to rerun ${n === 1 ? "it" : "them"}.`;
+}
+
+/** A { state } step: one with `state` and no `action`, whose own `state` is an arg for act() (dev #434). */
+export const isSetup = (s: unknown): boolean => isObj(s) && "state" in s && !("action" in s);
+const leadCount = (steps: Record<string, unknown>[]) => (i => i < 0 ? steps.length : i)(steps.findIndex(s => !isSetup(s)));
+/** The state a saved check's leading { state } steps set, merged: what its replay sets and confirms in observe(). */
+export const leadState = (steps: Record<string, unknown>[]): Record<string, unknown> => Object.assign({}, ...steps.slice(0, leadCount(steps)).map(s => s.state));
+
+export function saveTest(cwd: string, id: string, steps: Record<string, unknown>[], expect: Predicate[], page?: string, drawn?: Drawn): number {
   const path = join(cwd, TESTS_FILE);
   let c: Record<string, any> = { v: 1, keypoints: [] };
   // a file that is not JSON is the agent's own: refused, never written over
   if (existsSync(path)) try { c = JSON.parse(readFileSync(path, "utf8")); } catch (e) { throw new Error(`${TESTS_FILE} is not JSON (${(e as Error).message}); fix it before saving another check`); }
-  const lead = steps.findIndex(s => !isObj(s) || !("state" in s)), n = lead < 0 ? steps.length : lead;
-  const state = Object.assign({}, ...steps.slice(0, n).map(s => s.state)), wait = steps.slice(0, n).reduce((t, s) => t + Number(s.frames ?? 1), 0);
-  const k: Keypoint = { id, title: id, state, actions: [...wait ? [{ wait }] : [], ...steps.slice(n)], frames: 0, expect };
+  const n = leadCount(steps), state = leadState(steps), wait = steps.slice(0, n).reduce((t, s) => t + Number(s.frames ?? 1), 0);
+  const k: Keypoint = { id, title: id, state, actions: [...wait ? [{ wait }] : [], ...steps.slice(n)], frames: 0, expect, ...page && { page }, ...drawn && { drawn } };
   c.keypoints = [...(Array.isArray(c.keypoints) ? c.keypoints : []).filter((x: Keypoint) => x?.id !== id), k];
   const errs = validateContract(c, { tests: true });
   if (errs.length) throw new Error(`${TESTS_FILE} would not be valid, so the check was not saved:\n${errs.join("\n")}`);

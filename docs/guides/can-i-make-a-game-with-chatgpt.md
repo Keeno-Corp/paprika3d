@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # Can I make a game with ChatGPT? A small three.js game, and the step after the chat
 
@@ -155,7 +156,7 @@ The step after the chat is a coding agent: an AI assistant that works in a folde
 paprika3d is a plugin for Claude Code (and an MCP server, a standard way to add tools to other coding agents) that gives the agent its own copy of Chrome to run the page in. In Claude Code it installs with two commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

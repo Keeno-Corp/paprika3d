@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-31
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a match 3 game in three.js: swap, match and fall
 
@@ -304,7 +305,7 @@ falls, ignore clicks while anything moves, and show the score.
 A match 3 game breaks in ways a screenshot does not show: a swap that should slide back and does not, a chain that never stops, a board with no move left. paprika3d is a plugin for Claude Code, and an MCP server (the standard way to give tools to other coding agents), that opens the game in a hidden Chrome browser so the agent can click it, picture it and read its state as numbers. Install it in Claude Code with these two lines in a terminal (the window where you type commands):
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

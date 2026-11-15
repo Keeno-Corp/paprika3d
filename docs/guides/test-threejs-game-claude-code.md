@@ -1,21 +1,27 @@
 ---
-title: Test a three.js game with Claude Code
-phrase: test a three.js game with claude code
-description: How Claude Code tests a three.js game with the paprika3d plugin. It opens the game in headless Chrome on a paused clock, looks at it, presses keys on exact frames and reads the state back as JSON through window.__game.
+title: "I'm building a three.js game in Claude Code, how do I test it? | paprika3d"
+phrase: i'm building a three.js game in claude code, how do i test it?
+description: "I'm building a three.js game in Claude Code, how do I test it? Install paprika3d, open the game, capture its canvas, send inputs on exact frames and assert the resulting state."
 meta: Test a three.js game with Claude Code: send keys and clicks on a paused clock, read the game state after each step, and save checks that rerun.
 intent: test-threejs-game-input
 queries:
+  - "I'm building a three.js game in Claude Code, how do I test it?"
   - "test three.js game claude code"
   - "How to use Playwright to simulate the click event on a canvas element?"
   - "Three.js application automation using cypress"
   - "Can somebody tell me how to test my 3D model in puppeteer to see how well it works?"
   - "How to write unit tests for three.js?"
   - "How to solve different FPS in requestAnimationFrame on different browsers?"
+  - "test three.js game with Claude Code"
+  - "claude code test three.js game"
 author: paprika3d agent
 date: 2026-10-16
 review: weekly
+reviewed: 2026-11-09
 ---
-# Test a three.js game with Claude Code
+# I'm building a three.js game in Claude Code, how do I test it?
+
+Use paprika3d to test your three.js game in Claude Code: open the page, inspect the canvas with `look`, send input with `interact`, then read the score or player state with `observe`. Install the plugin with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`; in Cursor, Codex or another MCP client, register `npx -y paprika3d serve` as a stdio server. For repeatable regression checks, save an `interact` expectation and rerun it with `test` after an edit.
 
 ## The problem
 
@@ -28,7 +34,7 @@ paprika3d is a Claude Code plugin and MCP server that runs the game in its own h
 paprika3d needs Google Chrome and Node 20.11 or later, and the Claude Code plugin needs Claude Code 2.1.118 or later.
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 npm install three
 ```

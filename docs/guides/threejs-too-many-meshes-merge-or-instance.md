@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-28
 review: weekly
+reviewed: 2026-11-09
 ---
 # three.js too many meshes? Merge, instance or batch, chosen by what each one keeps
 
@@ -35,7 +36,7 @@ paprika3d is a Claude Code plugin and MCP server that opens a three.js page in i
 paprika3d needs Google Chrome and Node 20.11 or later, and the Claude Code plugin needs Claude Code 2.1.118 or later.
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 npm install three
 ```
@@ -206,7 +207,7 @@ crates* ×356 15% [0, 313, 760, 556]
 
 ## A glTF made of many meshes
 
-A model exported with hundreds of parts loads as hundreds of meshes, one draw call per part and material. With the model in a named group, `perf` with `costs` gives its draw calls on one line. If the parts never move apart, merge them per material: collect each mesh's geometry with `applyMatrix4(mesh.matrixWorld)` so its place is baked in, group the geometries by material, and call `mergeGeometries` once per group. All geometries in one call must have the same attributes, all indexed or none; when one differs, the call returns null with the error the [mergeGeometries error page](/errors/mergegeometries-compatible-attributes) explains. If parts must still move (a door, a wheel), leave those out of the merge.
+A model exported with hundreds of parts loads as hundreds of meshes, one draw call per part and material. With the model in a named group, `perf` with `costs` gives its draw calls on one line. If the parts never move apart, merge them per material: collect each mesh's geometry with `applyMatrix4(mesh.matrixWorld)` so its place is baked in, group the geometries by material, and call `mergeGeometries` once per group. A compressed glTF (gltfpack, `gltf-transform optimize`, meshopt) usually stores positions as 16-bit integers under `KHR_mesh_quantization`: copy each attribute to a `Float32Array` before `applyMatrix4`, or the baked values overflow the integer range and the model turns into spikes; normalized integer UVs beside float ones make `mergeGeometries` return null. A node with `EXT_mesh_gpu_instancing` loads as an InstancedMesh, whose `matrixWorld` places one copy: bake each instance's `getMatrixAt` matrix into a clone of its geometry before the merge. All geometries in one call must have the same attributes, all indexed or none; when one differs, the call returns null with the error the [mergeGeometries error page](/errors/mergegeometries-compatible-attributes) explains. If parts must still move (a door, a wheel), leave those out of the merge.
 
 ## The instancing switch of `perf` with `optimize: true`
 

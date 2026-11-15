@@ -11,7 +11,7 @@ import { act, diff, type Step } from "./input.ts";
 
 const CAP = 400, STEPS_MAX = 300;
 // n: the particles a Points pool draws (burst() is one Points with a draw range) or an InstancedMesh's instances, else 1
-type Obj = { id: string; name: string; p: number[]; s: number[]; v: boolean; c: string; o: number; sh: boolean; n: number; pool: boolean };
+type Obj = { id: string; name: string; p: number[]; s: number[]; v: boolean; c: string; o: number; sh: boolean; n: number; pool: "particles" | "instances" | "" };
 // cov: each page element over the canvas (`__harness.covers()`) and its opacity; sounds: the sfx preset names started so far
 type Snap = { objs: Obj[]; cam: number[] | null; dir: number[] | null; sub: number[] | null; text: string; audio: number; sounds: string[]; cov: [string, number][]; capped: boolean };
 /** Objects that did one thing, each with the watched frame it happened on (and how far, for a teleport). */
@@ -33,8 +33,10 @@ export interface FeelResult {
   held: { name: string; frame: number; over: number }[];
   /** Objects that moved over 0.05 units during the steps, before the first watched frame. */
   moved: { name: string; units: number }[];
-  /** Points pools and InstancedMeshes whose count changed: the peak, the watched frame it came on, the count at the end. */
+  /** Points pools and Sprites drawn sprite.count times whose count changed: the peak, the watched frame it came on, the count at the end. */
   particles: { name: string; start: number; peak: number; at: number; end: number }[];
+  /** InstancedMeshes whose count changed, read as particles are. */
+  instances: { name: string; start: number; peak: number; at: number; end: number }[];
   spawned: { peak: number; gone: number; names: string[] }; removed: number;
   hud: { changed: boolean; frames: number }; sounds: number;
   text: string;
@@ -47,11 +49,11 @@ const SNAP = `(() => { const h = window.__harness, r = x => Math.round(x * 1000)
     if (objs.length >= ${CAP}) { capped = true; return; }
     let v = o.visible; for (let a = o.parent; v && a; a = a.parent) v = a.visible;
     const p = o.getWorldPosition(o.position.clone()), s = o.getWorldScale(o.scale.clone()), m = Array.isArray(o.material) ? o.material[0] : o.material;
-    const d = o.geometry.drawRange, n = o.isInstancedMesh ? o.count : o.isPoints ? (d.count === Infinity ? o.geometry.attributes.position?.count ?? 0 : d.count) : 1;
+    const d = o.geometry.drawRange, n = o.isInstancedMesh || o.isSprite ? o.count ?? 1 : o.isPoints ? (d.count === Infinity ? o.geometry.attributes.position?.count ?? 0 : d.count) : 1;
     // an unnamed mesh goes by its nearest named parent: a 12-mesh player read as 12 "Mesh" teleports (natural-1, #92)
     let name = ""; for (let a = o; a && !a.isScene && !name; a = a.parent) name = a.name;
     objs.push({ id: o.uuid, name: name || o.type, p: [r(p.x), r(p.y), r(p.z)], s: [r(s.x), r(s.y), r(s.z)], v,
-      c: (m?.color?.getHexString?.() ?? "") + "/" + (m?.emissive?.getHexString?.() ?? "") + "/" + (m?.emissiveIntensity ?? ""), o: m?.opacity ?? 1, sh: !!m?.isShaderMaterial, n, pool: !!(o.isInstancedMesh || o.isPoints) });
+      c: (m?.color?.getHexString?.() ?? "") + "/" + (m?.emissive?.getHexString?.() ?? "") + "/" + (m?.emissiveIntensity ?? ""), o: m?.opacity ?? 1, sh: !!m?.isShaderMaterial, n, pool: o.isPoints || o.isSprite ? "particles" : o.isInstancedMesh ? "instances" : "" });
   });
   const cam = h.main()?.[1].camera, cp = cam?.getWorldPosition(cam.position.clone()), cd = cam?.getWorldDirection(cam.position.clone()), s0f = window.__game?.subject, s0 = typeof s0f === "function" ? (() => { try { return s0f(); } catch {} })() : s0f;
   const so = s0?.isObject3D ? s0 : typeof s0 === "string" ? h.mainScene()?.getObjectByName(s0) : null, sp = so?.getWorldPosition(so.position.clone());
@@ -146,12 +148,13 @@ function measure(snaps: Snap[], frames: number, before: unknown = null, after: u
   }
   // what the steps moved, from before them to the first watched frame: a fact about the steps, not a reaction
   const moved = [...visible[Math.max(1, during)]!].flatMap(([id, o]) => { const b = visible[0]!.get(id), d = b ? dist(b.p, o.p) : 0; return d > 0.05 ? [{ name: o.name, units: round(d) }] : []; });
-  // particle pools: one object whose count of points or instances rises and falls
-  const particles: FeelResult["particles"] = [];
+  // pools: one object whose count rises and falls, particles for a Points pool or a Sprite drawn sprite.count times, instances
+  // for an InstancedMesh (a field of rocks drawn near the camera read as particles, dev #280)
+  const particles: FeelResult["particles"] = [], instances: FeelResult["instances"] = [];
   for (const [id, rs] of series) {
     if (!rs[0]!.o.pool) continue;
     const start = visible[0]!.get(id)?.n ?? 0, top = rs.reduce((t, r) => r.o.n > t.o.n ? r : t), end = visible.at(-1)!.get(id)?.n ?? 0;
-    if (top.o.n !== start || end !== start) particles.push({ name: top.o.name, start, peak: top.o.n, at: top.f, end });
+    if (top.o.n !== start || end !== start) (rs[0]!.o.pool === "particles" ? particles : instances).push({ name: top.o.name, start, peak: top.o.n, at: top.f, end });
   }
   const ever = new Map<string, Obj>();
   let peak = 0;
@@ -203,7 +206,7 @@ function measure(snaps: Snap[], frames: number, before: unknown = null, after: u
   const hud = { changed: ticks > 0, frames: ticks };
   const sounds = last.audio - first.audio, sfx = [...new Set(last.sounds.slice(first.sounds.length))];
   const r = { frames, capped: snaps.some(s => s.capped), shake, ...swing ? { swing } : {}, pops: named(pops), eased, unsettled, held, teleports: named(teleports),
-    flashes: named(flashes), moved, particles, spawned: { peak, gone, names: [...new Set([...ever.values()].map(o => o.name))].slice(0, 5) }, removed, hud, sounds };
+    flashes: named(flashes), moved, particles, instances, spawned: { peak, gone, names: [...new Set([...ever.values()].map(o => o.name))].slice(0, 5) }, removed, hud, sounds };
 
   const list = (x: Named) => x.count ? `${x.count} (${x.at.slice(0, 5).map(h => `${h.name} at frame ${h.frame}${h.units === undefined ? "" : `, ${h.units} units`}`).join("; ")}${x.count > 5 ? "; …" : ""})` : "none";
   // how far: units, degrees or both, only those over the floors (a pure turn read "moved up to 0", batch 3 review)
@@ -227,6 +230,7 @@ function measure(snaps: Snap[], frames: number, before: unknown = null, after: u
     ...held.length ? [`Colour changes held to the end: ${held.slice(0, 5).map(h => `${h.name} at frame ${h.frame}, ${h.over ? `blended over ${h.over} frames` : "in one frame"}`).join("; ")}${held.length > 5 ? "; …" : ""}.`] : [],
     ...r.flashes.count ? [`Colour flashes (colour, emissive or a page overlay's opacity changed and came back): ${list(r.flashes)}.`] : [],
     ...particles.length ? [`Particles: ${particles.slice(0, 5).map(p => `${p.name} ${p.start} → ${p.peak} at frame ${p.at}, ${p.end} left at the end`).join("; ")}.`] : [],
+    ...instances.length ? [`Instance counts: ${instances.slice(0, 5).map(p => `${p.name} ${p.start} → ${p.peak} at frame ${p.at}, ${p.end} at the end`).join("; ")}.`] : [],
     ...ever.size ? [`Spawned: up to ${peak} new objects at once, ${gone} of ${ever.size} gone by the end (${r.spawned.names.join(", ")}).`] : [],
     ...removed ? [`Removed: ${removed} objects there before the steps are gone.`] : [],
     // the reactions that did not happen in one line, by name: feel agents read them as a to-do list (opinion-5: 4 of 4 asked to fold the zeros)

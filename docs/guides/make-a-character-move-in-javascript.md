@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a character move in JavaScript with the arrow keys, in a three.js game
 
@@ -168,7 +169,7 @@ The `window.__game` object at the end is for testing tools: it lets them read wh
 Controls are hard to check by reading code. "It moves" leaves out how far, how fast, whether a diagonal is faster, and whether every key does anything at all. paprika3d is a plugin for Claude Code (and an MCP server for other coding agents) that lets the agent play the page itself: `open` runs it in a headless Chrome, and `interact` holds keys for an exact number of frames, each 1/60 s of game time, and replies with what changed. Install it in Claude Code with:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

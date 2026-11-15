@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-11-01
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a basketball game in three.js: a throw, an arc and the rim
 
@@ -212,7 +213,7 @@ The game above uses 55, a middle choice: the steeper throws go in more often but
 When a shot goes wrong, all you can tell an AI is "it bounced weirdly". paprika3d is a plugin for Claude Code, and an MCP server (the standard way to give tools to other coding agents), that opens the game in a hidden Chrome browser on a paused clock, so the agent can swipe, step the game one frame at a time, and read the numbers itself. To add it to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal, the window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

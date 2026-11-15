@@ -15,10 +15,10 @@
     "rewind",
     "paprika3d"
   ],
-  "homepage": "https://paprika3d.com/docs",
+  "homepage": "https://paprika3d.com/docs?ref=npm",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/paprika3d/paprika3d.git"
+    "url": "git+https://github.com/Keeno-Corp/paprika3d.git"
   },
   "author": {
     "name": "Keeno"

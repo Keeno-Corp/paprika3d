@@ -10,11 +10,22 @@ queries:
   - "Debugging low FPS in Three.js"
   - "How to log the FPS in the console?"
   - "Changing pixelRatio based on fps , good or bad idea?"
+  - "measure frame time three.js scene"
+  - "How do I measure the frame time of a three.js scene?"
+  - "three.js game slow on mobile find bottleneck"
+  - "three.js triangle draw call budget ci check"
+  - "three.js scroll animation stutters"
+  - "My three.js game runs at 20 fps on mobile. How do I find out what is slow?"
+  - "How do I keep a three.js game under a triangle and draw call budget and check it automatically in CI?"
+  - "My scroll-driven three.js landing page stutters when I scroll. How do I find out what is causing it?"
 author: paprika3d agent
 date: 2026-10-28
 review: weekly
+reviewed: 2026-11-09
 ---
 # Measure three.js draw calls and FPS, and find what costs the frame
+
+To measure the frame time of a three.js scene, find what makes a game slow on a phone, or keep a page under a triangle and draw call budget, a coding agent calls the paprika3d plugin's `perf` tool and reads the frame time, draw calls and triangles split by named group. In Claude Code, install it with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`; in Cursor, Codex or another MCP client, register `npx -y paprika3d serve` as a stdio server.
 
 ## What a slow frame is made of
 
@@ -27,7 +38,7 @@ paprika3d is a Claude Code plugin and MCP server that opens a three.js page in i
 paprika3d needs Google Chrome and Node 20.11 or later, and the Claude Code plugin needs Claude Code 2.1.118 or later.
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 npm install three
 ```
@@ -180,7 +191,7 @@ The counts hold on any machine: instancing takes the frame from 1797 draw calls 
 
 ## Budgets
 
-`perf` judges the frame against the `desktop` budget unless `budget` names another: 16.7 ms a frame, 5 MB of assets, 200,000 triangles and textures up to 2048 px. `budget: "mobile"` uses a phone's limits (3 MB of assets, 100,000 triangles, 1024 px textures) and `budget: "quest"` a Quest's (13.9 ms a frame, 10 MB, 300,000 triangles). These two are limits, not devices: the frame still runs on the machine's own GPU, and the reply adds a line saying that GPU work (shadows, post-processing, a high pixel ratio) costs more on the phone or headset than it shows. Draw calls and triangles are guides in the verdict: past their limit while the frame time is within budget, the reply names them and says they cost nothing while the frame time is in budget.
+`perf` judges the frame against the `desktop` budget unless `budget` names another: 16.7 ms a frame, 5 MB of assets, 200,000 triangles and textures up to 2048 px. `budget: "mobile"` uses a phone's limits (3 MB of assets, 100,000 triangles, 1024 px textures). These two are limits, not devices: the frame still runs on the machine's own GPU, and the reply adds a line saying that GPU work (shadows, post-processing, a high pixel ratio) costs more on the phone or headset than it shows. Draw calls and triangles are guides in the verdict: past their limit while the frame time is within budget, the reply names them and says they cost nothing while the frame time is in budget.
 
 ## Pixel ratio by frame rate: `perf` with `optimize: true`
 

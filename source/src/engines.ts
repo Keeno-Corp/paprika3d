@@ -44,8 +44,9 @@ export class EngineUnsupported extends Error {
 /** `open`'s arguments that need Chrome's DevTools protocol, which Firefox lacks (asPage's createCDPSession), refused before
     anything opens: an open whose first visit then failed kept `network` in the arguments every reopen replays. `browser`
     is `open`'s word. */
-export function refuse(browser: BrowserWord, a: { network?: unknown }): void {
+export function refuse(browser: BrowserWord, a: { network?: unknown; device?: unknown }): void {
   if (BROWSERS[browser] !== "chromium" && a.network !== undefined) throw new EngineUnsupported("network");
+  if (BROWSERS[browser] !== "chromium" && a.device !== undefined) throw new EngineUnsupported("device");
 }
 
 const shimNotes = new WeakMap<object, string[]>();

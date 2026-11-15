@@ -73,12 +73,16 @@ calls them. The one other message is the install ping, below.
   agent decides what is in it), the kind of report, the last tool call's name, the names of the options it was given
   (an option's value only when it is one of the tool's fixed choices), whether it failed and its error's first line with
   URLs and paths taken out (160 characters at most), a random install id, the paprika3d version, the OS and Node's major
-  version. A copy is kept on your machine. At most 5 reports a session. `DO_NOT_TRACK=1` or `PAPRIKA3D_TELEMETRY=0` turns
+  version. A copy is kept on your machine. At most 20 reports a session. `DO_NOT_TRACK=1` or `PAPRIKA3D_TELEMETRY=0` turns
   it off. The stable build writes and sends no usage telemetry.
 - **The install ping:** when the MCP server first starts after an install or an update, it sends the random install
   id, the paprika3d version, the OS, Node's major version and the MCP client's name and version (such as
   `claude-code/2.1.130`), so the team can count installs. Nothing about your project. The server adds a keyed hash of
   your IP address and your country. `DO_NOT_TRACK=1` or `PAPRIKA3D_TELEMETRY=0` turns it off.
+- **The day ping:** on each day (UTC) on which a paprika3d tool runs, after the first call's reply, it sends the
+  random install id, the paprika3d version, the date and the MCP client's name and version. Not which tools ran, and
+  nothing about your project. The server adds the same keyed hash of your IP address and your country. The same
+  switches turn it off.
 - **`publish`** uploads the built project to `<slug>.paprika3d.app`, where anyone with the link can open it. It leaves
   out `paprika3d/`, `paprika-loop/`, `node_modules` (except the files the page's import map reaches), every dotfile and
   dot folder (`.env*`, `.git`), symlinks, source and note files (`.ts`, `.md`, `.sh` and the like), files named as

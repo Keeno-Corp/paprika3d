@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # Do I need a game engine to make a game? What a browser and three.js give a first game
 
@@ -134,7 +135,7 @@ An AI coding agent (an assistant that writes and runs code in a folder on your c
 paprika3d is a plugin for Claude Code, and a tool server for other agents, that gives the agent its own copy of Chrome to run the page in. It needs Chrome and Node and nothing else, and installs with two commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

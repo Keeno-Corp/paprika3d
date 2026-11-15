@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-31
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a 3d game look pixelated in three.js: low resolution and a small palette
 
@@ -209,7 +210,7 @@ Then check that the picture is 320 x 200 on a 1280 x 800 window.
 A pixel look is a picture question, and a coding agent cannot see the canvas it draws on its own. paprika3d is a plugin for Claude Code, and an MCP server (the standard way to give tools to other coding agents), that opens the game in a hidden Chrome browser so the agent can look at the picture, enlarge a part of it, and measure it. Install it in Claude Code with these two lines in a terminal (the window where you type commands):
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

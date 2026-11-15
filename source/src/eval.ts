@@ -3,8 +3,7 @@
 // the one with the most children), camera, renderer, find(name), stats(target, opts) (__harness.stats from
 // inject/geometry.js), realNow() (real milliseconds: performance.now is the harness's clock) and window in scope.
 // It steps the clock only while the code awaits a timer or animation frame. Changes made by eval vanish on reload, so put what works into the game's source. THREE is in scope
-// when the code names it on an import-map page (the page's own module, so instanceof holds); a bundled (vite) page has no
-// bare "three" to import, so there use the constructors of objects already in the scene (`new (find("player").geometry.constructor)()`).
+// when the code names it, always the page's own three so instanceof holds (PAGE_THREE).
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { NOT_GAME, printedLines, uniq, type Game } from "./browser.ts";
@@ -77,6 +76,42 @@ const SAVE = `async (v) => {
 }`;
 
 let spills = 0;
+/** Runs in the page after its first frame: the page's own three for `THREE`, or null. An import-map page's bare "three";
+    else a three module the page loaded by URL (Vite's dev server serves it as /node_modules/.vite/deps/three.js), kept
+    only when the scene is its Object3D; else, on a bundle (esbuild, Vite or Bun output, dev #402), a namespace of the
+    classes its scenes, cameras and renderers are made of, each named by the flag or type its own source sets (`this.isMesh
+    = true`, `this.type = "BoxGeometry"`), so a minified class and a game's own subclass are named right. A second copy of
+    three would make instanceof false, so a class the page never made throws, saying so. */
+export const PAGE_THREE = `(async () => {
+  const h = window.__harness, scene = h.mainScene(), own = T => T && scene && scene instanceof T.Object3D ? T : null;
+  const bare = await import("three").catch(() => null);
+  if (bare) return bare;
+  if (!scene) return null;
+  const gpu = h.renderers.some(r => r.isWebGPURenderer), re = /\\/(?:three(?:\\.module|\\.webgpu)?(?:\\.min)?|\\.vite\\/deps\\/three(?:_webgpu)?)\\.js(?:\\?|$)/;
+  const urls = performance.getEntriesByType("resource").map(e => e.name).filter(u => re.test(u)).sort((a, b) => gpu ? /webgpu/.test(b) - /webgpu/.test(a) : /webgpu/.test(a) - /webgpu/.test(b));
+  for (const u of urls) { const T = own(await import(u).catch(() => null)); if (T) return T; }
+  const ns = {}, seen = new Set(), done = new Set(), flag = /(?:\\bthis|[\\w$]+\\.prototype)\\.is([A-Z][\\w$]*)\\s*=\\s*(?:true|!0)/, type = /\\bthis\\.type\\s*=\\s*(["'\x60])([A-Z]\\w*)\\1/;
+  const name = C => { let src = ""; try { src = Function.prototype.toString.call(C); } catch {} if (!src.startsWith("class")) return null; return flag.exec(src)?.[1] ?? type.exec(src)?.[2] ?? null; };
+  const add = C => { for (; typeof C === "function" && C !== Object && !seen.has(C); C = Object.getPrototypeOf(C)) { seen.add(C); const n = name(C); if (n && !(n in ns)) ns[n] = C; } };
+  const R = window.__threeRuntime?.THREE;
+  if (R?.Vector3 && scene.position instanceof R.Vector3) for (const C of Object.values(R)) add(C);
+  const queue = [...h.scenes, ...h.renderers, ...[...h.views.values()].map(v => v.camera)];
+  for (const s of h.scenes) s.traverse(o => queue.push(o));
+  for (let i = 0; i < queue.length && i < 50000; i++) {
+    const o = queue[i], C = o?.constructor;
+    if (!o || typeof o !== "object" || o instanceof Node || ArrayBuffer.isView(o) || done.has(C)) continue;
+    done.add(C); add(C);
+    for (const k of Object.keys(o)) { const v = Array.isArray(o[k]) ? o[k][0] : o[k]; if (v && typeof v === "object") queue.push(v); }
+  }
+  if (!Object.keys(ns).length) return null;
+  ns.REVISION ??= window.__THREE__;
+  const names = Object.keys(ns).length;
+  return new Proxy(ns, { get(t, k) {
+    if (k in t || typeof k !== "string" || !/^[A-Z]/.test(k)) return t[k];
+    throw new TypeError("THREE." + k + " is not in this page's three: the page bundles three, so THREE holds the " + names + " classes its scene, camera and renderer are made of (Object.keys(THREE)) and no second copy, so instanceof holds. Import " + k + " in the game's source, or build from a class it has");
+  } });
+})()`;
+
 // the most a pending eval steps the clock: 60 s of game time, or 120 s of real time on a slow scene (under the 180 s
 // protocol timeout, so the reply is the harness's own)
 const STEP_MAX = 3600, STEP_MS = 120_000;
@@ -99,11 +134,11 @@ export function evaluate(game: Game, code: string, save?: string, cwd = game.roo
     const before = game.errors.length, logs = printedLines(game.page);
     let out: string, stepped: number, mime = "", r: [string, number, string] | null;
     try {
-      // a const cannot be declared conditionally in the page, so ask first whether "three" imports there
-      const three = /\bTHREE\b/.test(code) && await game.page.evaluate(`import("three").then(() => true, () => false)`);
       // camera and renderer come from the first frame drawn: after a reload there is none, and an eval straight after
       // open or feel threw on camera (opinion-9: 4 of 9 agents), so step to one first, as a look does
       if (!await game.page.evaluate("!!__harness.main()?.[1].screen")) await game.page.evaluate(FIRST);
+      // a const cannot be declared conditionally in the page, so find the page's three first, from the scene that drew
+      const three = /\bTHREE\b/.test(code) && await game.page.evaluate(`${PAGE_THREE}.then(T => !!(__harness.evalThree = T), () => false)`);
       // Code that awaits a timer or an animation frame waits on the paused clock, which nothing moves: it hung until the
       // 180 s protocol timeout in two AA-3D cells. When the code is still pending and has scheduled a timer or frame,
       // the clock steps a frame at a time until it settles, and the reply says how far it moved. It races stopEval (AFTER_STOP).
@@ -114,7 +149,7 @@ export function evaluate(game: Game, code: string, save?: string, cwd = game.roo
   const h = window.__harness, scene = h.mainScene(),
     view = h.views.get(scene), camera = view?.camera, renderer = view?.renderer ?? h.renderers[0], // a renderer before any frame drew (AA-3D colosseum: getPixelRatio of undefined)
     find = n => scene?.getObjectByName(n), stats = (t, o) => h.stats(t, o), c = window.__clock, realNow = c.realNow;
-  ${three ? 'const THREE = await import("three");' : ""}
+  ${three ? "const THREE = h.evalThree;" : ""}
   const from = c.scheduled(), start = realNow();
   let done = false, value, error, stepped = 0;
   const [, self, mark] = /^\\s*at (?:async )?(.*):(\\d+):\\d+$/.exec(String(new Error().stack).split("\\n")[1]) ?? []; // this script's url, and this line: the code starts two lines down
@@ -133,7 +168,7 @@ ${code}
     // puppeteer reports a thrown plain object as "Object" and a cyclic one as nothing: show its JSON, or its keys
     if (typeof error === "object" && !(error instanceof Error)) { let j; try { j = JSON.stringify(error); } catch { j = "{" + Object.keys(error).join(", ") + "} (cyclic)"; } throw new Error("threw object: " + j); }
     if (!view && error instanceof TypeError) error.message += " (camera and renderer are undefined: the page drew no three.js frame in 5 s of stepping)";
-    if (error instanceof ReferenceError && /THREE is not defined/.test(error.message)) error.message += " (this page bundles three, so it has no bare \\"three\\" to import: use the constructors of objects in the scene, e.g. new (find(\\"player\\").geometry.constructor)())";
+    if (error instanceof ReferenceError && /THREE is not defined/.test(error.message)) error.message += " (the page has no three the harness can reach: no bare \\"three\\" to import and no three.js scene drawn)";
     // find(name) returns undefined for a name not in the scene, and agents read .parent off it (AA-3D 2026-10-15)
     else if (error instanceof TypeError && /reading '(parent|position|children|material|geometry)'/.test(error.message)) error.message += " (find(name) returns undefined for a name not in the scene; list names with scene.children.map(c => c.name))";
     // where it threw, as an agent opens it: up to three frames in the code's lines or the page's own files (#167: one

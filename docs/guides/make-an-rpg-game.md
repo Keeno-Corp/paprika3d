@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make an RPG game in three.js: turn-based fights, XP and levels
 
@@ -285,7 +286,7 @@ Then grow it: a second monster with other stats, a village with a person who tal
 Fight logic is hard to check by playing: you have to walk to a slime every time, and a double press is easy to miss. paprika3d is a plugin for Claude Code, and an MCP server (the standard way to give tools to other coding agents), that opens the game in a hidden Chrome browser so the agent can set up a fight and play it. Install it in Claude Code with these two lines in a terminal (the window where you type commands):
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

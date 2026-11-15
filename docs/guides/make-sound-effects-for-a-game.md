@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make sound effects for a game in code, with no audio files, in three.js
 
@@ -227,7 +228,7 @@ Each sound's length in seconds, its peak and average loudness (1 is the loudest 
 paprika3d does not hear anything, and cannot tell you whether a sound is pleasant or fits your game; your ears decide that. It reports which sounds started and when, and measures the ones `fx.js` makes. To add it to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal, the window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-31
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a clicker game in three.js: clicks, upgrades and numbers that grow
 
@@ -236,7 +237,7 @@ last suffix.
 A clicker needs long play to test, and nobody clicks and waits by hand after every change. paprika3d is a plugin for Claude Code, and an MCP server (the standard way to give tools to other coding agents), that opens the game in a hidden Chrome browser so the agent can click it, let time pass and read the numbers. Install it in Claude Code with these two lines in a terminal (the window where you type commands):
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # Where to start making a game: a small three.js game in the browser, built with an AI agent
 
@@ -145,7 +146,7 @@ Play it twice on purpose. Once, steer to the flag: the text should change to "Yo
 With paprika3d, a plugin for Claude Code that also runs as a tool server for other agents, the agent opens the page in a browser of its own, looks at it and plays it, so it finds a blank page or a broken rule before you do. Install it from the terminal:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

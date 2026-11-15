@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-31
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a space game in three.js: a ship, invaders and bullets
 
@@ -282,7 +283,7 @@ Twenty-three shots, one of them at a height of 119.37, far above the top of the 
 These replies were captured on 2026-10-31 on a machine with no graphics card, where Chrome draws in software. paprika3d does not decide whether a wave is too easy or the game is fun; it plays what you or the agent choose and reports the state. To add it to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal, the window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

@@ -76,7 +76,7 @@ function sourceFiles(cwd, visit) {
     entries.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
     for (let e of entries) {
       let path = rel ? `${rel}/${e.name}` : e.name;
-      if (SKIP_TOP.has(path) || isStoreCopy(e.name, entries) || /\.md$/i.test(e.name))
+      if (SKIP_TOP.has(path) || isStoreCopy(e.name, entries) || /\.(md|log)$/i.test(e.name))
         continue;
       let { dir, file } = e.isSymbolicLink() ? follow(path) : { dir: e.isDirectory(), file: e.isFile() };
       if (dir) {
@@ -331,6 +331,11 @@ function deliver(text) {
     console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: input.hook_event_name ?? "PostToolBatch", additionalContext: text } })), process.exit(0);
   console.error(text), process.exit(2);
 }
+var READS = /^\s*(?:sudo\s+)?(?:git|cat|head|tail|less|more|grep|egrep|rg|wc|ls|diff|stat|file|bat|open|code|du|md5sum|shasum)\b/, esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function writes(commands, name) {
+  let named = new RegExp(`(?:^|[\\s'"=/(<>])${esc(name)}(?:$|[\\s'")<>;|&,])`);
+  return commands.split(/&&|\|\||[;|\n]/).some((c) => named.test(c) && (!READS.test(c) || new RegExp(`>\\s*['"]?(?:[^\\s'"]*/)?${esc(name)}`).test(c)));
+}
 var real = (p) => {
   try {
     return realpathSync2(p);
@@ -345,7 +350,7 @@ function remind() {
   let cwd = resolve(input.cwd ?? "."), page = (f) => /\.(html|jsx?|tsx?)$/.test(f) && THREE.test(readOr(f)), pages = edits.map((e) => resolve(cwd, e.file)).filter(page), commands = shell.map((c) => String(c.tool_input?.command ?? "")).join(`
 `), since = !pages.length && shell.length && !cwd.split(sep2).includes("node_modules") ? sessionBegan(input.transcript_path) : 0;
   if (since)
-    pages.push(...sourcesSince(cwd, since, (f) => commands.includes(basename(f)) && page(f), 1));
+    pages.push(...sourcesSince(cwd, since, (f) => writes(commands, basename(f)) && page(f), 1));
   if (!pages.length)
     process.exit(0);
   try {

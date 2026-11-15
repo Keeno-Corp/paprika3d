@@ -1,7 +1,7 @@
 // The physics client: runs the physics worker one step ahead of the page, with bodies bound to state keys. Each key
 // names a top-level object (one body) or a list (one body per item; `push` adds one and `remove` drops it, through the
 // list's hooks). A body's position is its item's `x/y/z`, its velocity `vx/vy/vz` and its rotation `qx/qy/qz/qw` when
-// the item has them. Call `step()` once at the start of each frame. It writes step N's results into the state, answers
+// the item has them; a body starts at its item's rotation, so a fixed ramp can tilt. Call `step()` once at the start of each frame. It writes step N's results into the state, answers
 // the rays queued on the frame before, and sets `events`. The inputs and rays the frame queues after that leave at the
 // end of the frame as step N+1, so an input always lands exactly one step later, with or without a worker. Under the
 // harness, each pending reply goes to `__clock.hold()`, so a paused clock's frame waits for it; in real time a late
@@ -21,7 +21,7 @@ type Cols = Record<string, Float32Array | Uint8Array>;
 export type BodyView = { readonly $row: number; readonly $cols: Cols; [k: string]: any };
 /** How a key's items become bodies. `size` is the full size, or a function of the item giving it: [w, h, d] for a box
  *  ([s] for a cube), [diameter] for a sphere, [height, diameter] for a capsule along y. `shape` defaults to box. */
-export type BodyOpts<V = BodyView> = Omit<BodySpec, "row" | "pos" | "shape" | "size"> & { shape?: BodySpec["shape"]; size: number[] | ((v: V) => number[]) };
+export type BodyOpts<V = BodyView> = Omit<BodySpec, "row" | "pos" | "rot" | "shape" | "size"> & { shape?: BodySpec["shape"]; size: number[] | ((v: V) => number[]) };
 type Item<T> = T extends ListShape<infer I> ? View<I> : T extends Shape ? View<T> : never;
 export type Bodies<S extends Shape> = { [K in keyof S]?: S[K] extends number | boolean ? never : BodyOpts<Item<S[K]>> };
 /** A contact or sensor overlap between two items that started (or ended) in the step just taken in. */
@@ -111,7 +111,9 @@ export async function physics<S extends Shape>(state: State<S>, bodies: Bodies<S
   };
   const spec = (t: Tab, v: BodyView): BodySpec => {
     const { size, shape = "box", ...rest } = t.o;
-    return { ...rest, shape, size: half(shape, typeof size === "function" ? size(v) : size), row: t.base + v.$row, pos: { x: v.x, y: v.y, z: v.z } };
+    const r = t.q && { x: v.qx, y: v.qy, z: v.qz, w: v.qw }, n = r && Math.hypot(r.x, r.y, r.z, r.w);
+    const rot = r && n ? { x: r.x / n, y: r.y / n, z: r.z / n, w: r.w / n } : undefined; // all-zero q: no rotation
+    return { ...rest, shape, size: half(shape, typeof size === "function" ? size(v) : size), row: t.base + v.$row, pos: { x: v.x, y: v.y, z: v.z }, ...rot && { rot } };
   };
   const specs = tabs.flatMap(t => t.list ? [...t.list].map(v => { t.views[v.$row] = v; return spec(t, v); }) : [spec(t, t.obj!)]);
   const url = new URL("./physics-worker.js", import.meta.url);

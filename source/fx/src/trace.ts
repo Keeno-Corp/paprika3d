@@ -121,14 +121,28 @@ export async function trace(src: Src, { colour, tolerance = 40, invert = false, 
 
 /** A picture's brightness as heights over a `size`-wide area centred on the origin (its depth by the picture's aspect,
     the picture's top toward -z): black at `base`, white at `base + height`, bilinear between pixels. A Field, as
-    `field` returns, so `place({ on })` scatters on it and `geometry(segments)` is its mesh. */
-export async function heightfield(src: Src, { size, height, base = 0 }: { size: number; height: number; base?: number }): Promise<Field> {
-  const { data, w, h } = await pixels(src), depth = size * h / w, hx = size / 2, hz = depth / 2;
+    `field` returns, so `place({ on })` scatters on it and `geometry(segments)` is its mesh; once it has run, `heightAt`
+    (and `normalAt`) follow that mesh's triangles inside its area, as `field`'s do. */
+export async function heightfield(src: Src, opts: { size: number; height: number; base?: number }): Promise<Field> {
+  return heightsOf(await pixels(src), opts);
+}
+
+/** heightfield's pure core, on a picture's RGBA pixels. */
+export function heightsOf({ data, w, h }: { data: ArrayLike<number>; w: number; h: number }, { size, height, base = 0 }: { size: number; height: number; base?: number }): Field {
+  const depth = size * h / w, hx = size / 2, hz = depth / 2;
   const H = (i: number, j: number) => { const k = (Math.min(h - 1, Math.max(0, j)) * w + Math.min(w - 1, Math.max(0, i))) * 4; return base + height * (0.2126 * data[k]! + 0.7152 * data[k + 1]! + 0.0722 * data[k + 2]!) / 255; };
-  const heightAt = (x: number, z: number) => {
+  const smooth = (x: number, z: number) => {
     const u = Math.min(w - 1, Math.max(0, (x + hx) / size * (w - 1))), v = Math.min(h - 1, Math.max(0, (z + hz) / depth * (h - 1)));
     const i = Math.floor(u), j = Math.floor(v), a = u - i, b = v - j;
     return (H(i, j) * (1 - a) + H(i + 1, j) * a) * (1 - b) + (H(i, j + 1) * (1 - a) + H(i + 1, j + 1) * a) * b;
+  };
+  // the mesh's triangles, as field's: PlaneGeometry splits cell (i, j) on its (i, j+1)-(i+1, j) diagonal
+  let sx = 0, sz = 0;
+  const heightAt = (x: number, z: number) => {
+    const cx = size / sx, cz = depth / sz, u = (x + hx) / cx, v = (z + hz) / cz; // no mesh yet: u and v 0
+    if (!(u > 0 && v > 0 && u < sx && v < sz)) return smooth(x, z);
+    const M = (a: number, b: number) => smooth(a * cx - hx, b * cz - hz), k = +(u % 1 + v % 1 > 1), p = Math.floor(u) + k, q = Math.floor(v) + k, t = 1 - 2 * k, m = M(p, q);
+    return m + (M(p + t, q) - m) * Math.abs(u - p) + (M(p, q + t) - m) * Math.abs(v - q);
   };
   const e = size / w;
   return {
@@ -136,9 +150,11 @@ export async function heightfield(src: Src, { size, height, base = 0 }: { size: 
     heightAt,
     normalAt: (x, z) => new Vector3(heightAt(x - e, z) - heightAt(x + e, z), 2 * e, heightAt(x, z - e) - heightAt(x, z + e)).normalize(),
     geometry(segments) {
-      const g = new PlaneGeometry(size, depth, segments, Math.max(1, Math.round(segments * h / w))).rotateX(-Math.PI / 2), p = g.attributes.position;
-      for (let i = 0; i < p.count; i++) p.setY(i, heightAt(p.getX(i), p.getZ(i)));
+      const rows = Math.max(1, Math.round(segments * h / w));
+      const g = new PlaneGeometry(size, depth, segments, rows).rotateX(-Math.PI / 2), p = g.attributes.position;
+      for (let i = 0; i < p.count; i++) p.setY(i, smooth(p.getX(i), p.getZ(i)));
       g.computeVertexNormals();
+      sx = segments; sz = rows;
       return g;
     },
   };

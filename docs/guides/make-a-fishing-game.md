@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-11-01
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a fishing game in three.js: a boat, a cast and a bite
 
@@ -266,7 +267,7 @@ A random wait would make such a check fail now and then, so paprika3d seeds the 
 paprika3d does not tell you whether the wait feels tense or dull, or whether 0.8 seconds is a fair window for a person; try it yourself and change the numbers. To add it to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

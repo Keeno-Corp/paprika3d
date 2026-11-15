@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-11-01
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make an open world game in three.js: a small island to explore
 
@@ -315,7 +316,7 @@ The timings in these lines (184 ms a frame) come from a machine with no graphics
 `open` also writes a file named `fx.js` into the project, whose `field` makes a seeded height field like `height` here, with `place` to scatter trees by height and slope. paprika3d does not design the world or tell you whether exploring it is fun; walk it yourself. To add it to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

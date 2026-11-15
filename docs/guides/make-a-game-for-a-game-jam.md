@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-31
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a game for a game jam: a three.js game in a weekend with an AI agent
 
@@ -240,7 +241,7 @@ It asks a few questions first and writes the answers as a brief, then each round
 These replies were captured on 2026-10-31 on a machine with no graphics card, where Chrome draws in software; the recording's frame times line is left out. paprika3d does not pick your idea, judge whether the game is fun or submit it to the jam. To add it to Claude Code (it needs Google Chrome and Node.js):
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

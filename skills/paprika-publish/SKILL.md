@@ -12,6 +12,10 @@ description: Publish to <name>.paprika3d.app (invite-only preview) when the pers
 3. **Read the reply's `warnings`.** A file left out that the page needs (an import with no import map entry, a type that is not served) is a broken link: fix it and publish again before telling the person.
 4. **Tell the person, in three short lines:** the `url`; the `claim_url`, where they can claim the game under their own account later (claiming opens soon; until then the game is live but unlisted and carries a small "made with paprika3d" badge); and what is left (`remaining_quota`: games left out of 5, publishes left this hour). On the first publish, also pass on once what the reply says publishing sends. If the reply has `held`, say instead that the link works once the paprika3d team has reviewed the game, and why it was held.
 
+## Playtesting with friends
+
+When the person wants friends to try a build, call `publish` with `playtest: true`. The reply's `playtest_url` stays on that build for 7 days whatever is published after it, is never listed or indexed, and has a Feedback button: a friend writes a note, with no account, and it arrives with a picture of the game, `__game.observe()`, recent errors, the device and its frame times. Give the person the link to send. Later, `publish` with `feedback: true` (it publishes nothing) lists the notes newest first, each with the `version` the friend played, and saves each picture under `paprika3d/feedback/`; open the pictures, reproduce each note with `open`, `interact` and `look`, and fix it like any bug.
+
 ## When it is refused
 
 The reply says what happened in words to pass on: a rate limit with when to try again, the 5-game limit (republishing one of those games still works; the waitlist link is for more), or a key that was refused. Say it to the person and stop; do not retry in a loop.

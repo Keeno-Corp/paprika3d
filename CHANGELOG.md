@@ -1,5 +1,66 @@
 # Changelog
 
+## 0.4.3 (2026-11-11)
+
+The npm package carries the MCP registry name `io.github.Keeno-Corp/paprika3d`, so the registry entry can list it; 0.4.2
+still carried `io.github.paprika3d/paprika3d`. Install lines and repository links name `Keeno-Corp/paprika3d`.
+
+`unity_export` (a new tool) writes the open page's scene, at the frame it is on, as a Unity 6 project: the GLB with glTFast
+as its importer, an editor script that builds the scene with the page's camera, background, fog and ambient light,
+`GameState.cs` from `__game.observe()`, and `PORTING.md` with what does not carry over; the new `threejs-to-unity` skill
+walks it. `fx.js` gains `handoff()`, a GLB whose manifest lists what an engine import drops, and `unrealScript()`, the
+Unreal Engine 5 editor script that imports it (the new `threejs-to-unreal` skill), and `water()`, a Gerstner wave surface
+whose CPU `height()` and `float()` follow the crests the GPU draws, tinting the shallows and foaming the waterline where it
+meets the ground given as `shore`. `fx.js` imports on WebGPU pages, where `stage()` makes
+a `WebGPURenderer`, and on Linux with no GPU a WebGPU page draws on WebGPU through SwiftShader with no flag.
+
+Each named game has its own queue of calls, so subagents working on different games (`game: "tester"`) run at the
+same time instead of waiting behind each other; calls for one game still run one at a time. With `PAPRIKA3D_TOOLS=core` in
+the server's environment, the tool list holds the tools every page needs and `more_tools`, which adds a group of the
+others (tune, models, assets, export): about 15,000 characters of tool descriptions against about 36,000. It is off by
+default.
+
+`publish` with `playtest: true` also gives a link pinned to that build for 7 days, never listed, with a Feedback button
+players use with no account; `publish` with `feedback: true` reads their notes. `asset_search`'s library has grown to
+84,249 models (from 57,732), 3,747 PBR textures and 1,434 HDRI skies. A picked model's loading code turns the GLB's quantized and normalized vertex data into floats and bakes its GPU instances (`EXT_mesh_gpu_instancing`) into one mesh, so baking a transform into it (`geometry.applyMatrix4()`, a merge) no longer turns it into spikes, and `mergeGeometries` takes every part.
+
+Once a day on which a paprika3d tool runs, after the first call's reply, the server sends the install id, the version,
+the date and the MCP client's name, so the team can tell installs that are used from installs that are not. Nothing
+about your project or which tools ran; `DO_NOT_TRACK=1` or `PAPRIKA3D_TELEMETRY=0` turns it off, as for the install
+ping (the README's what leaves your machine).
+
+`look { save }` keeps a baseline in `paprika3d/baselines/` with its frame, page size, renderer and camera, and
+`look { compare }` replays that camera and reports the share that changed and up to three regions in page pixels; a
+16×16 cell counts only when four or more of its pixels differ. A new skill, `threejs-visual-regression`, takes a before
+and after of each judged view. From its second session the paprika loop's builder saves and compares each judged view,
+and its judge counts a change the builder's notes do not account for.
+
+New lines name faults no tool showed. `look`'s `Skinned scale:` names characters under uneven world scale, whose limbs
+stretch as they turn. `interact`'s `Controls:` says when a straight held direction moves more than 30° off its screen
+axis, `Contact:` when bodies of a similar size overlap deeply, and `Response` when the controlled character is slow to
+reach full speed from standing, reversing or a 90° cut, measured on a separate page.
+
+`look`'s camera grid on a page drawn through a RenderPipeline shows each camera, where every picture used to be the
+same, without stepping the game. An InstancedMesh fighting itself is named one region per instance, not one box across
+every copy. A z-fight outside the camera's view is named out of view, not as one the picture shows. A `camera` given with `sheet`, `viewports`, `scroll`, `opening`, `target` or `cameras` is refused by name
+instead of dropped. A renderer whose canvas is not in the document still draws in skipped frames.
+
+A saved check reruns only on the page it was saved on: with another page open, every check used to fail with
+`state_not_realized`. The reply says how many were saved on another page; checks saved before carry no page and run
+anywhere.
+
+`perf` waits up to 15 s, not 5, for a loading screen to clear before it samples. `open` with an http url no longer
+writes `geo.js` and `fx.js` into the working folder. A named game closed to make room says so on its own next call, a
+call's `Waited` line names every call queued ahead of it, and a run folder deleted while the game stayed open is made
+again. An `asset_search` pick of an id the library lacks says what the library holds, not a bare 404.
+
+`bake` keeps skin joints. `heightfield`'s `heightAt` follows the built mesh's triangles, so a player on a coarse mesh
+neither floats nor sinks, and the Rapier template's `setState` moves a teleported player's collider with it. The
+after-edit hook no longer counts a page that a shell command only reads (`git add`, `cat`, `grep`), and the paprika
+loop's `.gitignore` matches a symlinked `node_modules`. `paprika-make`'s sheets say `shrink` keeps every triangle, so a
+model over the triangle budget needs a lower-poly source. `send_feedback` takes 20 reports a session, not 5, and its description says so; one past that keeps its copy and says where, a refused report says why (a 429 is the Worker's day limit for one network, not a server that did not answer), and only a stored report counts toward the 20. And
+`interact`'s `save` says a check's name is letters, digits, - or _.
+
 ## 0.4.2 (2026-11-03)
 
 `open` finds the browser on Windows, where it used to fail with "No Chrome at /Applications/...". It looks at the usual
@@ -139,7 +200,7 @@ next builder's prompt says so. The stable build carries SECURITY.md (founders@ke
 in the public repo, a Dockerfile so Glama can run the server and list its tools. `paprika3d check` prints an opt-in
 `Tested with paprika3d` line under its plain report with `PAPRIKA3D_TESTED_WITH=1`, for a report pasted into a PR. Five
 one-task skills, `threejs-screenshot`, `threejs-play`, `threejs-test`, `threejs-perf` and `threejs-glb-audit`, sit
-beside `threejs-game`, so `npx skills add paprika3d/paprika3d --skill <name>` installs one. `asset_search`'s library
+beside `threejs-game`, so `npx skills add Keeno-Corp/paprika3d --skill <name>` installs one. `asset_search`'s library
 holds 57,732 models, with the 549 from Scenario's 3D Collection.
 
 ## 0.2.4 (2026-10-27)
@@ -210,7 +271,7 @@ In Claude Code a tool's full name is `mcp__plugin_paprika3d_paprika__<tool>`.
   calls, saved as a .glb), `model_audit` (.glb, .gltf and USD files against a site or Shopify budget, and `shrink`),
   and `asset_search` (57,183 CC BY and CC0 models, 3,545 PBR textures and 1,430 HDRI skies in a hosted library, with
   `pick` and a credit line in `CREDITS.md`).
-- **Speed it:** `perf` (frame time, draw calls, triangles and asset size against a desktop, mobile, Quest or site
+- **Speed it:** `perf` (frame time, draw calls, triangles and asset size against a desktop, mobile or site
   budget, with `variants` and `costs`) and `optimize` (resolution, defaults, instancing, LOD and dispose, kept only where
   they help without changing the picture).
 - **Publish it:** `publish` (preview, invite-only: the built page on `https://<name>.paprika3d.app`; `rotate: true`

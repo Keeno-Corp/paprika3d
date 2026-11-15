@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-11-01
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a portal game in three.js: two doors that see and lead into each other
 
@@ -227,7 +228,7 @@ Then walk through each door and check the position and facing on the other side.
 paprika3d is a plugin for Claude Code, and an MCP server (the standard way to give tools to other coding agents), that opens the game in a hidden Chrome browser so the agent can see it and play it. Add it to Claude Code with two lines in a terminal (the text window where you type commands):
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

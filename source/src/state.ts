@@ -122,6 +122,8 @@ export interface Run {
   iteration: number;
   elapsedMs: number;
   fingerprint: string;
+  /** what a check's page drew on (`drewOn` in browser.ts): a WebGPURenderer's backend, the GPU, the WebGPU adapter */
+  drew?: { renderer: string; gpu: string; adapter: string; software: boolean };
   edit?: { ref: string; file: string; time: string; session: string };
 }
 

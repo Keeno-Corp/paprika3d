@@ -4,7 +4,7 @@
 // manifold.js would build the wasm's URL (`new URL("manifold.wasm", import.meta.url)`) is cut out, so a game's bundler
 // (vite) does not go looking for a manifold.wasm next to geo.js; the build fails if a Manifold upgrade moves that text.
 // dist/studio.js is the modelling page's script (src/studio.ts, for src/model.ts), with three bundled in, since that page
-// loads no game.
+// loads no game. dist/unity.js is `unity_export`'s script for the game's page (src/unity.ts), three bundled in too.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { BunPlugin } from "bun";
@@ -14,8 +14,8 @@ import { header } from "../fx/build.ts";
 const WASM_URL = 'new URL("manifold.wasm",import.meta.url).href';
 
 /** The geo bundle's text. */
-export async function buildGeo(): Promise<string> {
-  return header("@paprika3d/game-geo") + await bundle("src/index.ts", [{ name: "bare-three", setup(b) { b.onResolve({ filter: /^three$/ }, () => ({ path: "three", external: true })); } }]);
+export async function buildGeo(version?: string): Promise<string> {
+  return header("@paprika3d/game-geo", version) + await bundle("src/index.ts", [{ name: "bare-three", setup(b) { b.onResolve({ filter: /^three$/ }, () => ({ path: "three", external: true })); } }]);
 }
 
 /** The modelling page's script, three included. */
@@ -23,10 +23,15 @@ export async function buildStudio(): Promise<string> {
   return `// paprika3d's modelling page (model_run, model_look): three, geo and the scene's helpers\n${await bundle("src/studio.ts", [])}`;
 }
 
-async function bundle(entry: string, plugins: BunPlugin[]): Promise<string> {
+/** `unity_export`'s script for the game's page, three included: a classic script, since the page evaluates its text. */
+export async function buildUnity(): Promise<string> {
+  return `// paprika3d's unity_export: the page's scene as a GLB, and what Unity cannot take from it\n${await bundle("src/unity.ts", [], "iife")}`;
+}
+
+async function bundle(entry: string, plugins: BunPlugin[], format: "esm" | "iife" = "esm"): Promise<string> {
   const r = await Bun.build({
     entrypoints: [join(import.meta.dir, entry)],
-    format: "esm",
+    format,
     target: "browser",
     minify: true,
     plugins: [
@@ -49,4 +54,5 @@ async function bundle(entry: string, plugins: BunPlugin[]): Promise<string> {
 if (import.meta.main) {
   await Bun.write(join(import.meta.dir, "dist/geo.js"), await buildGeo());
   await Bun.write(join(import.meta.dir, "dist/studio.js"), await buildStudio());
+  await Bun.write(join(import.meta.dir, "dist/unity.js"), await buildUnity());
 }

@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a character jump: gravity, platforms and checkpoints in a three.js platformer
 
@@ -235,7 +236,7 @@ The last line matters: once the numbers are named, "jump higher" or "less floaty
 Jumps are hard to check by watching: "it jumps" leaves out how high, for how long, and whether it lands where it should. paprika3d is a plugin for Claude Code (and an MCP server for other coding agents) that lets the agent open the page in a headless Chrome (a browser with no window), press the keys for an exact number of frames, each 1/60 s of game time, and read the numbers back. Install it in Claude Code with:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

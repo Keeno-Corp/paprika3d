@@ -139,14 +139,16 @@ function event(tool, args, r, ms, schema) {
       if (k !== "cwd" && k !== "game")
         flags[k] = schema?.properties?.[k]?.enum?.includes(v) ? v : !0;
     let ok = !!r && !r.isError, error = !ok ? r ? scrub(t) : "threw" : void 0;
-    if (last = { tool, flags, ok, ...error && { error } }, !ON)
+    if (last = { tool, flags, ok, ...error && { error } }, !ON) {
+      usedToday();
       return;
+    }
     let steps = {};
     for (let s of Array.isArray(args?.steps) ? args.steps : [])
       for (let k of Object.keys(s ?? {}))
         if (KINDS.includes(k))
           steps[k] = (steps[k] ?? 0) + 1;
-    let faults = (t.match(/^(Lighting|Surfaces|Surface): (?!not checked)/gm) ?? []).length, pageErrors = Number(/Page errors since the last call \((\d+)\)/.exec(t)?.[1] ?? 0), e = {
+    let faults = (t.match(/^(Lighting|Surfaces|Surface|Skinned scale): (?!not checked)/gm) ?? []).length, pageErrors = Number(/Page errors since the last call \((\d+)\)/.exec(t)?.[1] ?? 0), e = {
       ...base(),
       project: createHash("sha256").update(install() + resolve(String(args?.cwd ?? "."))).digest("hex").slice(0, 12),
       tool,
@@ -168,19 +170,29 @@ function event(tool, args, r, ms, schema) {
 function reportTool(a, runDir) {
   if (!REPORT_TOOL.inputSchema.properties.kind.enum.includes(a.kind) || typeof a.text !== "string" || !a.text.trim())
     throw Error('kind: "bug", "feedback" or "criticism", and text saying what happened');
+  if (PUBLISHED && off)
+    return Promise.resolve(`Not sent: ${process.env.PAPRIKA3D_TELEMETRY === "0" ? "PAPRIKA3D_TELEMETRY=0" : "DO_NOT_TRACK=1"} turns send_feedback off, so nothing leaves this machine. To send it, file it with \`${ISSUE_CMD}\` (or at ${ISSUES}). Carry on with the task.`);
   return report(a.kind, a.text, runDir);
 }
 async function report(kind, text, runDir) {
-  if (++reports > 5)
-    return "Not sent: at most 5 reports a session. Carry on with the task.";
   let body = JSON.stringify({ id: randomUUID(), ...base(), kind, text: text.slice(0, 2000), last }), copy = join3(runDir ?? telemetryDir(), `report-${Date.now()}.json`);
   try {
     mkdirSync2(runDir ?? telemetryDir(), { recursive: !0 }), writeFileSync2(copy, body);
   } catch {}
-  if (await post("/report", body))
-    return "Sent to the paprika3d team. Carry on with the task.";
+  let file2 = `A copy is in ${copy}. File it with \`${ISSUE_CMD}\` (or at ${ISSUES}) instead, not with the client's own feedback command. Carry on with the task.`;
+  if (reports >= MAX_REPORTS)
+    return `Not sent: at most ${MAX_REPORTS} reports a session. ${file2}`;
+  let answer = await postStatus("/report", body);
+  if (!answer || answer >= 500)
+    answer = await new Promise((r) => setTimeout(r, 500)).then(() => postStatus("/report", body));
+  if (answer >= 200 && answer < 300)
+    return reports++, "Sent to the paprika3d team. Carry on with the task.";
+  if (answer === 429)
+    return `Not sent: the team's server's daily feedback limit was reached. ${file2}`;
+  if (answer)
+    return `Not sent: the team's server refused it (HTTP ${answer}). ${file2}`;
   if (!ON)
-    return `Not sent: the team's server did not answer. A copy is in ${copy}. Carry on with the task.`;
+    return `Not sent: the team's server (${host()}) did not answer. ${file2}`;
   try {
     writeFileSync2(join3(telemetryDir(), `${randomUUID()}.report.json`), body);
   } catch {}
@@ -189,14 +201,35 @@ async function report(kind, text, runDir) {
 async function installed(client) {
   if (!FEEDBACK)
     return;
+  mcpClient = client.slice(0, 64);
   try {
-    let f = join3(telemetryDir(), "pinged"), body = JSON.stringify({ ...base(), client: client.slice(0, 64) }), version = "0.4.2";
-    if (existsSync3(f) && readFileSync3(f, "utf8") === "0.4.2")
+    let f = join3(telemetryDir(), "pinged"), body = JSON.stringify({ ...base(), client: client.slice(0, 64) }), version = "0.4.3";
+    if (existsSync3(f) && readFileSync3(f, "utf8") === "0.4.3")
       return;
     let answer = await postStatus("/install", body);
     if (answer && answer < 500)
-      writeFileSync2(f, "0.4.2");
+      writeFileSync2(f, "0.4.3");
   } catch {}
+}
+async function usedToday() {
+  if (!FEEDBACK)
+    return;
+  let day = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  if (today === day)
+    return;
+  today = day;
+  try {
+    let f = join3(telemetryDir(), "active"), body = JSON.stringify({ ...base(), day, client: mcpClient });
+    if (existsSync3(f) && readFileSync3(f, "utf8") === day)
+      return;
+    let answer = await postStatus("/active", body);
+    if (answer && answer < 500)
+      writeFileSync2(f, day);
+    else
+      today = "";
+  } catch {
+    today = "";
+  }
 }
 function told() {
   return "";
@@ -209,15 +242,22 @@ function stopEvent(asked) {
 `);
   } catch {}
 }
-var off, ON = !1, FEEDBACK, URL = "https://paprika3d-telemetry.paprika3d.workers.dev", KEY = "9cf6093e07a2c1cc94161e84dbdb59268440ff04d06b7be9", telemetryDir = () => join3(harnessHome(), "telemetry"), run, KINDS, id = "", base = () => ({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), install: install(), run, version: "0.4.2", os: platform(), node: process.versions.node.split(".")[0] }), scrub = (s) => (s.split(`
-`)[0] ?? "").replace(/[a-z]+:\/\/\S+/gi, "<url>").replace(/(?:[A-Za-z]:\\|~?\/)[^\s:'"`,)]+/g, "<path>").slice(0, 160), extra, last = null, postStatus = (path, body) => !URL ? Promise.resolve(0) : fetch(URL + path, { method: "POST", headers: { "content-type": "application/json", "x-paprika3d-key": KEY }, body, signal: AbortSignal.timeout(3000) }).then((r) => r.status, () => 0), post = (path, body) => postStatus(path, body).then((s) => s >= 200 && s < 300), REPORT_TOOL, reports = 0, REPORT_ASK;
+var off, ON = !1, PUBLISHED = !0, FEEDBACK, ISSUES = "https://github.com/Keeno-Corp/paprika3d/issues/new", ISSUE_CMD = 'gh issue create -R Keeno-Corp/paprika3d -t "agent-report: <summary>" -b "<the report>"', URL = "https://paprika3d-telemetry.paprika3d.workers.dev", KEY = "9cf6093e07a2c1cc94161e84dbdb59268440ff04d06b7be9", telemetryDir = () => join3(harnessHome(), "telemetry"), run, KINDS, id = "", base = () => ({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), install: install(), run, version: "0.4.3", os: platform(), node: process.versions.node.split(".")[0] }), scrub = (s) => (s.split(`
+`)[0] ?? "").replace(/[a-z]+:\/\/\S+/gi, "<url>").replace(/(?:[A-Za-z]:\\|~?\/)[^\s:'"`,)]+/g, "<path>").slice(0, 160), extra, last = null, postStatus = (path, body) => !URL ? Promise.resolve(0) : fetch(URL + path, { method: "POST", headers: { "content-type": "application/json", "x-paprika3d-key": KEY }, body, signal: AbortSignal.timeout(3000) }).then((r) => r.status, () => 0), host = () => {
+  try {
+    return new globalThis.URL(URL).host;
+  } catch {
+    return "none set";
+  }
+}, MAX_REPORTS = 20, REPORT_TOOL, reports = 0, mcpClient = "", today = "", REPORT_ASK;
 var init_telemetry = __esm(() => {
   init_state();
-  off = /^(1|true)$/i.test(process.env.DO_NOT_TRACK ?? "") || process.env.PAPRIKA3D_TELEMETRY === "0", FEEDBACK = !off, run = randomUUID().slice(0, 8), KINDS = ["key", "mouse", "wheel", "resize", "scroll", "touch", "wait", "clock", "state", "until", "action"];
+  off = /^(1|true)$/i.test(process.env.DO_NOT_TRACK ?? "") || process.env.PAPRIKA3D_TELEMETRY === "0", FEEDBACK = PUBLISHED && !off, run = randomUUID().slice(0, 8), KINDS = ["key", "mouse", "wheel", "resize", "scroll", "touch", "wait", "clock", "state", "until", "action"];
   extra = {};
   REPORT_TOOL = {
     name: "send_feedback",
-    description: "Sends the paprika3d team a bug, feedback or criticism about the harness itself (not about the user's page): a reply that was wrong or unclear, a tool that hung, errored or got in your way, a check you disagree with, or something you needed and no tool gave. It attaches the last tool call's name, options and error, never the page's code or files. One line back; carry on with the task after it.",
+    annotations: { readOnlyHint: !1, openWorldHint: !0 },
+    description: `Sends the paprika3d team a bug, feedback or criticism about the harness itself (not about the user's page): a reply that was wrong or unclear, a tool that hung, errored or got in your way, a check you disagree with, or something you needed and no tool gave. It attaches the last tool call's name, options and error, never the page's code or files. Use it, not the client's own feedback command (Claude Code's \`/feedback\` goes to Anthropic). At most ${MAX_REPORTS} a session, so put related snags in one report; a refused one says how to file it as an issue. One line back; carry on with the task after it.`,
     inputSchema: { type: "object", properties: { kind: { type: "string", enum: ["bug", "feedback", "criticism"] }, text: { type: "string", description: "What happened and what you expected, in a few sentences (2,000 characters at most)." } }, required: ["kind", "text"] }
   };
   REPORT_ASK = FEEDBACK ? "\nIf a paprika3d reply was wrong, unclear or got in your way, say so once with `send_feedback`." : "";
@@ -333,11 +373,24 @@ var tests = mine.map((run2) => {
   } catch {
     return p;
   }
-}, files = ran && new Set(ran.map(real)), changed = root && last2 ? sourcesSince(root, Date.parse(last2.at), (p) => !files || files.has(real(p))).map((p) => relative(root, p)) : [], todo = [], asked = [], ask = (key, line) => {
+}, files = ran && new Set(ran.map(real)), live = (pid) => {
+  try {
+    return process.kill(pid, 0), !0;
+  } catch (e) {
+    return e.code === "EPERM";
+  }
+}, playing = Math.max(0, ...mine.map((run2) => {
+  try {
+    let p = JSON.parse(readFileSync4(join4(run2, "playing.json"), "utf8"));
+    return live(p.pid) ? Date.parse(p.at) : 0;
+  } catch {
+    return 0;
+  }
+})), changed = root && last2 ? sourcesSince(root, Math.max(Date.parse(last2.at), playing), (p) => !files || files.has(real(p))).map((p) => relative(root, p)) : [], todo = [], asked = [], ask = (key, line) => {
   todo.push(line), asked.push(key);
 };
 if (!last2) {
-  if (leadRuns(input.transcript_path).some((r) => existsSync4(r)))
+  if (!playing && leadRuns(input.transcript_path).some((r) => existsSync4(r)))
     ask("unplayed", "This session opened the game but never played or looked at it (`interact`, `look`).");
 } else if (changed.length)
   ask("changed", `${changed.slice(0, 5).join(", ")}${changed.length > 5 ? ` and ${changed.length - 5} more` : ""} changed after your last \`interact\` or \`look\`: the final version was never played or seen.`);

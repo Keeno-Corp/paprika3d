@@ -7,7 +7,7 @@
 
 <p align="center"><a href="https://paprika3d.com/?ref=readme">paprika3d.com</a> · <a href="https://paprika3d.com/docs?ref=readme">Docs</a> · <a href="https://paprika3d.com/docs/guides?ref=readme">Guides</a> · <a href="https://paprika3d.com/docs/changelog?ref=readme">Changelog</a></p>
 
-<p align="center"><a href="https://www.npmjs.com/package/paprika3d"><img alt="npm" src="https://img.shields.io/npm/v/paprika3d?color=d93a1e&label=npm"></a> <a href="#install"><img alt="works with Claude Code, Codex, Gemini CLI, Cursor and VS Code" src="https://img.shields.io/badge/works%20with-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20Gemini%20%C2%B7%20Cursor%20%C2%B7%20VS%20Code-2b2b2b"></a> <a href="https://registry.modelcontextprotocol.io"><img alt="MCP server" src="https://img.shields.io/badge/MCP-server-2b2b2b"></a> <a href="https://paprika3d.com/docs"><img alt="docs" src="https://img.shields.io/badge/docs-paprika3d.com-2b2b2b"></a> <a href="https://github.com/paprika3d/paprika3d/blob/main/LICENSE"><img alt="license: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-2b2b2b"></a> <a href="https://glama.ai/mcp/servers/Keeno-Corp/paprika3d"><img alt="paprika3d MCP server: quality and maintenance score on Glama" src="https://glama.ai/mcp/servers/Keeno-Corp/paprika3d/badges/score.svg"></a></p>
+<p align="center"><a href="https://www.npmjs.com/package/paprika3d"><img alt="npm" src="https://img.shields.io/npm/v/paprika3d?color=d93a1e&label=npm"></a> <a href="#install"><img alt="works with Claude Code, Codex, Gemini CLI, Cursor and VS Code" src="https://img.shields.io/badge/works%20with-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20Gemini%20%C2%B7%20Cursor%20%C2%B7%20VS%20Code-2b2b2b"></a> <a href="https://registry.modelcontextprotocol.io"><img alt="MCP server" src="https://img.shields.io/badge/MCP-server-2b2b2b"></a> <a href="https://paprika3d.com/docs?ref=readme"><img alt="docs" src="https://img.shields.io/badge/docs-paprika3d.com-2b2b2b"></a> <a href="https://github.com/Keeno-Corp/paprika3d/blob/main/LICENSE"><img alt="license: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-2b2b2b"></a> <a href="https://glama.ai/mcp/servers/Keeno-Corp/paprika3d"><img alt="paprika3d MCP server: quality and maintenance score on Glama" src="https://glama.ai/mcp/servers/Keeno-Corp/paprika3d/badges/score.svg"></a></p>
 
 <p align="center"><a href="https://paprika3d.com/media/paprika3d-intro.mp4"><img src="https://paprika3d.com/media/paprika3d-teaser.gif" alt="An 8-second loop from the paprika3d intro reel: a flower burst over a harbour, a yellow-walled Backrooms corridor, a stone figure with a skull at a computer keyboard, a low-poly lighthouse and cottage, a lighthouse on a green sea cliff with two people, and an illustrated PAPRIKA poster. It links to the full 46-second video." width="480"></a></p>
 
@@ -15,7 +15,7 @@
 
 It takes a three.js game from references on the web to a look and character sheets, a design doc with the creative calls left to you, the build, then loops that keep improving it, all in one lean package of tools. Along the way your agent plays the game, measures every frame and finds or builds the models. That is how the game gets good: it finds the invisible model, the file that never loaded and the flickering faces, and fixes them before it tells you it is done.
 
-In Claude Code the whole flow is two commands, `/paprika3d:paprika-make <request>` and `/paprika3d:paprika-loop <request> for <time>`. Codex, Gemini CLI, Cursor and other MCP clients get the same tools, and the skills with `npx skills add paprika3d/paprika3d`.
+In Claude Code the whole flow is two commands, `/paprika3d:paprika-make <request>` and `/paprika3d:paprika-loop <request> for <time>`. Codex, Gemini CLI, Cursor and other MCP clients get the same tools, and the skills with `npx skills add Keeno-Corp/paprika3d`.
 
 **The main result:** with paprika3d, Sonnet 5.5 made 86% of its 3D objects pass every check, against 66% without it: **+20 points (95% interval +11 to +29)**, over 150 runs in each arm. The checks are no flickering, see-through or inside-out faces, code that runs, and a budget. The checks come from [3JSBench](https://3jsbench.com) by General Context Labs. [All results](#results), each with its run count.
 
@@ -25,17 +25,17 @@ Needs Google Chrome and Node 20.11 or later; the Claude Code plugin needs Claude
 
 | Agent | Install |
 |---|---|
-| **Claude Code** | `claude plugin marketplace add paprika3d/paprika3d`<br>`claude plugin install paprika3d@paprika3d` |
+| **Claude Code** | `claude plugin marketplace add Keeno-Corp/paprika3d`<br>`claude plugin install paprika3d@paprika3d` |
 | **Codex CLI** | `codex mcp add paprika -- npx -y paprika3d serve` |
 | **Gemini CLI** | `gemini mcp add paprika npx -y paprika3d serve` |
-| **Cursor, VS Code, Windsurf** | `npx -y paprika3d serve` as an MCP server in the client's settings ([JSON below](#other-mcp-clients)) |
-| **Skill only** (any agent) | `npx skills add paprika3d/paprika3d` (one skill: `--skill threejs-screenshot`) |
+| **Cursor, VS Code (GitHub Copilot), Windsurf** | `npx -y paprika3d serve` as an MCP server in the client's settings ([JSON below](#other-mcp-clients)) |
+| **Skill only** (any agent) | `npx skills add Keeno-Corp/paprika3d` (one skill: `--skill threejs-screenshot`) |
 
 Then, in Claude Code, type `/paprika3d:paprika-make <request>` to make a game or 3D page from one request. In any agent, ask it to **use paprika3d to playtest** a page you already have.
 
 ### Other MCP clients
 
-Cursor (`.cursor/mcp.json`), Windsurf and any other MCP client take this entry; VS Code's `.vscode/mcp.json` takes the same entry under `servers` instead of `mcpServers`:
+Cursor (`.cursor/mcp.json`), Windsurf and any other MCP client take this entry; VS Code's `.vscode/mcp.json` (what GitHub Copilot's agent mode reads) takes the same entry under `servers` instead of `mcpServers`:
 
 ```json
 {
@@ -48,9 +48,11 @@ Cursor (`.cursor/mcp.json`), Windsurf and any other MCP client take this entry; 
 }
 ```
 
+The server also offers `paprika-make` as an MCP prompt (a slash command in clients that list prompts), which starts a build the way `/paprika3d:paprika-make` does in Claude Code, and the files that skill reads as MCP resources (`paprika3d://skills/...`), so a client needs no access to the server's files.
+
 ## How it works
 
-`/paprika3d:paprika-make <request>` works in this order, with a few rounds of questions for the calls that are yours. The first three stages each write a file you can read and change; [how it works](https://paprika3d.com/docs/how-it-works) has each stage's files, questions and keys.
+`/paprika3d:paprika-make <request>` works in this order, with a few rounds of questions for the calls that are yours. The first three stages each write a file you can read and change; [how it works](https://paprika3d.com/docs/how-it-works?ref=readme) has each stage's files, questions and keys.
 
 | Stage | What happens | Tools and files |
 |---|---|---|
@@ -58,28 +60,29 @@ Cursor (`.cursor/mcp.json`), Windsurf and any other MCP client take this entry; 
 | **2. Look and characters** | A style sheet (`LOOK.md`: palette, light, materials, camera and the checks the build is held to) and character sheets (`CHARACTERS.md`), written from the tagged references. A free look board of your references and their colours every time; with your own fal, OpenAI or Gemini key, an image model's look board and front, side and back views of up to four characters | `sheet` (preview), `refs/sheets/` |
 | **3. Design doc** | For a game, `DESIGN.md`: core loop, controls, progression, win and lose, levels, feel, audio and UI. The calls that change what the game is (tone, the progression, the win condition) are asked of you; the rest are logged as the builder's, with the options not taken, so you can change one. Your own design doc is read and added to, never overwritten. `BRIEF.md` lists what the build is checked against | `DESIGN.md`, `BRIEF.md` |
 | **4. Build** | Where each key model comes from: the library, a free CC0 or CC BY model from the web, a model generated with your own fal, Meshy or Tripo key, or code. Then the whole page in one pass, opened, played, measured and fixed against the brief, with a critic listing what still looks wrong | `asset_search` (preview), `model_run` and `model_look` (preview), `model_audit`, `geo.js`, `fx.js`, and [the tools below](#how-the-game-gets-good) |
-| **5. Loops** | `/paprika3d:paprika-loop <request> for <time>` keeps improving it unattended until the time is up: fresh `claude -p` sessions, a builder then a read-only judge each round, a commit per round. Change `paprika-loop/PROMPT.md` while it runs to change course. `publish` (preview, invite-only) puts the game on `https://<name>.paprika3d.app` when you ask | `paprika-loop`, `publish` (preview) |
+| **5. Loops** | `/paprika3d:paprika-loop <request> for <time>` keeps improving it unattended until the time is up: fresh `claude -p` sessions, a builder then a read-only judge each round, a commit per round. Change `paprika-loop/PROMPT.md` while it runs to change course. `publish` (preview, invite-only) puts the game on `https://<name>.paprika3d.app` when you ask; `playtest: true` also gives a link pinned to that build for 7 days, never listed, with a Feedback button players use with no account, and `feedback: true` reads their notes | `paprika-loop`, `publish` (preview) |
 
-A one-line request takes about four rounds of questions and spends nothing on your keys unasked. `sheet` names which image and 3D model keys are set, never their values; set one with `/plugin configure paprika3d` or the provider's usual variable, such as `FAL_KEY`. The loop starts only when you type it; each round is two Claude Code sessions, billed as such, and it needs `claude` and `git` on PATH. To publish, join the waitlist at https://paprika3d.com/waitlist and set `PAPRIKA3D_PUBLISH_INVITE` to your code; [what a publish uploads and records](https://paprika3d.com/docs/publish).
+A one-line request takes about four rounds of questions and spends nothing on your keys unasked. `sheet` names which image and 3D model keys are set, never their values; set one with `/plugin configure paprika3d` or the provider's usual variable, such as `FAL_KEY`. The loop starts only when you type it; each round is two Claude Code sessions, billed as such, and it needs `claude` and `git` on PATH. To publish, join the waitlist at https://paprika3d.com/waitlist?ref=readme and set `PAPRIKA3D_PUBLISH_INVITE` to your code; [what a publish uploads and records](https://paprika3d.com/docs/publish?ref=readme).
 
-The full flow runs in Claude Code. In other agents the tools below work the same, and `npx skills add paprika3d/paprika3d` adds the skills.
+The full flow runs in Claude Code. In other agents the tools below work the same, and `npx skills add Keeno-Corp/paprika3d` adds the skills.
 
 ## How the game gets good
 
-From the first draft on, every stage runs on these tools. Your agent opens its page in headless Chrome on a clock it controls, reads which objects are on screen and which never appear, plays inputs on exact frames and times each frame. They work on any three.js, React Three Fiber or WebGL page, `WebGPURenderer` included: games, product viewers and configurators, scroll sites, simulations, shader and post-processing demos. Your page needs no changes.
+From the first draft on, every stage runs on these tools. Your agent opens its page in headless Chrome on a clock it controls, reads which objects are on screen and which never appear, plays inputs on exact frames and times each frame. They work on any three.js, React Three Fiber or WebGL page, `WebGPURenderer` included (drawn on WebGPU even on a Linux machine with no GPU): games, product viewers and configurators, scroll sites, simulations, shader and post-processing demos. Your page needs no changes.
 
 | Part | What your agent does | Tools |
 |---|---|---|
 | **See it** | Sees what is on screen, what never appears and why (behind the camera, outside the view, too small), which files failed to load, and which lighting and surface faults show | `open`, `look`, `observe` |
 | **Play it** | Presses keys, clicks, touches and scrolls on exact frames of a paused, seeded clock, reads the state after each input, keeps a play as a check that reruns after every edit, and measures how a hit or pickup shows on screen | `interact`, `test`, `feel` |
 | **Ask it** | Runs any JavaScript against `scene`, `camera` and `renderer`, and reads each mesh's triangles, bounds, closed edges, volume and genus | `eval` |
-| **Speed it** | Times the frame against a desktop, mobile, Quest or site budget, finds what costs it, and keeps only the speed-ups that leave the picture unchanged | `perf` |
+| **Speed it** | Times the frame against a desktop, mobile or site budget, finds what costs it, and keeps only the speed-ups that leave the picture unchanged | `perf` |
 | **Match a picture** | Reads a picture the page should match (a crop with a pixel grid, colours at points), and puts the page beside it with the differences by region | `reference` |
-| **Find models** | Finds a ready-made model, PBR texture or HDRI sky in a hosted library (57,732 models, 3,545 textures, 1,430 skies), by words or by a crop of a picture; `pick` downloads one into the project with the code that loads it, and a CC BY model's credit line into `CREDITS.md` | `asset_search` (preview) |
+| **Find models** | Finds a ready-made model, PBR texture or HDRI sky in a hosted library (84,249 models, 3,747 textures, 1,434 skies), by words or by a crop of a picture; `pick` downloads one into the project with the code that loads it, and a CC BY model's credit line into `CREDITS.md`. The skill and the tool descriptions have the agent search here before building any character, vehicle, building, prop or texture in code | `asset_search` (preview) |
 | **Build models** | Builds a model in code, in a modelling scene kept between calls (three.js and Manifold: booleans, hull, extrude, revolve), shows it true to size from four sides, and saves a .glb the page loads | `model_run`, `model_look` (preview) |
 | **Check models** | Checks .glb, .gltf and USD files for size, triangles, textures and compression, with a site or Shopify verdict; `shrink` rewrites a .glb or .gltf smaller | `model_audit` |
+| **Hand off to an engine** | Moves the scene at its current frame into Unity 6 as a project (the GLB with glTFast, a scene built with the page's camera, fog and lights, the game state as C#, and a list of what does not carry over), or into Unreal Engine 5 as a GLB whose manifest lists what the import drops, with an editor Python script that imports it | `unity_export`, `fx.js` `handoff` and `unrealScript` |
 
-`open` also puts two helper files in the project, `geo.js` (procedural geometry) and `fx.js` (sound, textures, particles, a lighting setup), and the skill can add game-state, which keeps game state in typed arrays and runs Rapier physics in a worker. `send_feedback` sends the team a report when a reply was wrong. Every tool, with when to reach for it, the skills, the hooks and the files: [what the plugin adds](https://paprika3d.com/docs/plugin).
+`open` also puts two helper files in the project, `geo.js` (procedural geometry) and `fx.js` (sound, textures, particles, a lighting setup, Gerstner water that things float on, wind-swayed grass and trees, one-call post-processing for WebGL or WebGPU, an engine handoff), and the skill can add game-state, which keeps game state in typed arrays and runs Rapier physics in a worker. `send_feedback` sends the team a report when a reply was wrong or a tool got in the way; the skills name it, not the client's own `/feedback` (Claude Code's goes to Anthropic), and past its 20 a session its reply names the fallback, an `agent-report:` issue filed with `gh issue create -R Keeno-Corp/paprika3d`. Every tool, with when to reach for it, the skills, the hooks and the files: [what the plugin adds](https://paprika3d.com/docs/plugin?ref=readme).
 
 ### What your agent sees
 
@@ -134,13 +137,13 @@ paprika3d is built for one job: an agent making a three.js game or 3D page, end 
 
 ## Making a game checkable
 
-Any page works as it is. Add `window.__game` (`describe`, `observe`, `act` and `setState`) once the page has loaded, and your agent reads and sets the game's exact state: [the convention](https://paprika3d.com/docs/convention).
+Any page works as it is. Add `window.__game` (`describe`, `observe`, `act` and `setState`) once the page has loaded, and your agent reads and sets the game's exact state: [the convention](https://paprika3d.com/docs/convention?ref=readme).
 
 ## Where runs go
 
 `paprika3d/runs/<time>/`: one folder per open. Each open deletes the pictures and clips (.png, .gif, .mp4) of all but the newest 10 run folders, keeping `run.json`, `last-test.json` and every other file; a folder written to in the last hour is left whole. Saved baselines live in `paprika3d/baselines/`. Add `paprika3d/` to the project's `.gitignore`.
 
-`geo.js` and `fx.js` are written on the first open and replaced only when the plugin's copy changes; leave them in place.
+`geo.js` and `fx.js` are written on the first open and replaced when the plugin's copy changes, never by an older version; leave them in place.
 
 ## What leaves your machine
 
@@ -148,22 +151,23 @@ Any page works as it is. Add `window.__game` (`describe`, `observe`, `act` and `
 - **`asset_search`** sends your agent's searches (the words, or the crop of a picture it searches by) and what it picks to the asset library at `assets.keeno.dev`.
 - **`send_feedback`,** only when the agent calls it, sends its text, the last tool call's name, option names and error, the plugin version, OS and Node version, a random install id (kept in `~/.paprika3d/telemetry/id`) and a per-run id. `DO_NOT_TRACK=1` or `PAPRIKA3D_TELEMETRY=0` turns it off.
 - **Once per install and per update,** the MCP server sends the same install id, the plugin version, OS and Node version and your MCP client's name and version, so the team can count installs; nothing about your project. The same switches turn it off.
+- **Once a day, on a day a paprika3d tool runs,** it sends the same install id, the plugin version, the date and your MCP client's name, so the team can tell installs that are used from installs that are not; nothing about your project or the tools you ran. The same switches turn it off.
 - **`/paprika3d:paprika-make`'s reference search** sends words from your request to Wikimedia Commons and Openverse, and, after you say yes, to a web and YouTube search.
 - **`sheet`,** with your own key, when a sheet or model is asked for: the prompt and the reference pictures it is made from, to the provider you chose (fal, OpenAI or Gemini for pictures; fal, Meshy or Tripo for models), billed to your key.
 - **`publish`,** only when you ask: the built project, to host it.
 
 ## What stays stable
 
-The tool names and their inputs, the skill names, the `paprika3d serve` command and the environment variables in `server.json` change only in a minor release before 1.0, and only with a note in [CHANGELOG.md](CHANGELOG.md), which lists each release; a patch release never changes them. The previews may change in any minor release: `publish`, `sheet`, `model_run` and `model_look`, `asset_search`, and `open`'s `browser: "firefox"`.
+The tool names and their inputs, the skill names, the `paprika3d serve` command and the environment variables documented on [the install page](https://paprika3d.com/docs/install?ref=readme) change only in a minor release before 1.0, and only with a note in [CHANGELOG.md](CHANGELOG.md), which lists each release; a patch release never changes them. The previews may change in any minor release: `publish`, `sheet`, `model_run` and `model_look`, `asset_search`, and `open`'s `browser: "firefox"`.
 
-Requirements and limits (Chrome's location, Firefox, running with no GPU, headless Chrome): [the install page](https://paprika3d.com/docs/install).
+Requirements and limits (Chrome's location, Firefox, running with no GPU, headless Chrome): [the install page](https://paprika3d.com/docs/install?ref=readme).
 
 ## Guides
 
-Task-by-task guides, each run in the harness before it was published: [Three.js MCP server](https://paprika3d.com/docs/guides/threejs-mcp-server), [React Three Fiber MCP server](https://paprika3d.com/docs/guides/react-three-fiber-mcp-server), [Screenshot a three.js scene from an agent](https://paprika3d.com/docs/guides/screenshot-threejs-scene-headless), [Test a three.js game in Claude Code](https://paprika3d.com/docs/guides/test-threejs-game-claude-code), [A Playwright alternative for three.js and WebGL](https://paprika3d.com/docs/guides/playwright-alternative-threejs-webgl), [Visual regression test a three.js scene](https://paprika3d.com/docs/guides/visual-regression-test-threejs), [Measure three.js draw calls and FPS](https://paprika3d.com/docs/guides/threejs-fps-draw-calls), [MCP server for 3D modeling with three.js](https://paprika3d.com/docs/guides/mcp-server-3d-modeling-threejs). All of them: [the guides](https://paprika3d.com/docs/guides).
+Task-by-task guides, each run in the harness before it was published: [Three.js MCP server](https://paprika3d.com/docs/guides/threejs-mcp-server?ref=readme), [React Three Fiber MCP server](https://paprika3d.com/docs/guides/react-three-fiber-mcp-server?ref=readme), [Screenshot a three.js scene from an agent](https://paprika3d.com/docs/guides/screenshot-threejs-scene-headless?ref=readme), [Test a three.js game in Claude Code](https://paprika3d.com/docs/guides/test-threejs-game-claude-code?ref=readme), [A Playwright alternative for three.js and WebGL](https://paprika3d.com/docs/guides/playwright-alternative-threejs-webgl?ref=readme), [Visual regression test a three.js scene](https://paprika3d.com/docs/guides/visual-regression-test-threejs?ref=readme), [Measure three.js draw calls and FPS](https://paprika3d.com/docs/guides/threejs-fps-draw-calls?ref=readme), [MCP server for 3D modeling with three.js](https://paprika3d.com/docs/guides/mcp-server-3d-modeling-threejs?ref=readme). The browser your agent already has, on a three.js page: [Can Claude Code see the browser?](https://paprika3d.com/docs/guides/claude-code-see-the-browser?ref=readme), [Claude Code Playwright MCP](https://paprika3d.com/docs/guides/claude-code-playwright-mcp?ref=readme), [Chrome DevTools MCP vs Playwright MCP](https://paprika3d.com/docs/guides/chrome-devtools-mcp-vs-playwright-mcp?ref=readme), [Can Cursor see the browser?](https://paprika3d.com/docs/guides/cursor-see-the-browser?ref=readme), [Codex and the browser](https://paprika3d.com/docs/guides/codex-use-the-browser?ref=readme), [Cline's browser tool](https://paprika3d.com/docs/guides/cline-browser-tool?ref=readme), [Gemini CLI browser tools](https://paprika3d.com/docs/guides/gemini-cli-browser?ref=readme), [Windsurf browser preview](https://paprika3d.com/docs/guides/windsurf-browser-preview?ref=readme), [three.js skills for Claude Code](https://paprika3d.com/docs/guides/threejs-skills-for-claude-code?ref=readme), [Claude Code plugins for game development](https://paprika3d.com/docs/guides/claude-code-plugins-for-game-development?ref=readme). All of them: [the guides](https://paprika3d.com/docs/guides?ref=readme).
 
 ## Source, contributions and license
 
-Each release ships the readable TypeScript it was built from, in `source/`. Contributions are welcome as a patch in an issue or a pull request, each commit signed off for the Developer Certificate of Origin (`git commit -s`); see `CONTRIBUTING.md`. Issues: https://github.com/paprika3d/paprika3d/issues.
+Each release ships the readable TypeScript it was built from, in `source/`. Contributions are welcome as a patch in an issue or a pull request, each commit signed off for the Developer Certificate of Origin (`git commit -s`); see `CONTRIBUTING.md`. Issues: https://github.com/Keeno-Corp/paprika3d/issues.
 
 paprika3d is made by [Keeno Corp.](https://keeno.dev) Apache License 2.0 (`LICENSE`). The packages each build bundles keep their own licences, listed in `THIRD_PARTY_NOTICES.md`.

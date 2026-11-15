@@ -8,6 +8,7 @@ import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
+import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js";
 import { bake } from "../../fx/src/bake.ts";
 import { geo, scatter } from "./index.ts";
 
@@ -43,25 +44,29 @@ async function parseFbx(buf: ArrayBuffer): Promise<THREE.Object3D> {
   return root;
 }
 
-/** `object` (the scene by default) as a GLB under the project: its bytes and triangles. */
+/** `object` (the scene by default) as a GLB under the project, with the clips of every object in it: its bytes and triangles. */
 async function save(path: string, object: THREE.Object3D = scene) {
   if (!object?.isObject3D) throw new Error(`save: pass an Object3D to write (or nothing, for the whole scene), got ${typeof object}`);
-  const glb = await bake(object);
+  const clips = new Set<THREE.AnimationClip>();
+  object.traverse(o => o.animations.forEach(c => clips.add(c)));
+  const glb = await bake(object, { animations: [...clips] });
   let triangles = 0;
   object.traverse(o => { const g = (o as THREE.Mesh).geometry; if ((o as THREE.Mesh).isMesh && g) triangles += Math.floor((g.index?.count ?? g.attributes.position!.count) / 3) * ((o as THREE.InstancedMesh).count ?? 1); });
   return { saved: await w.__studioWrite(path, b64(glb)), bytes: glb.byteLength, triangles };
 }
 
 /** A .glb, .obj or .fbx in the project (an `asset_search` pick, a model saved before, a file downloaded from the web), added
-    to the scene; returns its root, named after the file. An OBJ or FBX saved with `save` becomes a GLB (textures an FBX
+    to the scene; returns its root, named after the file, with the file's clips in its `animations`. An OBJ or FBX saved with `save` becomes a GLB (textures an FBX
     names as files or URLs are not read and are left off its materials: the page has the file's bytes, not its folder). */
 async function load(path: string) {
   const ext = /\.(glb|obj|fbx)$/i.exec(path)?.[1]?.toLowerCase();
   if (!ext) throw new Error(`load reads a .glb, .obj or .fbx file, got ${path}`);
   const buf = bytes(await w.__studioRead(path));
   // GLTFExporter wraps an object that is not a scene in one named AuxScene: load gives back the object itself
-  const top: THREE.Object3D = ext === "obj" ? new OBJLoader().parse(new TextDecoder().decode(buf)) : ext === "fbx" ? await parseFbx(buf) : (await parse(buf)).scene;
-  const root = top.children.length === 1 && ext === "glb" ? top.children[0]! : top;
+  const gltf = ext === "glb" ? await parse(buf) : null;
+  const top: THREE.Object3D = ext === "obj" ? new OBJLoader().parse(new TextDecoder().decode(buf)) : ext === "fbx" ? await parseFbx(buf) : gltf!.scene;
+  const root = top.children.length === 1 && gltf ? top.children[0]! : top;
+  if (gltf) root.animations = gltf.animations; // the file's clips ride on what load returns, as an FBX's do
   if (!root.name || /^(AuxScene|Scene)$/.test(root.name)) root.name = path.split("/").pop()!.replace(/\.(glb|obj|fbx)$/i, "");
   scene.add(root);
   return root;
@@ -198,6 +203,6 @@ const started = geo();
 /** What the code sees, and the page's own calls from src/model.ts. */
 (window as unknown as { __studio: unknown }).__studio = {
   ready: started.then(() => true),
-  scope: async () => ({ THREE, scene, geo: await started, scatter, find: (n: string) => scene.getObjectByName(n), stats: (t: unknown, o?: unknown) => w.__harness.stats(t, o), save, load, clear }),
+  scope: async () => ({ THREE, BufferGeometryUtils, scene, geo: await started, scatter, find: (n: string) => scene.getObjectByName(n), stats: (t: unknown, o?: unknown) => w.__harness.stats(t, o), save, load, clear }),
   signature, keep, restore, summary, picture,
 };

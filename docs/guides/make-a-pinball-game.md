@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a pinball game in three.js: flippers and bumpers on a physics engine
 
@@ -201,7 +202,7 @@ The fix is **continuous collision detection** (CCD): the engine checks the whole
 In pinball the result of a flipper press depends on the frame you press it, which makes bugs hard to reproduce by hand: you can never press at exactly the same moment twice. paprika3d is a plugin for Claude Code (and an MCP server, a tool server other agents can use) that runs the game in a browser of its own on a paused clock, one 1/60 s frame at a time, so the agent places the ball, presses a flipper on an exact frame and reads the result. Two commands in the terminal install it:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

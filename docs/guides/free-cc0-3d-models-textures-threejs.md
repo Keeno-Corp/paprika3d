@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-28
 review: weekly
+reviewed: 2026-11-09
 ---
 # Free CC0 3D models and textures for three.js: find one, read its licence, place it at real size
 
@@ -32,14 +33,16 @@ paprika3d is a Claude Code plugin and MCP server that opens a three.js page in i
 paprika3d needs Google Chrome and Node 20.11 or later, and the Claude Code plugin needs Claude Code 2.1.118 or later.
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 npm install three
 ```
 
 ## What the library is
 
-The library behind `asset_search` is hosted by paprika3d at `assets.keeno.dev`. As of 2026-10-28 it holds 57,732 models under CC BY 4.0 or CC0: 57,183 from Objaverse, a dataset of models published on Sketchfab with the licence each author chose there, and 549 AI-generated ones from Scenario's 3D Collection (CC BY 4.0, credited to Scenario). It also holds 3,545 CC0 PBR textures from Poly Haven, ambientCG, TextureCan and 3DTextures.me, and 1,430 CC0 HDRIs. Each model was rewritten for the web before it went in: meshopt-compressed geometry, WebP textures no larger than 2048 px, and its origin at the centre of its base. Branded and character assets are filtered out before publishing, and sources whose terms do not allow re-hosting are left out.
+The library behind `asset_search` is hosted by paprika3d at `assets.keeno.dev`. As of 2026-11-11 it holds 84,249 models under CC BY 4.0 or CC0, from Objaverse (a dataset of models published on Sketchfab with the licence each author chose there), Hugging Face packs, SimReady, Kenney, the Smithsonian, KayKit, Poly Haven and Gobkit, with 574 AI-generated ones from Scenario's 3D Collection (CC BY 4.0, credited to Scenario). It also holds 3,747 CC0 PBR textures, from sources including Poly Haven, ambientCG, TextureCan and 3DTextures.me, and 1,434 CC0 HDRIs. Each model was rewritten for the web before it went in: meshopt-compressed geometry, WebP textures no larger than 2048 px, and its origin at the centre of its base. Branded and character assets are filtered out before publishing, and sources whose terms do not allow re-hosting are left out.
+
+An agent using paprika3d searches here before it builds a thing in code. The `threejs-game` skill, which a plain MCP session reads too, and the tool descriptions tell it to list the characters, creatures, vehicles, buildings, props, surfaces and sky a viewer will notice, search `asset_search` for each (by words, and by a crop of a reference picture where one shows it), `pick` a close hit, and build in code what no search finds or the design makes by rule, as the picking round of the `paprika-make` skill does. When `model_run` builds a model with no search on record, its reply says so once per project.
 
 The library learns from use: it logs model searches, picks and rejections with the agent's name (texture and HDRI searches are not logged), and it sees the caller as a keyed hash of the IP address, not the address.
 

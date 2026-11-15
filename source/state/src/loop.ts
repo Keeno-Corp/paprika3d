@@ -6,8 +6,9 @@
 // the store code, and only here; the harness's fake clock passes its virtual time, 1/60 s a frame, so under it every
 // frame is exactly one tick (half a millisecond of tolerance) and rewind, replay and `__clock.hold()` see no change.
 // Each tick takes the last physics step into the state, then runs `tick` with the inputs act() and real key events
-// ({ key, down }) queued since the tick before, logged by rewind so back(n) replays them exactly; a frame's catch-up
-// ticks after its first get no inputs, and each waits for its physics reply, so physics steps once per tick, in order.
+// ({ key, down }, `key` being the event.code) queued since the tick before, logged by rewind so back(n) replays them
+// exactly; a frame's catch-up ticks after its first get no inputs, and each waits for its physics reply, so physics
+// steps once per tick, in order.
 // A frame's ticks start only when the last frame's are done and physics is ready: on a real clock a late worker reply,
 // or a tick still taking a rewind snapshot, holds game logic off (the time stays owed) instead of running it without
 // physics. Frames stay pipelined: the worker steps while the page renders. Time spent in back() is not owed.
@@ -86,8 +87,10 @@ export function loop<S extends Shape>({ state, physics, tick, render, describe, 
     render?.();
   };
   requestAnimationFrame(frame);
-  addEventListener("keydown", (e: Event & { key?: string }) => game.act({ key: e.key }));
-  addEventListener("keyup", (e: Event & { key?: string }) => game.act({ key: e.key, down: false }));
+  // keys by event.code (`KeyW`, `Space`), which Shift and the layout leave alone; a held key's repeats are no new press
+  type Key = Event & { key?: string; code?: string; repeat?: boolean };
+  addEventListener("keydown", (e: Key) => { if (!e.repeat) game.act({ key: e.code || e.key }); });
+  addEventListener("keyup", (e: Key) => game.act({ key: e.code || e.key, down: false }));
 
   return {
     act: game.act,

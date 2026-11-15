@@ -3,11 +3,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-/** The first line of a bundle `open` copies into the project: what it is and which plugin wrote it (#65). */
-export const header = (name: string) => `// ${name} ${JSON.parse(readFileSync(join(import.meta.dir, "../package.json"), "utf8")).version}, written by paprika3d's open tool: ship it with the page; each open rewrites it\n`;
+/** The first line of a bundle `open` copies into the project: what it is and which plugin version wrote it (#65); `open`
+    never writes over a newer one (dev #337), so a dev build's bundles carry its X.Y.Z-dev.N. */
+export const header = (name: string, version = JSON.parse(readFileSync(join(import.meta.dir, "../package.json"), "utf8")).version) =>
+  `// ${name} ${version}, written by paprika3d's open tool: ship it with the page; each open rewrites it unless it is newer\n`;
 
-/** The fx bundle's text; `entry` builds one module alone (to measure what it adds). */
-export async function buildFx(entry = "index.ts"): Promise<string> {
+/** The fx bundle's text; `entry` builds one module alone (to measure what it adds); `version` is the plugin's, package.json's by default. */
+export async function buildFx(entry = "index.ts", version?: string): Promise<string> {
   const r = await Bun.build({
     entrypoints: [join(import.meta.dir, "src", entry)],
     format: "esm",
@@ -20,7 +22,7 @@ export async function buildFx(entry = "index.ts"): Promise<string> {
   if (!r.success) throw new AggregateError(r.logs, "fx build failed");
   // unminified output starts each module with a `// <its path from the shell's folder>` line, which can name the build
   // machine's folders and changes with the folder the build ran in
-  return header("@paprika3d/game-fx") + (await r.outputs[0].text()).replace(/^\/\/ .*\.ts\n/gm, "");
+  return header("@paprika3d/game-fx", version) + (await r.outputs[0].text()).replace(/^\/\/ .*\.ts\n/gm, "");
 }
 
 if (import.meta.main) await Bun.write(join(import.meta.dir, "dist/fx.js"), await buildFx());

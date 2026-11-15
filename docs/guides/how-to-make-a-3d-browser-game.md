@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a 3D browser game with three.js, from one HTML file
 
@@ -161,12 +162,14 @@ to "Jumped" at the top left, touching one ends the run. Name every mesh, and put
 on window.__game with observe() so I can read it in the console.
 ```
 
+The boxes keep this example short. For a game with characters, vehicles, buildings or props, add a line to the request: "Before building a model in code, search a library of free models for it, and keep the credit lines." With paprika3d that search is `asset_search`, and the skill already asks for it: [free CC0 3D models and textures for three.js](/guides/free-cc0-3d-models-textures-threejs).
+
 ## Checking the page with paprika3d
 
 paprika3d is a plugin for Claude Code, and a tool server for other agents, that gives the agent its own Chrome to open the page in, so it can see and read the game without you describing it. It installs with:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

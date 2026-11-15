@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a mobile game with AI: a three.js browser game that plays on a phone
 
@@ -174,6 +175,7 @@ To make it feel like an app, open the link and add it to the home screen: on an 
 - **The page scrolls, bounces or zooms when you swipe.** The canvas is missing `touch-action: none`, or the game listens on an element that does not cover the screen.
 - **Nothing happens when you touch it.** The game listens for keys or for `click` and nothing else. Ask for pointer events.
 - **The picture is stretched or cut off after turning the phone.** The resize code is missing or does not update the camera; [the responsive canvas guide](/guides/threejs-responsive-canvas-resize) shows the whole fix.
+- **The picture is soft or blurry next to the phone's own text.** The canvas draws fewer pixels than the screen has; [three.js canvas blurry on phone](/guides/threejs-canvas-blurry-on-phone) goes through the pixel ratio, post-processing and texture causes.
 - **It runs slowly or the phone gets warm.** Check the pixel ratio cap first, then how many objects and triangles it draws. Shadows and post-processing effects cost a phone far more than a computer.
 - **A blank page.** The same faults as on a computer; [HTML game not working](/guides/html-game-not-working) goes through them in order. For textures that come out black on an iPhone, see [glTF textures black on iOS](/guides/threejs-gltf-textures-black-ios).
 
@@ -182,7 +184,7 @@ To make it feel like an app, open the link and add it to the home screen: on an 
 Testing on a phone after every change means picking the phone up, reloading and describing to the AI what you saw. paprika3d is a plugin for Claude Code (and an MCP server, a tool server other agents can use) that gives the agent a browser of its own, so it pictures the page at phone sizes and plays it with touch steps itself. Two commands in the terminal install it:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

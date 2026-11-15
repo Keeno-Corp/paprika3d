@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-11-01
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make an escape room game in three.js: clues, a code and a door
 
@@ -235,7 +236,7 @@ A classroom escape room swaps the clues for questions from the lesson: each answ
 paprika3d is a plugin for Claude Code, and an MCP server (the standard way to give tools to other coding agents), that opens the game in a hidden Chrome browser so the agent can click through it, type on the keypad and read the flags. Add it to Claude Code with two lines in a terminal (the text window where you type commands):
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

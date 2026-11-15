@@ -71,8 +71,9 @@ export function sourceFiles(cwd: string, visit: (path: string, binary: boolean) 
     entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     for (const e of entries) {
       const path = rel ? `${rel}/${e.name}` : e.name;
-      // a .md is notes for people and agents (a review, a README), never page code: one written mid-play reloaded the page (#53)
-      if (SKIP_TOP.has(path) || isStoreCopy(e.name, entries) || /\.md$/i.test(e.name)) continue;
+      // a .md is notes for people and agents (a review, a README), never page code: one written mid-play reloaded the page (#53);
+      // a .log neither: a bridge logging this server's stderr into the project reloaded the page on every call (dev #305)
+      if (SKIP_TOP.has(path) || isStoreCopy(e.name, entries) || /\.(md|log)$/i.test(e.name)) continue;
       const { dir, file } = e.isSymbolicLink() ? follow(path) : { dir: e.isDirectory(), file: e.isFile() };
       if (dir) {
         if (!e.name.startsWith(".") && !SKIP_DIRS.has(e.name)) walk(path);

@@ -1,6 +1,6 @@
 {
   "name": "paprika3d",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "description": "Three.js MCP server and Claude Code plugin: build three.js games and 3D pages end to end, from references and a design doc to playtesting, models and a published link. It tells the agent what is on screen, what never appears, what each input changed and what a frame costs, finds models in a library of 57,732 or builds them in code, and in Claude Code runs the whole flow with /paprika3d:paprika-make and /paprika3d:paprika-loop.",
   "keywords": [
@@ -20,13 +20,13 @@
     "paprika",
     "paprika3d"
   ],
-  "homepage": "https://paprika3d.com/docs",
+  "homepage": "https://paprika3d.com/docs?ref=npm",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/paprika3d/paprika3d.git"
+    "url": "git+https://github.com/Keeno-Corp/paprika3d.git"
   },
   "bugs": {
-    "url": "https://github.com/paprika3d/paprika3d/issues"
+    "url": "https://github.com/Keeno-Corp/paprika3d/issues"
   },
   "license": "Apache-2.0",
   "author": {
@@ -36,5 +36,5 @@
   "bin": {
     "paprika3d": "src/cli.js"
   },
-  "mcpName": "io.github.paprika3d/paprika3d"
+  "mcpName": "io.github.Keeno-Corp/paprika3d"
 }

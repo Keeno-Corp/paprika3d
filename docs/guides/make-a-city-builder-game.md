@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-11-01
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a city builder game in three.js: a grid, roads and a town that grows
 
@@ -251,7 +252,7 @@ In the picture, the straight-down view shows the plan plainly: the road under th
 paprika3d does not plan a town or tell you whether the prices make a good game; play it and adjust them. To add it to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

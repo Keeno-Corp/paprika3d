@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-31
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a game for a school project: a three.js maths game you can explain
 
@@ -269,7 +270,7 @@ The first `look` (a screenshot with a list of what is on screen) at this game al
 These replies were captured on 2026-10-31 on a machine with no graphics card, where Chrome draws in software. paprika3d tests that the game follows its rules; whether it teaches well is for you and your teacher to judge, and it writes no presentation. To add it to Claude Code (it needs Google Chrome and Node.js):
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

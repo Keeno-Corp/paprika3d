@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-31
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a game for my girlfriend (or anyone): a personal three.js game as a gift
 
@@ -292,7 +293,7 @@ The clock is paused again where the play ended.
 These replies were captured on 2026-10-31 on a machine with no graphics card, where Chrome draws in software; the lines about the plugin's helper files and the recording's frame times are left out. paprika3d checks that the game works. Whether it is the right gift is yours to judge. To add it to Claude Code (it needs Google Chrome and Node.js):
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

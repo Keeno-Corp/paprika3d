@@ -18,6 +18,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-28
 review: weekly
+reviewed: 2026-11-09
 ---
 # three.js model loading slow? Time a first visit on 4G and show a progress bar
 
@@ -37,7 +38,7 @@ paprika3d is a Claude Code plugin and MCP server that opens a three.js page in i
 paprika3d needs Google Chrome and Node 20.11 or later, and the Claude Code plugin needs Claude Code 2.1.118 or later.
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 npm install three
 ```
@@ -114,7 +115,7 @@ open {"url": "index.html", "cwd": "<project>", "network": "fast-4g"}
 
 Opened http://127.0.0.1:38859/index.html in 3.9 s, paused at frame 0.
 GPU: ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver). A software renderer (no GPU): frame times here say nothing of a real GPU's.
-First scene frame: 2.9 s after navigation on fast-4g, a first visit with no cache (scripts 2.19 MB by 2.8 s); div#loading "Loading 0%" over the canvas gone at 6.4 s; div#loading "Loading 7%" over the canvas gone at 6.5 s; div#loading "Loading 8%" over the canvas gone at 6.8 s; div#loading "Loading 9%" over the canvas gone at 7.2 s; div#loading "Loading 10%" over the canvas gone at 7.5 s; div#loading "Loading 11%" over the canvas gone at 7.7 s; div#loading "Loading 12%" over the canvas gone at 8.0 s; div#loading "Loading 13%" over the canvas gone at 8.3 s; div#loading "Loading 14%" over the canvas gone at 8.6 s; div#loading "Loading 15%" over the canvas gone at 8.9 s; div#loading "Loading 16%" over the canvas gone at 9.2 s; div#loading "Loading 17%" over the canvas gone at 9.5 s; div#loading "Loading 18%" over the canvas gone at 9.8 s; div#loading "Loading 19%" over the canvas gone at 10.0 s; div#loading "Loading 20%" over the canvas gone at 10.3 s; div#loading "Loading 21%" over the canvas gone at 10.7 s; div#loading "Loading 22%" over the canvas gone at 11.0 s; div#loading "Loading 23%" over the canvas gone at 11.3 s; div#loading "Loading 24%" over the canvas gone at 11.6 s; div#loading "Loading 25%" over the canvas gone at 11.9 s; div#loading "Loading 26%" over the canvas gone at 12.2 s; div#loading "Loading 27%" over the canvas gone at 12.5 s; div#loading "Loading 28%" over the canvas gone at 12.7 s; div#loading "Loading 29%" still over the canvas at 12.9 s. Host load 15.9 on 64 cores.
+First scene frame: 2.9 s after navigation on fast-4g (8.1 Mbps down, 1.35 Mbps up, 165 ms latency), a first visit with no cache on a software renderer (no GPU: its shader compiles and first frame take far longer than a GPU's) (scripts 2.19 MB by 2.8 s); div#loading "Loading 0%" over the canvas gone at 6.4 s; div#loading "Loading 7%" over the canvas gone at 6.5 s; div#loading "Loading 8%" over the canvas gone at 6.8 s; div#loading "Loading 9%" over the canvas gone at 7.2 s; div#loading "Loading 10%" over the canvas gone at 7.5 s; div#loading "Loading 11%" over the canvas gone at 7.7 s; div#loading "Loading 12%" over the canvas gone at 8.0 s; div#loading "Loading 13%" over the canvas gone at 8.3 s; div#loading "Loading 14%" over the canvas gone at 8.6 s; div#loading "Loading 15%" over the canvas gone at 8.9 s; div#loading "Loading 16%" over the canvas gone at 9.2 s; div#loading "Loading 17%" over the canvas gone at 9.5 s; div#loading "Loading 18%" over the canvas gone at 9.8 s; div#loading "Loading 19%" over the canvas gone at 10.0 s; div#loading "Loading 20%" over the canvas gone at 10.3 s; div#loading "Loading 21%" over the canvas gone at 10.7 s; div#loading "Loading 22%" over the canvas gone at 11.0 s; div#loading "Loading 23%" over the canvas gone at 11.3 s; div#loading "Loading 24%" over the canvas gone at 11.6 s; div#loading "Loading 25%" over the canvas gone at 11.9 s; div#loading "Loading 26%" over the canvas gone at 12.2 s; div#loading "Loading 27%" over the canvas gone at 12.5 s; div#loading "Loading 28%" over the canvas gone at 12.7 s; div#loading "Loading 29%" still over the canvas at 12.9 s. Host load 15.9 on 64 cores.
 Over the canvas: div#loading "Loading 100%" shows over 100% of it (background rgb(29, 33, 40)) and takes the clicks on 100% of it (listeners on the canvas miss them). A visitor sees it first; `look` opening: true shows how long it stays.
 Loaded: vase.glb 29.9 MB
 ```
@@ -172,7 +173,7 @@ With the page pointed at `models/vase-opt.glb`:
 ```text
 open {"url": "index.html", "cwd": "<project>", "network": "fast-4g"}
 
-First scene frame: 2.9 s after navigation on fast-4g, a first visit with no cache (scripts 2.19 MB by 2.8 s, vase-opt.glb 0.8 MB by 3.9 s, other 0 MB by 6.4 s); div#loading "Loading 0%" over the canvas gone at 6.8 s. Host load 13.0 on 64 cores.
+First scene frame: 2.9 s after navigation on fast-4g (8.1 Mbps down, 1.35 Mbps up, 165 ms latency), a first visit with no cache on a software renderer (no GPU: its shader compiles and first frame take far longer than a GPU's) (scripts 2.19 MB by 2.8 s, vase-opt.glb 0.8 MB by 3.9 s, other 0 MB by 6.4 s); div#loading "Loading 0%" over the canvas gone at 6.8 s. Host load 13.0 on 64 cores.
 
 perf {"budget": "site"}
 
@@ -193,7 +194,7 @@ bun build main.js --minify --outdir dist
 ```text
 open {"url": "dist/index.html", "cwd": "<project>", "network": "fast-4g"}
 
-First scene frame: 1.0 s after navigation on fast-4g, a first visit with no cache (main.js 0.6 MB by 1.0 s, vase-opt.glb 0.8 MB by 2.0 s, other 0 MB by 4.6 s); div#loading "Loading 0%" over the canvas gone at 5.0 s. Host load 17.9 on 64 cores.
+First scene frame: 1.0 s after navigation on fast-4g (8.1 Mbps down, 1.35 Mbps up, 165 ms latency), a first visit with no cache on a software renderer (no GPU: its shader compiles and first frame take far longer than a GPU's) (main.js 0.6 MB by 1.0 s, vase-opt.glb 0.8 MB by 2.0 s, other 0 MB by 4.6 s); div#loading "Loading 0%" over the canvas gone at 5.0 s. Host load 17.9 on 64 cores.
 
 perf {"budget": "site"}
 
@@ -201,7 +202,7 @@ perf {"budget": "site"}
 
 perf {"network": "slow-4g"}
 
-First scene frame: 4.7 s after navigation on slow-4g, a first visit with no cache (main.js 0.6 MB by 4.6 s, vase-opt.glb 0.8 MB by 9.9 s, other 0 MB by 9.9 s); div#loading "Loading 0%" over the canvas gone at 8.2 s; div#loading "Loading 64%" over the canvas gone at 8.3 s; div#loading "Loading 66%" over the canvas gone at 8.4 s; div#loading "Loading 69%" over the canvas gone at 8.6 s; div#loading "Loading 71%" over the canvas gone at 8.7 s; div#loading "Loading 73%" over the canvas gone at 8.8 s; div#loading "Loading 75%" over the canvas gone at 8.9 s; div#loading "Loading 78%" over the canvas gone at 9.0 s; div#loading "Loading 80%" over the canvas gone at 9.1 s; div#loading "Loading 82%" over the canvas gone at 9.2 s; div#loading "Loading 84%" over the canvas gone at 9.3 s; div#loading "Loading 86%" over the canvas gone at 9.4 s; div#loading "Loading 89%" over the canvas gone at 9.5 s; div#loading "Loading 91%" over the canvas gone at 9.6 s; div#loading "Loading 93%" over the canvas gone at 9.7 s; div#loading "Loading 95%" over the canvas gone at 9.8 s; div#loading "Loading 98%" over the canvas gone at 9.9 s; div#loading "Loading 100%" over the canvas gone at 10.3 s.
+First scene frame: 4.7 s after navigation on slow-4g (1.44 Mbps down, 675 kbps up, 562.5 ms latency), a first visit with no cache on a software renderer (no GPU: its shader compiles and first frame take far longer than a GPU's) (main.js 0.6 MB by 4.6 s, vase-opt.glb 0.8 MB by 9.9 s, other 0 MB by 9.9 s); div#loading "Loading 0%" over the canvas gone at 8.2 s; div#loading "Loading 64%" over the canvas gone at 8.3 s; div#loading "Loading 66%" over the canvas gone at 8.4 s; div#loading "Loading 69%" over the canvas gone at 8.6 s; div#loading "Loading 71%" over the canvas gone at 8.7 s; div#loading "Loading 73%" over the canvas gone at 8.8 s; div#loading "Loading 75%" over the canvas gone at 8.9 s; div#loading "Loading 78%" over the canvas gone at 9.0 s; div#loading "Loading 80%" over the canvas gone at 9.1 s; div#loading "Loading 82%" over the canvas gone at 9.2 s; div#loading "Loading 84%" over the canvas gone at 9.3 s; div#loading "Loading 86%" over the canvas gone at 9.4 s; div#loading "Loading 89%" over the canvas gone at 9.5 s; div#loading "Loading 91%" over the canvas gone at 9.6 s; div#loading "Loading 93%" over the canvas gone at 9.7 s; div#loading "Loading 95%" over the canvas gone at 9.8 s; div#loading "Loading 98%" over the canvas gone at 9.9 s; div#loading "Loading 100%" over the canvas gone at 10.3 s.
 ```
 
 On fast-4g every download is done by 2.0 s, and the one limit left over is the frame time this host cannot judge. The loading screen goes at 5.0 s; the time between the model's arrival and that is the page's own work on a software renderer, which a phone with a GPU does in its own time. On slow-4g the same page shows the vase at 10.3 s. The label sat at `Loading 0%` until 8.2 s, though the model had been arriving for a while: the page's start-up work was still holding the main thread, so the progress callbacks ran late.
@@ -272,7 +273,7 @@ new GLTFLoader(manager).setMeshoptDecoder(MeshoptDecoder).load('models/dog.glb',
 ```text
 open {"url": "fixed.html", "cwd": "<project>", "network": "fast-4g"}
 
-First scene frame: 2.9 s after navigation on fast-4g, a first visit with no cache (scripts 2.22 MB by 2.9 s, dog.glb 1.04 MB by 5.3 s, 902cb891-3444-4a26-9cc5-7b81c15815b2 0 MB by 5.3 s, room.hdr 1.57 MB by 5.8 s); div#loading "Loading" over the canvas gone at 10.1 s. Host load 25.5 on 64 cores.
+First scene frame: 2.9 s after navigation on fast-4g (8.1 Mbps down, 1.35 Mbps up, 165 ms latency), a first visit with no cache on a software renderer (no GPU: its shader compiles and first frame take far longer than a GPU's) (scripts 2.22 MB by 2.9 s, dog.glb 1.04 MB by 5.3 s, 902cb891-3444-4a26-9cc5-7b81c15815b2 0 MB by 5.3 s, room.hdr 1.57 MB by 5.8 s); div#loading "Loading" over the canvas gone at 10.1 s. Host load 25.5 on 64 cores.
 three.js warned: THREE.WebGLRenderer: KHR_parallel_shader_compile extension not supported. (×3)
 ```
 

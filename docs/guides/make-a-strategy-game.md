@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a strategy game in three.js: select units and send them around obstacles
 
@@ -275,7 +276,7 @@ Then grow it one piece at a time: a second kind of unit, a resource to gather, a
 A strategy game is hard for an agent to test by reading its code: selection depends on where things land on the screen, and a path depends on the map. paprika3d is a plugin for Claude Code, and an MCP server (the standard way to give tools to other coding agents), that opens the game in a hidden Chrome browser so the agent can play it. In Claude Code, install it with these two lines in a terminal (the window where you type commands):
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

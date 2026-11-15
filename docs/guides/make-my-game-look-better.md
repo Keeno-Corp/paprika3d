@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make my game look better: light, colour and camera in a three.js game
 
@@ -225,12 +226,12 @@ Never visible: none
 
 Both `Lighting:` lines and the `World's edge:` line are gone, and the player now covers 2.5% of the picture, a coral shape on green with its shadow under it. One line stays: the ground is a flat colour with no detail. That is the next step, a grass texture, and [free CC0 3D models and textures for three.js](/guides/free-cc0-3d-models-textures-threejs) says where to find one. These replies were captured on 2026-10-30 on a machine with no graphics card, where Chrome draws in software.
 
-Three more tools help with the look. `open` writes a file named `fx.js` into the project whose `stage` function sets up changes 1 and 4 in one call (tone mapping, the environment light, a sun with shadows that fit the scene, a ground that shows them). `asset_search` finds a ready-made model, texture or HDRI sky (a photo of a real sky that lights the scene) in a hosted library of CC0 and CC BY ones and adds it to the project. `reference` puts the game beside a picture you gave and says how much of it differs.
+Three more tools help with the look. `open` writes a file named `fx.js` into the project whose `stage` function sets up changes 1 and 4 in one call (tone mapping, the environment light, a sun with shadows that fit the scene, a ground that shows them). `asset_search` finds a ready-made model, texture or HDRI sky (a photo of a real sky that lights the scene) in a hosted library of CC0 and CC BY ones and adds it to the project; the skill has the agent search it before building a character, vehicle, building, prop or texture in code. `reference` puts the game beside a picture you gave and says how much of it differs.
 
 paprika3d does not decide whether your game is pretty. It measures what is on the screen (brightness, colour, what stands out, what is too small) and names setup mistakes; whether the result matches the look you want is yours to judge. To add it to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal, the window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

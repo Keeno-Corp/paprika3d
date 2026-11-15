@@ -16,12 +16,14 @@ import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { deflateSync, inflateSync } from "node:zlib";
 import type { Game, HarnessPage } from "./browser.ts";
+import { gpuLine, harnessLoads, uniq } from "./browser.ts";
 import { VIEWPORTS } from "./contract.ts";
 import { act, gameUp, play, GAME_LATE, type Step } from "./input.ts";
 import { fingerprint } from "./fingerprint.ts";
 import { harnessDir } from "./state.ts";
 import { SETUP } from "./lighting.ts";
 import { COPLANAR } from "./surfaces.ts";
+import { SKINNED_SCALE } from "./skinned-scale.ts";
 
 /** One object (or one instance, `name[i]`) on screen: its share of the canvas's pixels and its box in the picture's pixels. */
 export interface OnScreen { name: string; coverage: number; bbox: [x0: number, y0: number, x1: number, y1: number]; approximate?: true;
@@ -66,6 +68,7 @@ export interface Look { picture: string; ids: string; onScreen: OnScreen[]; neve
   /** fault lines the last look printed that this one lacks, in the last look's words: only after an edit, at the same frame and camera */ closed?: string[];
   /** the page's frame (FRAME) this look pictured */ frame?: number;
   /** the sizes of the render targets the last frame drew into when none of its calls drew to the screen (#130) */ offscreen?: string[];
+  /** with `offscreen`: the page has drawn no scene to the screen yet, so it is a game still loading, not a target left bound (dev #429) */ loading?: true;
   /** no part of the picture changed since the last look, though these keys of observe() did, top-level numbers aside (#130) */ unchanged?: string[];
   /** the Pixels, Hues and Stands out numbers are within 5 points of the last look's: the reply folds them unless one flags something */ numbersSame?: boolean;
   /** mean [brightness, saturation] of the nearest and farthest third of named objects (9 or more on screen), and whether the scene has fog */
@@ -73,8 +76,8 @@ export interface Look { picture: string; ids: string; onScreen: OnScreen[]; neve
   /** `Lighting: …` lines, the setup faults src/lighting.ts finds in the live scene */ setup?: string[];
   /** `Surfaces: …` lines, the coplanar faces src/surfaces.ts finds in the live scene */ surfaces?: string[];
   /** the coplanar check's note when its work or triangle limit ran out before every mesh was compared */ unchecked?: string[];
-  /** the largest object over 15% of the picture: its fine detail (of 255) and its strongest repeat (correlation, period in px, across or down) */
-  surface?: { name: string; share: number; detail: number; repeat?: number; every?: number; across?: boolean; ms: number } }
+  /** the largest object over 15% of the picture: its fine detail (of 255), its strongest repeat (correlation, period in px, across or down) and whether no material of it draws a pattern (plain) */
+  surface?: { name: string; share: number; detail: number; repeat?: number; every?: number; across?: boolean; plain?: boolean; ms: number } }
 
 /** The World's edge line: background where ground should be, below the horizon. */
 export const edgeText = (e: Look["edge"]) => e ? [`World's edge: ${Math.round(e.share * 100)}% of the picture is background below the horizon, in [${e.bbox.join(", ")}], past the far end of the ground: extend the ground, keep the camera over it, or fade it out with scene.fog.`] : [];
@@ -104,7 +107,7 @@ const VIEW = "const h = window.__harness, [scene, { renderer: r, camera: c0 }] =
 // for one pass) is as the frame left it, so look() replays only a frame drawn straight to the screen: an aurora
 // whose glow pass and upscale share one quad came out with the whole frame added to its sky (rgb 13,17,25 pictured
 // as 70,83,105), and an agent spent nine calls proving the picture wrong. A camera moved for one picture still needs it.
-const DRAW = `(() => { const h = window.__harness, saved = new Map();
+const DRAW = `(() => { const h = window.__harness, saved = new Map(), nodes = new Map();
   let frame = h.frame;
   if (!frame.length) { ${VIEW} frame = [{ r, target: null, scene, camera, auto: [true, true, true, true] }]; }
   h.depth++;
@@ -112,12 +115,16 @@ const DRAW = `(() => { const h = window.__harness, saved = new Map();
     for (const e of frame) {
       const r = e.r;
       if (!saved.has(r)) saved.set(r, [r.getRenderTarget(), r.autoClear, r.autoClearColor, r.autoClearDepth, r.autoClearStencil, { ...r.info.render }, r.toneMapping, r.outputColorSpace]);
+      // PassNode renders once per NodeFrame. Refresh its render-preparation cache, not the frame or node time.
+      const nf = r._nodes?.nodeFrame;
+      if (nf && !nodes.has(nf)) { nodes.set(nf, nf.updateBeforeMap); nf.updateBeforeMap = new WeakMap(); }
       r.setRenderTarget(e.target);
       if (e.clear) r.clear(...e.clear);
       else { [r.autoClear, r.autoClearColor, r.autoClearDepth, r.autoClearStencil] = e.auto; if (e.out) [r.toneMapping, r.outputColorSpace] = e.out; h.raw.get(r).call(r, e.scene, e.camera && h.lookCam?.from === e.camera ? h.lookCam.to : e.camera); }
     }
   } finally {
     h.depth--;
+    for (const [nf, before] of nodes) nf.updateBeforeMap = before;
     for (const [r, [target, a, c, d, s, info, tone, space]] of saved) {
       r.setRenderTarget(target); r.autoClear = a; r.autoClearColor = c; r.autoClearDepth = d; r.autoClearStencil = s; r.toneMapping = tone; r.outputColorSpace = space;
       Object.assign(r.info.render, info);
@@ -136,9 +143,8 @@ const HUE = `const HUES = ["red", "orange", "yellow", "green", "cyan", "blue", "
 // Runs in the page with the fallback three URL. window.__harnessLook keeps the material between looks of one page load.
 const PASS = `(async (url, shot, cell) => { ${HUE}
   ${VIEW} const L = window.__harnessLook ??= {};
-  // a mesh seen through: transparent below half opacity, or transparent without writing depth (an additive beam)
-  L.see = o => { const m = [o.material].flat()[0]; return !!(o.isMesh && m?.transparent && m.opacity < 0.5); };
-  // shortcut: the node material keeps FrontSide and solid draws for every object (no per-draw hook), so #60 and #91 stay on WebGPU; give it one if a WebGPU game hits them
+  // a mesh or sprite seen through: transparent below half opacity, or additive (an engine glow adds light over what is behind it, dev #330)
+  L.see = o => { const m = [o.material].flat()[0]; return !!((o.isMesh || o.isSprite) && m && (m.transparent && m.opacity < 0.5 || m.blending === 2)); };
   if (!L.mat && r.isWebGPURenderer) { // a node material: WebGPURenderer draws no GLSL, on either of its backends
     const R = window.__threeRuntime?.THREE, T = R?.MeshBasicNodeMaterial ? R : await import(url);
     L.from = T === R ? "runtime" : url;
@@ -148,9 +154,41 @@ const PASS = `(async (url, shot, cell) => { ${HUE}
     const byte = (k) => float(n.shiftRight(k).bitAnd(255)).div(255);
     // the material's class is the game's own (its renderer's library): TSL's assign needs the stack of the copy of three that
     // builds the shader, so a second copy's (Vite prebundles the game's) dropped instancing (#137) and threw in setupFog (#134)
-    L.mat = new (r.library?.getMaterialNodeClass?.("MeshBasicMaterial") ?? T.MeshBasicNodeMaterial)();
+    L.Basic = r.library?.getMaterialNodeClass?.("MeshBasicMaterial") ?? T.MeshBasicNodeMaterial;
+    // each copy of three numbers its nodes from 0 and a shader build shares nodes by Node.getHash (that number), so beside
+    // the game's copy a pass node took the place of a game node of the same id: "i32(mat4x4<f32>)" in the id shader (dev #331)
+    if (T.Node && !(new L.Basic() instanceof T.NodeMaterial)) T.Node.prototype.getHash = function () { return "harness:" + this.id; };
+    L.mat = new L.Basic();
     L.mat.fog = false; // fog would mix the ids with its colour
-    L.mat.fragmentNode = vec4(byte(0), byte(8), byte(16), 1); // the whole output: no tone mapping or colour space
+    L.mat.fragmentNode = L.idColor = vec4(byte(0), byte(8), byte(16), 1); // the whole output: no tone mapping or colour space
+    const one = (k) => float(id.shiftRight(k).bitAnd(255)).div(255);
+    L.idOne = vec4(one(0), one(8), one(16), 1); // a Sprite drawn sprite.count times is one object, every copy its one id
+    L.Sprite = r.library?.getMaterialNodeClass?.("SpriteMaterial") ?? T.SpriteNodeMaterial;
+    L.Points = r.library?.getMaterialNodeClass?.("PointsMaterial") ?? T.PointsNodeMaterial;
+    // a cut-out card (alphaTest: grass, leaves), a mesh drawn from its back or both sides (a BackSide sky sphere, dev #280)
+    // and a Sprite (its own vertex code places it, and a SpriteNodeMaterial's positionNode each copy of it, dev #280) draw
+    // in a second pass in a material of their own that drops the texels their material drops (three's own map, alphaMap,
+    // opacity and alphaTest) and keeps its side, its output the id; one per source material
+    L.cuts = new WeakMap();
+    // an InstancedMesh in a SpriteNodeMaterial (a bullet batch, dev #307) is placed by the sprite's vertex code too: a mesh
+    // material takes its positionNode as every vertex's position, so each quad shrank to a point
+    L.sprite = o => !!(o.isSprite || o.material?.isSpriteNodeMaterial);
+    L.cut = (m, o) => {
+      let c = L.cuts.get(m);
+      // a Sprite in a PointsNodeMaterial is a point of its size in pixels (three's GPU particles): as a plain sprite each copy
+      // drew a unit quad, unattenuated the whole frame, and hid every object behind it (dev #436)
+      const spr = L.sprite(o), pts = spr && !o.isPoints && m.isPointsNodeMaterial;
+      if (!c) { c = pts ? new L.Points() : spr ? new L.Sprite() : new L.Basic(); c.fog = false; c.toneMapped = false; c.transparent = false; c.depthWrite = true; L.cuts.set(m, c); }
+      // a Sprite's copies, and a mesh's instances whose count its indirect buffer holds (a GPU-culled forest, dev #322), are one object: every copy its one id
+      const out = o.isSprite || o.geometry?.indirect ? L.idOne : L.idColor;
+      if (c.outputNode !== out) { c.outputNode = out; c.needsUpdate = true; }
+      if (c.map !== m.map || c.alphaMap !== m.alphaMap || c.positionNode !== (m.positionNode ?? null) || c.maskNode !== (m.maskNode ?? null) || (spr && (c.scaleNode !== m.scaleNode || c.rotationNode !== m.rotationNode))) c.needsUpdate = true;
+      // its positionNode and maskNode too: a clipmap terrain's levels drew flat at y = 0 and unmasked, covering the rider (dev #317)
+      Object.assign(c, { map: m.map ?? null, alphaMap: m.alphaMap ?? null, alphaTest: m.alphaTest, opacity: m.opacity, side: m.side ?? 0, positionNode: m.positionNode ?? null, maskNode: m.maskNode ?? null });
+      if (pts) { if (c.sizeNode !== (m.sizeNode ?? null)) c.needsUpdate = true; Object.assign(c, { size: m.size ?? 1, sizeNode: m.sizeNode ?? null }); }
+      if (spr) Object.assign(c, { scaleNode: m.scaleNode ?? null, rotationNode: m.rotationNode ?? null, rotation: m.rotation ?? 0, sizeAttenuation: m.sizeAttenuation ?? true });
+      return c;
+    };
   }
   if (!L.mat) {
     const T = window.__threeRuntime?.THREE ?? await import(url);
@@ -158,8 +196,9 @@ const PASS = `(async (url, shot, cell) => { ${HUE}
     L.T = T;
     L.mat = new T.ShaderMaterial({
       glslVersion: "300 es",
-      uniforms: { objectId: { value: 0 }, pointSize: { value: 1 }, pointScale: { value: 0 } },
-      vertexShader: \`flat out int vInst; uniform float pointSize, pointScale;
+      uniforms: { objectId: { value: 0 }, pointSize: { value: 1 }, pointScale: { value: 0 }, alphaTest: { value: 0 }, opacity: { value: 1 }, hasMap: { value: false }, hasAlphaMap: { value: false },
+        cutMap: { value: null }, cutAlphaMap: { value: null }, mapTransform: { value: [1, 0, 0, 0, 1, 0, 0, 0, 1] }, alphaMapTransform: { value: [1, 0, 0, 0, 1, 0, 0, 0, 1] } },
+      vertexShader: \`flat out int vInst; out vec2 vMapUv, vAlphaMapUv; uniform float pointSize, pointScale; uniform mat3 mapTransform, alphaMapTransform;
         #include <common>
         #include <batching_pars_vertex>
         #include <morphtarget_pars_vertex>
@@ -172,6 +211,7 @@ const PASS = `(async (url, shot, cell) => { ${HUE}
           #include <morphtarget_vertex>
           #include <skinning_vertex>
           #include <project_vertex>
+          vMapUv = (mapTransform * vec3(uv, 1)).xy; vAlphaMapUv = (alphaMapTransform * vec3(uv, 1)).xy;
           gl_PointSize = pointScale > 0.0 && isPerspectiveMatrix(projectionMatrix) ? pointSize * pointScale / -mvPosition.z : pointSize; // three's points_vert
           #ifdef USE_INSTANCING
             vInst = gl_InstanceID;
@@ -179,14 +219,25 @@ const PASS = `(async (url, shot, cell) => { ${HUE}
             vInst = 0;
           #endif
         }\`.replace(/#include <([a-z_]+)>/g, (inc, name) => !T.ShaderChunk || name in T.ShaderChunk ? inc : ""), // an older three lacks newer chunks (r160 has no morphinstance_vertex)
-      fragmentShader: \`flat in int vInst; uniform int objectId; out vec4 outColor;
+      fragmentShader: \`flat in int vInst; in vec2 vMapUv, vAlphaMapUv; uniform int objectId; uniform float alphaTest, opacity; uniform bool hasMap, hasAlphaMap; uniform sampler2D cutMap, cutAlphaMap; out vec4 outColor;
         void main() { int id = objectId + vInst;
+          if (alphaTest > 0.0) { // a cut-out card (grass, leaves) drops the texels its own material drops, as three's alphatest does
+            float a = opacity;
+            if (hasMap) a *= texture(cutMap, vMapUv).a;
+            if (hasAlphaMap) a *= texture(cutAlphaMap, vAlphaMapUv).g;
+            if (a < alphaTest) discard;
+          }
           outColor = vec4(float(id & 255) / 255.0, float((id >> 8) & 255) / 255.0, float((id >> 16) & 255) / 255.0, 1.0); }\`,
     });
     L.mat.onBeforeRender = (r, _s, _c, _g, o, grp) => {
       const u = L.mat.uniforms, m0 = Array.isArray(o.material) ? o.material[grp?.materialIndex ?? 0] : o.material, m = o.isPoints ? m0 : null; // unset, gl_PointSize is undefined
       u.objectId.value = L.ids.get(o) ?? 0; u.pointSize.value = m?.size ?? 1;
-      u.pointScale.value = m?.sizeAttenuation ? (r.getRenderTarget()?.height ?? r.domElement.height) / 2 : 0; L.mat.uniformsNeedUpdate = true;
+      u.pointScale.value = m?.sizeAttenuation ? (r.getRenderTarget()?.height ?? r.domElement.height) / 2 : 0;
+      const cut = !o.isPoints && m0?.alphaTest > 0, tex = (t, k) => { if (t?.matrixAutoUpdate) t.updateMatrix(); u[k].value = t?.matrix.elements ?? [1, 0, 0, 0, 1, 0, 0, 0, 1]; return t ?? null; };
+      u.alphaTest.value = cut ? m0.alphaTest : 0; u.opacity.value = m0?.opacity ?? 1;
+      u.cutMap.value = cut ? tex(m0.map, "mapTransform") : null; u.cutAlphaMap.value = cut ? tex(m0.alphaMap, "alphaMapTransform") : null;
+      u.hasMap.value = !!u.cutMap.value; u.hasAlphaMap.value = !!u.cutAlphaMap.value;
+      L.mat.uniformsNeedUpdate = true;
       // each draw culls and writes depth as its own material does (three r186 reads side and depthWrite in state.setMaterial,
       // after this call, and neither recompiles): a BackSide sky was culled (blender-pilot-2, #60) and a see-through beam hid the
       // flag behind it (natural-1, #91); a see-through mesh draws nothing here
@@ -217,18 +268,34 @@ const PASS = `(async (url, shot, cell) => { ${HUE}
 
   const w = r.domElement.width, ht = r.domElement.height, buf = new Uint8Array(w * ht * 4);
   const rt = new (r.isWebGPURenderer ? L.T.RenderTarget : L.T.WebGLRenderTarget)(w, ht); // no MSAA, so edges never blend two ids
-  const prev = { override: scene.overrideMaterial, bg: scene.background, target: r.getRenderTarget(),
+  const prev = { override: scene.overrideMaterial, bg: scene.background, bgNode: scene.backgroundNode, target: r.getRenderTarget(),
     clear: r.getClearColor(new L.T.Color()), alpha: r.getClearAlpha(), info: { ...r.info.render } };
+  // WebGPU's pass has no per-draw hook, so its cut-out cards, masked (maskNode, which the override material drops) back- and
+  // double-sided meshes, indirect-drawn meshes and sprites draw after the rest (see L.cut)
+  // WebGPU's node material has no per-draw hook either, so a see-through object is hidden for the pass there (dev #330)
+  const sees = r.isWebGPURenderer ? objs.filter(o => o.visible && L.see(o)) : [];
+  const cuts = r.isWebGPURenderer ? objs.filter(o => o.visible && !sees.includes(o) && !Array.isArray(o.material) && (L.sprite(o) || o.isMesh && (o.material?.alphaTest > 0 || o.material?.side || o.material?.maskNode || o.geometry?.indirect))) : [];
+  const swapped = new Map(), drawnFirst = cuts.length ? objs.filter(o => o.visible && !cuts.includes(o) && !sees.includes(o)) : [];
+  const draw = () => (window.__threeRuntime?.originals ?? (f => f()))(() => h.raw.get(r).call(r, scene, camera));
   h.depth++; // the pass's clear and render are not the game's frame
   try {
-    for (const o of hidden) o.visible = false;
+    for (const o of [...hidden, ...sees, ...cuts]) o.visible = false;
     scene.overrideMaterial = L.mat;
     scene.background = null;
+    // a WebGPU scene's backgroundNode (a TSL sky) draws a mesh with no depth test, and the cut pass below draws without the override material, so it painted over every id the first draw wrote (dev #323)
+    if (prev.bgNode) scene.backgroundNode = null;
     r.setRenderTarget(rt);
     r.setClearColor(0x000000, 1);
     r.clear();
     // The runtime's auto-instancing draws its grouped originals here instead of their instances, so ids name them.
-    (window.__threeRuntime?.originals ?? (f => f()))(() => h.raw.get(r).call(r, scene, camera));
+    draw();
+    if (cuts.length) {
+      for (const o of drawnFirst) o.visible = false;
+      for (const o of cuts) { o.visible = true; swapped.set(o, o.material); o.material = L.cut(o.material, o); }
+      scene.overrideMaterial = null;
+      const clear = r.autoClear; r.autoClear = false;
+      try { draw(); } finally { r.autoClear = clear; }
+    }
     if (!r.isWebGPURenderer) r.readRenderTargetPixels(rt, 0, 0, w, ht, buf);
     else if (!r.backend.isWebGPUBackend) { // WebGPURenderer's own read on its WebGL 2 backend waits on a fence it polls with rAF, which the paused clock never runs
       const gl = r.getContext(), { textureGPU } = r.backend.get(rt.texture), fb = gl.createFramebuffer(), was = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);
@@ -243,19 +310,21 @@ const PASS = `(async (url, shot, cell) => { ${HUE}
     }
   } finally {
     h.depth--;
-    for (const o of hidden) o.visible = true;
+    for (const [o, m] of swapped) o.material = m;
+    for (const o of [...hidden, ...sees, ...cuts, ...drawnFirst]) o.visible = true;
     scene.overrideMaterial = prev.override;
     scene.background = prev.bg;
+    if (prev.bgNode) scene.backgroundNode = prev.bgNode;
     r.setRenderTarget(prev.target);
     r.setClearColor(prev.clear, prev.alpha);
     Object.assign(r.info.render, prev.info); // the pass is not one of the game's frames
     rt.dispose();
   }
 
-  // A material that places its own vertices (a ShaderMaterial, or a built-in one changed in onBeforeCompile: a sky dome at
+  // A material that places its own vertices (a ShaderMaterial, a node material's vertexNode, or a built-in one changed in onBeforeCompile: a sky dome at
   // gl_Position.xyww, wind-bent trees) draws elsewhere than the id pass, which uses three's own vertex code.
   // A see-through mesh draws nothing in the pass (L.see), so it is listed with them.
-  const own = o => L.see(o) || [o.material].flat().some(m => m?.isShaderMaterial || (m && Object.hasOwn(m, "onBeforeCompile")));
+  const own = o => L.see(o) || [o.material].flat().some(m => m?.isShaderMaterial || m?.vertexNode || (m && Object.hasOwn(m, "onBeforeCompile")));
 
   // where the canvas sits on the page, so boxes come back in the picture's pixels rather than the drawing buffer's
   const rect = r.domElement.getBoundingClientRect();
@@ -306,12 +375,25 @@ const PASS = `(async (url, shot, cell) => { ${HUE}
   // down the road through 25 looks unflagged (a6f6e9cf). Geometry box times matrixWorld's column lengths, no vertex walk.
   const XM = camera.matrixWorld.clone(), XV = camera.position.clone(), UP = camera.up.clone().normalize(), GF = camera.getWorldDirection(camera.position.clone());
   GF.addScaledVector(UP, -GF.dot(UP));
+  // A skinned mesh's box in its own frame, as its skin draws it now: its geometry's box is the file's, not the drawn
+  // shape (a library horse 2.15 units tall read 0.09, dev #418). At most 4,096 vertices are posed, evenly spread.
+  const skins = new Map();
+  const skinned = o => {
+    if (!o.isSkinnedMesh || !o.skeleton || !o.getVertexPosition || !o.geometry?.attributes?.position) return null;
+    if (skins.has(o)) return skins.get(o);
+    const g = o.geometry, n = g.attributes.position.count, step = Math.max(1, Math.ceil(n / 4096)), v = camera.position.clone();
+    g.boundingBox ?? g.computeBoundingBox();
+    let box = g.boundingBox.clone().makeEmpty();
+    for (let i = 0; i < n; i += step) box.expandByPoint(o.getVertexPosition(i, v));
+    skins.set(o, box = box.isEmpty() || ![box.min.x, box.max.x, box.min.y, box.max.y, box.min.z, box.max.z].every(Number.isFinite) ? null : box);
+    return box;
+  };
   const extent = (o, i) => {
     const g = o.geometry;
     if (!g?.isBufferGeometry || o.isSprite || o.isPoints) return null;
     g.boundingBox ?? g.computeBoundingBox();
     if (o.isInstancedMesh) { o.getMatrixAt(i, XM); XM.premultiply(o.matrixWorld); } else XM.copy(o.matrixWorld);
-    const s = g.boundingBox.getSize(XV), e = XM.elements, len = [0, 1, 2].map(k => s.getComponent(k) * Math.hypot(e[4 * k], e[4 * k + 1], e[4 * k + 2]));
+    const s = (skinned(o) ?? g.boundingBox).getSize(XV), e = XM.elements, len = [0, 1, 2].map(k => s.getComponent(k) * Math.hypot(e[4 * k], e[4 * k + 1], e[4 * k + 2]));
     const [a, b, c] = [0, 1, 2].sort((p, q) => len[q] - len[p]);
     if (!len[a] || !(len[a] >= 3 * len[b] || len[c] < len[a] / 10)) return null;
     const L = XV.set(e[4 * a], e[4 * a + 1], e[4 * a + 2]), full = L.length(); L.addScaledVector(UP, -L.dot(UP)); // on the ground, by camera.up
@@ -366,7 +448,11 @@ const PASS = `(async (url, shot, cell) => { ${HUE}
     let shown = true;
     for (let x = o; x; x = x.parent) if (!x.visible) { shown = false; break; }
     if (!shown || own(o)) { missing.set(o.name, [0, shown ? "own shader" : "hidden", null, g?.name]); continue; }
-    const box = new Box3().setFromObject(o);
+    // an InstancedMesh keeps the box it had when first asked (a forest at count 0, before its streamer filled it), so measure its instances now
+    // and a skinned mesh is measured as its skin draws it, whatever box the mesh or its geometry keeps (dev #418)
+    const kept = o.boundingBox, skin = skinned(o); if (o.isInstancedMesh) o.boundingBox = null;
+    const box = skin && !o.children.length ? skin.clone().applyMatrix4(o.matrixWorld) : new Box3().setFromObject(o);
+    if (o.isInstancedMesh) o.boundingBox = kept;
     // an empty particle pool (burst() before its first emit) is not missing: "sparks (0 units, no geometry)" on every look (opinion-3, opinion-4)
     if (box.isEmpty()) { if (o.isPoints) names.delete(o.name); else missing.set(o.name, [0, "no geometry", null, g?.name]); continue; }
     const size = box.getSize(camera.position.clone()), v = camera.position.clone();
@@ -472,9 +558,13 @@ const PASS = `(async (url, shot, cell) => { ${HUE}
           for (let k = Math.max(1, dip + 1); dip >= 0 && k < c.length - 1; k++)
             if (c[k] >= c[k - 1] && c[k] >= c[k + 1] && c[k] > 0 && (!peak || c[k] > peak.corr + 0.05)) peak = { corr: c[k], px: 2 * (k + 3), across: !dy };
         }
-        const o = top.o;
+        // plain: no piece's material draws a pattern of its own (a texture, a node, a shader, vertex colours), so a repeat
+        // is the lights' or the layout's, which no texture scale changes (dev #319: a plaza under rows of point lights)
+        const patterned = m => !m || m.isShaderMaterial || m.vertexColors || Object.hasOwn(m, "onBeforeCompile")
+          || Object.entries(m).some(([k, v]) => v?.isTexture || (v && k.endsWith("Node")));
+        const o = top.o, plain = !top.ids.some(id => [objs[owner[id]]?.material].flat().some(patterned));
         surface = { name: o.name || o.geometry?.type || o.type, share: bn / (w * ht), detail: +(255 * lap / nl).toFixed(2),
-          ...peak ? { repeat: +peak.corr.toFixed(3), every: peak.px, across: peak.across } : {}, ms: Math.round(__clock.realNow() - t0) };
+          ...peak ? { repeat: +peak.corr.toFixed(3), every: peak.px, across: peak.across } : {}, ...plain ? { plain } : {}, ms: Math.round(__clock.realNow() - t0) };
       }
     }
   } catch {}
@@ -604,31 +694,50 @@ const VIEWS = `((name) => { ${VIEW}
 })`;
 
 // Before a look: a page that has drawn no frame to the screen (straight after load or reload, or one that drew only into
-// a render target, an environment bake) steps one. A game still setting up (its loop starts once its models are in)
+// a render target, an environment bake) steps one. A RenderPipeline presents a quad, not its main Scene, to the screen.
+// A game still setting up (its loop starts once its models are in)
 // then gets a frame every 50 ms of real time for up to 5 s, so a look straight after `open` does not fail on it.
 // The 5 s is real time, not a frame count: 100 frames of a game building its world at 1.8 s a frame on a software
 // renderer passed the 180 s protocol timeout (AA-3D P2/#25).
-export const FIRST = `(async () => { __clock.pause(); if (__harness.main()?.[1].screen) return;
+// Drawn means a scene or quad rendered to the screen: a clear of the canvas and an environment bake (which fills `views`)
+// are a game still awaiting its models or shaders, and a look then pictured the cleared canvas (dev #429).
+export const FIRST = `(async () => { __clock.pause(); const drawn = () => __harness.views.size && __harness.shown; if (drawn()) return;
   await __clock.step(1);
   const raw = () => __harness.gl.size && !__harness.renderers.length; // raw WebGL never fills views: don't wait for it
-  for (const end = __clock.realNow() + 5000; !__harness.views.size && !raw() && __clock.realNow() < end;) { await __clock.realSleep(50); await __clock.step(1); } })()`;
+  for (const end = __clock.realNow() + 5000; !drawn() && !raw() && __clock.realNow() < end;) { await __clock.realSleep(50); await __clock.step(1); } })()`;
 const NOT_DRAWN = "look: the game has not drawn a three.js scene after 5 s of stepping frames; if it is still loading or building, step it with `interact` { steps: [{ wait: frames }] } and look again";
+/** NOT_DRAWN, or the errors the page threw since `from` (game.errors' length before FIRST stepped it): a render loop that
+    throws on every frame never draws, and waiting longer will not help (dev #298). */
+function notDrawn(game: Game, from: number) {
+  const thrown = uniq(game.errors.slice(from).map(e => e.split("\n")[0]!.slice(0, 300)), 3);
+  return new Error(thrown.length ? `look: the game has not drawn a three.js scene after 5 s of stepping frames, and its frames threw:\n${thrown.join("\n")}\nFix the error: a frame that throws before it renders draws nothing` : NOT_DRAWN);
+}
 const REDRAW = (moved: boolean) => `if (__harness.views.size && (${moved} || !__harness.frame.some(e => e.target))) ${DRAW};`;
 
 /** PASS_FN's word on a named object that drew nothing: size, where, what covers it, its named ancestor, and whether that ancestor holds the cover. */
 type Where = [number, NeverVisible["where"], (string | null)?, (string | null)?, boolean?];
 const runs = new WeakMap<Game, { n: number; all: Set<string>; seen: Set<string>; where: Map<string, Where> }>();
 
-/** The second copy of three for a game without the runtime layer: the project's own three when it is the game's
+/** The three look's id pass and probe import for a game without the runtime layer: the page's own (the bare specifier
+    its import map resolves) when it is the game's revision, else a second copy: the project's own three when it is that
     revision, served by the harness and the page may import it, else the same revision from jsDelivr. A page's
     Content-Security-Policy can refuse the harness's http server (every *.paprika3d.app game's allows https: alone, #176). */
 export async function threeUrl(game: Game, revision: string, webgpu = false) {
   const build = webgpu ? "three.webgpu.js" : "three.module.js";
+  // the page's own three first, when its import map resolves it at the renderer's revision: another URL is a second
+  // copy, and three warns "Multiple instances of Three.js being imported" on a page that loads one (dev #423)
+  const own = await game.page.evaluate(`(async () => { for (const s of ${JSON.stringify(webgpu ? ["three/webgpu", "three"] : ["three"])}) {
+    const T = await import(s).catch(() => null);
+    if (T && T.REVISION === ${JSON.stringify(revision)} && (${webgpu} ? T.MeshBasicNodeMaterial && T.TSL : T.ShaderMaterial) && T.Raycaster) return s;
+  } return null; })()`).catch(() => null) as string | null;
+  if (own) return own;
   try {
     const v = JSON.parse(readFileSync(join(game.root, "node_modules/three/package.json"), "utf8")).version;
     if (v.split(".")[1] === revision) {
       const own = new URL(`node_modules/three/build/${build}`, game.files);
-      if (own.origin === new URL(game.page.url()).origin || await game.page.evaluate(`import(${JSON.stringify(own.href)}).then(() => true, () => false)`)) return own.href;
+      if (own.origin === new URL(game.page.url()).origin) return own.href;
+      harnessLoads.add(own.href);
+      if (await game.page.evaluate(`import(${JSON.stringify(own.href)}).then(() => true, () => false)`)) return own.href;
     }
   } catch {}
   return `https://cdn.jsdelivr.net/npm/three@0.${revision}/build/${build}`;
@@ -648,7 +757,7 @@ async function keepSeed<T>(game: Game, fn: () => Promise<T>): Promise<T> {
 /** SETUP's and COPLANAR's lines on the page as it is now. COPLANAR's "Surfaces: not checked for N of M meshes" note is not
     a fault: the Stop hook, faultsSame and closed read only its fight lines. `fights` false skips COPLANAR. */
 async function pageFaults(page: HarnessPage, known?: Known, fights = true) {
-  const all = await page.evaluate(SETUP).catch(() => []) as string[], coplanar = fights ? await page.evaluate(COPLANAR).catch(() => []) as string[] : [];
+  const all = await page.evaluate(`([...${SETUP}, ...${SKINNED_SCALE}])`).catch(() => []) as string[], coplanar = fights ? await page.evaluate(COPLANAR).catch(() => []) as string[] : [];
   const hidden: string[] = [], keep = (l: string) => { const k = known?.line(l); if (k) hidden.push(k); return !k; };
   const note = (l: string) => l.startsWith("Surfaces: not checked"), setup = all.filter(keep), surfaces = coplanar.filter(l => !note(l) && keep(l));
   return { setup, surfaces, unchecked: coplanar.filter(note), hidden };
@@ -681,17 +790,19 @@ export function look(game: Game, { moved = false, peek = false, edited = false, 
     const { page } = game;
     const resized = await resizeProbe(game, probed);
     // `moved`: a camera moved for this picture, which only a redraw shows.
+    const from = game.errors.length;
     await page.evaluate(FIRST);
     // offscreen: the last frame's top-level calls all drew into render targets after the game had drawn to the screen, so
     // the canvas kept an older frame: the Backrooms build's feedback node left its target bound, and pictures stayed on
     // frame 1 while the state played on (#130); state: observe() as JSON, for a picture the same as the last one's
-    const { views, raw, revision, webgpu, offscreen, state } = await page.evaluate(`${REDRAW(moved)}
+    const { views, raw, revision, webgpu, offscreen, loading, state } = await page.evaluate(`${REDRAW(moved)}
       ({ views: __harness.views.size, raw: __harness.gl.size > 0 && !__harness.renderers.length, revision: String(__harness.revision),
         webgpu: !!__harness.main()?.[1].renderer.isWebGPURenderer,
-        offscreen: (f => f.length && __harness.firstFrameAt !== undefined && f.every(e => e.target) ? [...new Set(f.map(e => e.target.width + "×" + e.target.height))] : null)(__harness.frame),
+        offscreen: (f => f.length && (__harness.firstFrameAt !== undefined || !__harness.shown) && f.every(e => e.target) ? [...new Set(f.map(e => e.target.width + "×" + e.target.height))] : null)(__harness.frame),
+        loading: !__harness.shown,
         state: (() => { try { return JSON.stringify(window.__game?.observe?.() ?? null); } catch { return null; } })() })`) as
-      { views: number; raw: boolean; revision: string; webgpu: boolean; offscreen: string[] | null; state: string | null };
-    if (!views && !raw) throw new Error(NOT_DRAWN);
+      { views: number; raw: boolean; revision: string; webgpu: boolean; offscreen: string[] | null; loading: boolean; state: string | null };
+    if (!views && !raw) throw notDrawn(game, from);
     const run = runs.get(game) ?? { n: 0, all: new Set<string>(), seen: new Set<string>(), where: new Map() };
     runs.set(game, run);
     const n = ++run.n;
@@ -709,7 +820,7 @@ export function look(game: Game, { moved = false, peek = false, edited = false, 
       ...(c?.reduce && prev && c.frame > prev.frame ? { reduced: c.frame - prev.frame } : {}) } : undefined;
     if (st && !peek) lastGrid.set(game, { grid: st.grid, frame: c?.frame ?? 0 });
     const was = lastState.get(game), keys = pixels?.changed === 0 && state !== null && was != null && was !== state ? keysChanged(JSON.parse(was), JSON.parse(state)) : [];
-    const stale = { ...offscreen ? { offscreen } : {}, ...keys.length ? { unchanged: keys } : {} };
+    const stale = { ...offscreen ? { offscreen } : {}, ...offscreen && loading ? { loading: true as const } : {}, ...keys.length ? { unchanged: keys } : {} };
     if (!peek) lastState.set(game, state);
     // raw WebGL has no scene graph to name objects from, so the picture and its pixels are all there is
     // a canvas 0 px tall or wide has no pixels for the ID pass to read (#96): the Canvas line says why
@@ -778,11 +889,11 @@ export function look(game: Game, { moved = false, peek = false, edited = false, 
     a picture. Throws as look() does on a page that has drawn no three.js scene. */
 export function faultsNow(game: Game): Promise<{ lines: string[]; frame: number; partial: boolean }> {
   return game.queue(() => keepSeed(game, async () => {
-    const { page } = game;
+    const { page } = game, from = game.errors.length;
     await page.evaluate(FIRST);
     const { views, raw } = await page.evaluate(`${REDRAW(false)}
       ({ views: __harness.views.size, raw: __harness.gl.size > 0 && !__harness.renderers.length })`) as { views: number; raw: boolean };
-    if (!views && !raw) throw new Error(NOT_DRAWN);
+    if (!views && !raw) throw notDrawn(game, from);
     const c = await page.evaluate(CANVAS) as { buffer: [number, number]; frame: number } | null, frame = c?.frame ?? 0;
     if (!views || (c && !(c.buffer[0] && c.buffer[1]))) return { lines: [], frame, partial: false }; // as look: raw WebGL or a 0 px canvas has no fault lines
     // COPLANAR reads matrixWorld as the last render left it, and look's id pass renders the scene, so the scene's matrices are
@@ -855,15 +966,16 @@ export function keepCams(cwd: string, cams: (Cam & { label?: string })[]): strin
   return kept.map(c => c.label);
 }
 /** Puts `__harness.lookCam` in place of the camera that last drew the main scene, after a first frame; returns its removal. */
-async function placeCam(game: Game, cam: Cam): Promise<() => Promise<unknown>> {
+async function placeCam(game: Game, cam: Cam & { quaternion?: number[] }): Promise<() => Promise<unknown>> {
+  const from = game.errors.length;
   await game.page.evaluate(FIRST);
   const placed = await game.page.evaluate(`(() => {
     const c = __harness.main()?.[1].camera; if (!c) return false;
     const to = c.clone(false);
     to.position.fromArray(${JSON.stringify(cam.position)});
-    ${cam.lookAt ? `to.lookAt(...${JSON.stringify(cam.lookAt)});` : "c.getWorldQuaternion(to.quaternion);"}
+    ${cam.quaternion ? `to.quaternion.fromArray(${JSON.stringify(cam.quaternion)});` : cam.lookAt ? `to.lookAt(...${JSON.stringify(cam.lookAt)});` : "c.getWorldQuaternion(to.quaternion);"}
     to.updateMatrixWorld(); __harness.lookCam = { from: c, to }; return true; })()`);
-  if (!placed) throw new Error(NOT_DRAWN);
+  if (!placed) throw notDrawn(game, from);
   return () => game.page.evaluate("delete __harness.lookCam");
 }
 
@@ -871,9 +983,11 @@ async function placeCam(game: Game, cam: Cam): Promise<() => Promise<unknown>> {
     right, top and a three-quarter angle, in one 2×2 picture. Returns its path and the object's world size and centre. */
 export function views(game: Game, name: string): Promise<{ picture: string; size: number[]; center: number[] }> {
   return game.queue(() => keepSeed(game, async () => {
+    const from = game.errors.length;
     await game.page.evaluate(FIRST);
-    const r = await game.page.evaluate(`__harness.views.size ? ${VIEWS}(${JSON.stringify(name)}) : { error: "${NOT_DRAWN.slice(6)}" }`) as
+    const r = await game.page.evaluate(`__harness.views.size ? ${VIEWS}(${JSON.stringify(name)}) : { error: "not drawn" }`) as
       { error?: string; png: string; size: number[]; center: number[] };
+    if (r.error === "not drawn") throw notDrawn(game, from);
     if (r.error) throw new Error(`look: ${r.error}`);
     const run = runs.get(game) ?? { n: 0, all: new Set<string>(), seen: new Set<string>(), where: new Map() };
     runs.set(game, run);
@@ -1025,8 +1139,9 @@ export function foldedText(l: Pick<Look, "pixels" | "subject" | "numbersSame">):
 
 /** A picture that may be older than the game: its last frame drew only into render targets, or it is the last look's
     picture though the state moved on (#130). */
-export const staleText = (l: Pick<Look, "offscreen" | "unchanged">) => [
-  ...l.offscreen ? [`Last frame: every render call drew into a render target (${l.offscreen.join(", ")}), none to the screen, so the canvas still shows an earlier frame: a render target left bound after a pass (setRenderTarget(null) missing, or a saved renderer state restored out of order)?`] : [],
+export const staleText = (l: Pick<Look, "offscreen" | "loading" | "unchanged">) => [
+  ...l.offscreen && l.loading ? [`Not drawn yet: after 5 s of stepping frames the page has drawn only into a render target (${l.offscreen.join(", ")}), no scene to the screen, so this is the canvas before the game's first frame: still loading (an environment bake, then models or compileAsync)? Step it with \`interact\` { steps: [{ wait: frames }] } and look again.`]
+  : l.offscreen ? [`Last frame: every render call drew into a render target (${l.offscreen.join(", ")}), none to the screen, so the canvas still shows an earlier frame: a render target left bound after a pass (setRenderTarget(null) missing, or a saved renderer state restored out of order)?`] : [],
   ...l.unchanged ? [`Nothing in the picture changed since the last look, while observe()'s ${l.unchanged.slice(0, 4).join(", ")}${l.unchanged.length > 4 ? ", …" : ""} changed.`] : []];
 /** observe()'s top-level keys whose values differ between two reads (all of them when either is not an object), leaving
     out a top-level number in both: a frame, time, runTime, calls or triangles count moves on every frame of a still
@@ -1067,12 +1182,12 @@ export function seamText(s: Seam | undefined): string[] {
   return lines;
 }
 
-/** The Surface line, at most one: the largest object's surface as a repeating pattern, as noise, or with no detail. */
+/** The Surface line, at most one: the largest object's surface as a repeating pattern (only where its material draws one), as noise, or with no detail. */
 export function surfaceText(s: Look["surface"]): string[] {
   const REPEAT = 0.5, FLAT = 1, BUSY = 35; // first guesses, set against AA-3D gpu-short-1's 65 largest surfaces (sailboat's seas read 45 and 39; the next, 28)
   if (!s) return [];
   const pct = Math.round(s.share * 100);
-  if ((s.repeat ?? 0) >= REPEAT) return [`Surface: "${s.name}" covers ${pct}% and repeats every ${s.every} px ${s.across ? "across" : "down"}: the pattern shows. Unless the user asked for a pattern, vary the scale with distance or blend two scales.`];
+  if ((s.repeat ?? 0) >= REPEAT && !s.plain) return [`Surface: "${s.name}" covers ${pct}% and repeats every ${s.every} px ${s.across ? "across" : "down"}: the pattern shows. Unless the user asked for a pattern, vary the scale with distance or blend two scales.`];
   if (s.detail >= BUSY) return [`Surface: "${s.name}" covers ${pct}% with dense fine detail (${s.detail} of 255): it reads as noise and shimmers as it moves. Unless the user asked for it, soften the fine detail or fade it with distance.`];
   if (s.detail < FLAT) return [`Surface: "${s.name}" covers ${pct}% with almost no detail (${s.detail} of 255): it reads as flat colour. Unless the user asked for flat colour, add texture, normal detail or lighting variation.`];
   return [];
@@ -1158,7 +1273,7 @@ export function lookText(l: Look): string {
     return `${name}: ${all.length} parts (${names.slice(0, 4).join(", ")}${names.length > 4 ? ", …" : ""}), ${wheres.join(" or ")}${behind.length ? `, behind ${behind.join(" or ")}` : ""}`;
   })];
   // fault lines the last look already printed word for word cost ~110 tokens a look; say once that they are still open
-  const known = Object.values(l.known ?? {}).reduce((a, b) => a + b, 0), faults = faultLines(l), kinds = [l.setup?.length && "Lighting", l.surfaces?.length && "Surfaces", surfaceText(l.surface).length && "Surface"].filter(Boolean);
+  const known = Object.values(l.known ?? {}).reduce((a, b) => a + b, 0), faults = faultLines(l), kinds = [...new Set(faults.map(line => line.split(": ")[0]))];
   const fault = [...l.faultsSame ? [`${kinds.join(", ")}: the same ${faults.length > 1 ? `${faults.length} lines` : "line"} as the last look, still open.`] : faults,
     ...known ? [`Known, intentional (window.__game.intentional): ${known} line${known > 1 ? "s" : ""} left out (${Object.entries(l.known!).map(([k, n]) => `"${k}" ${n}`).join(", ")}).`] : []];
   const DEPTH = 0.03; // a first guess: far must come out at least this much lighter or paler than near to read as distance
@@ -1489,7 +1604,7 @@ const PROBE = `(async (pt, url) => { ${VIEW}
         // (one its own shader places). The shortest start of [hits, objects with a shader of their own, the rest] whose
         // hiding changes the pixel ends at one that draws there (hiding all of it leaves the background, which differs),
         // found by doubling, then halving
-        const own = o => [o.material].flat().some(m => m?.isShaderMaterial || (m && Object.hasOwn(m, "onBeforeCompile")));
+        const own = o => [o.material].flat().some(m => m?.isShaderMaterial || m?.vertexNode || (m && Object.hasOwn(m, "onBeforeCompile")));
         const order = [...open.map(x => x.object), ...all.filter(o => !H.includes(o) && !open.some(x => x.object === o)).sort((a, b) => own(b) - own(a))];
         if (!order.length) { end = "background beyond"; break; } // every object hidden and still not the background: a frame that draws differently each time
         let lo = 0, hi = 1;
@@ -1520,13 +1635,13 @@ export function probe(game: Game, points: number[][], cam?: Cam): Promise<string
   if (!Array.isArray(points) || !points.length || points.length > 8) throw new Error("look: at takes 1 to 8 points [x, y]");
   inside("at", points, game.page.viewport() ?? { width: 1280, height: 800 });
   return game.queue(() => keepSeed(game, async () => {
-    const { page } = game, restore = cam && await placeCam(game, cam);
+    const { page } = game, from = game.errors.length, restore = cam && await placeCam(game, cam);
     let drew = false;
     try {
       if (!cam) await page.evaluate(FIRST);
       const { views, revision, webgpu } = await page.evaluate(`({ views: __harness.views.size, revision: String(__harness.revision), webgpu: !!__harness.main()?.[1].renderer.isWebGPURenderer })`) as
         { views: number; revision: string; webgpu: boolean };
-      if (!views) throw new Error(NOT_DRAWN);
+      if (!views) throw notDrawn(game, from);
       const url = await threeUrl(game, revision, webgpu), lines: string[] = [];
       let untested = false;
       for (const p of points) { // an evaluate each, so a slow page answers guarded()'s ping between points
@@ -1643,18 +1758,50 @@ export function colours(points: number[][], view: { width: number; height: numbe
 }
 
 /** Share of pixels (0..1) whose red, green or blue differs by more than 8 between two PNGs; 1 when their sizes differ.
-    With `out`, also writes there `b` dimmed to grey with the differing pixels red. */
-export function pictureDiff(a: string, b: string, out?: string): number {
+    With `out`, writes `b` dimmed to grey with differences red; `blocks` filters noise and collects connected cell boxes. */
+export function pictureDiff(a: string, b: string, out?: string, blocks?: { regions: number[][]; more?: number }): number {
   const p = decodePng(a), q = decodePng(b);
   if (p.w !== q.w || p.h !== q.h) return 1;
   const rgb = out ? new Uint8Array(p.w * p.h * 3) : null;
+  const cols = Math.ceil(p.w / 16), rows = Math.ceil(p.h / 16), cells = new Uint32Array(cols * rows);
+  const hits = new Uint8Array(p.w * p.h);
   let n = 0;
   for (let i = 0; i < p.w * p.h; i++) {
     let hit = false;
     for (let c = 0; c < 3; c++) if (Math.abs(p.px[i * p.bpp + c]! - q.px[i * q.bpp + c]!) > CHANNEL) { hit = true; n++; break; }
+    if (hit) { hits[i] = 1; cells[Math.floor(i / p.w / 16) * cols + Math.floor(i % p.w / 16)]!++; }
     if (rgb) {
       const j = i * q.bpp, grey = (q.px[j]! + q.px[j + 1]! + q.px[j + 2]!) / 9;
       rgb[i * 3] = hit ? 255 : grey; rgb[i * 3 + 1] = rgb[i * 3 + 2] = hit ? 0 : grey;
+    }
+  }
+  if (blocks) {
+    n = 0;
+    const seen = new Set<number>(), regions: { box: number[]; size: number }[] = [];
+    for (let cell = 0; cell < cells.length; cell++) {
+      if (cells[cell]! < 4 || seen.has(cell)) continue;
+      const stack = [cell], box = [p.w, p.h, 0, 0];
+      let size = 0;
+      seen.add(cell);
+      while (stack.length) {
+        const at = stack.pop()!, x = at % cols, y = Math.floor(at / cols);
+        n += cells[at]!; size++;
+        box[0] = Math.min(box[0]!, x * 16); box[1] = Math.min(box[1]!, y * 16);
+        box[2] = Math.max(box[2]!, Math.min(p.w, (x + 1) * 16)); box[3] = Math.max(box[3]!, Math.min(p.h, (y + 1) * 16));
+        for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
+          if (nx! < 0 || nx! >= cols || ny! < 0 || ny! >= rows) continue;
+          const next = ny! * cols + nx!;
+          if (cells[next]! >= 4 && !seen.has(next)) { seen.add(next); stack.push(next); }
+        }
+      }
+      regions.push({ box, size });
+    }
+    blocks.regions = regions.sort((a, b) => b.size - a.size).slice(0, 3).map(r => r.box);
+    blocks.more = Math.max(0, regions.length - 3);
+    if (rgb) for (let i = 0; i < hits.length; i++) {
+      if (!hits[i] || cells[Math.floor(i / p.w / 16) * cols + Math.floor(i % p.w / 16)]! >= 4) continue;
+      const j = i * q.bpp, grey = (q.px[j]! + q.px[j + 1]! + q.px[j + 2]!) / 9;
+      rgb.fill(grey, i * 3, i * 3 + 3);
     }
   }
   if (out) writeFileSync(out, encodePng(p.w, p.h, rgb!));
@@ -1662,7 +1809,7 @@ export function pictureDiff(a: string, b: string, out?: string): number {
 }
 
 /** What a baseline was taken at, kept beside its picture as `<name>.json`. */
-export interface Baseline { saved: string; frame: number; width: number; height: number; dpr: number; scroll: [number, number]; fingerprint: string }
+export interface Baseline { saved: string; frame: number; width: number; height: number; dpr: number; scroll: [number, number]; fingerprint: string; renderer?: string; camera?: Cam & { quaternion?: number[] }; steps?: Step[] }
 const AT = `({ frame: ${FRAME}, width: innerWidth, height: innerHeight, dpr: devicePixelRatio, scroll: [scrollX, scrollY] })`;
 export const baselinePath = (cwd: string, name: string) => {
   if (!/^[\w-]{1,64}$/.test(name)) throw new Error("look: a baseline name is up to 64 letters, digits, - or _");
@@ -1670,10 +1817,15 @@ export const baselinePath = (cwd: string, name: string) => {
 };
 
 /** look(), then keeps its picture as `<cwd>/paprika3d/baselines/<name>.png` with what it was taken at. */
-export function saveBaseline(game: Game, cwd: string, name: string): Promise<{ look: Look; file: string }> {
+export function saveBaseline(game: Game, cwd: string, name: string, camera?: Cam): Promise<{ look: Look; file: string }> {
   return game.queue(async () => {
-    const base = baselinePath(cwd, name), l = await look(game);
-    const at: Baseline = { saved: new Date().toISOString(), ...await game.page.evaluate(AT) as Omit<Baseline, "saved" | "fingerprint">, fingerprint: fingerprint(cwd) };
+    if (camera && !camera.lookAt) {
+      const restore = await placeCam(game, camera);
+      try { camera = await game.page.evaluate("({ position: __harness.lookCam.to.position.toArray(), quaternion: __harness.lookCam.to.quaternion.toArray() })") as Baseline["camera"]; }
+      finally { await restore(); }
+    }
+    const base = baselinePath(cwd, name), l = await (camera ? lookFrom(game, camera) : look(game));
+    const at: Baseline = { saved: new Date().toISOString(), ...await game.page.evaluate(AT) as Omit<Baseline, "saved" | "fingerprint">, fingerprint: fingerprint(cwd), renderer: gpuLine(game), camera, ...game.played.length && { steps: [...game.played] } };
     mkdirSync(join(base, ".."), { recursive: true });
     copyFileSync(l.picture, `${base}.png`);
     writeFileSync(`${base}.json`, JSON.stringify(at));
@@ -1683,18 +1835,40 @@ export function saveBaseline(game: Game, cwd: string, name: string): Promise<{ l
 
 /** look() at the frame the baseline `name` was saved at (the page reloaded and stepped there unless it is at that frame
     now), and the Compare line: the share of pixels that differ, with the diff picture `look-<n>-diff.png`. */
-export function compareBaseline(game: Game, cwd: string, name: string): Promise<{ look: Look; text: string }> {
+export function compareBaseline(game: Game, cwd: string, name: string, camera?: Cam | string): Promise<{ look: Look; text: string }> {
   return game.queue(async () => {
     const base = baselinePath(cwd, name);
     let b: Baseline;
     try { b = JSON.parse(readFileSync(`${base}.json`, "utf8")); }
     catch { throw new Error(`look: no baseline named ${name}; save one first with \`look\` { save: "${name}" }`); }
+    let note = "";
+    if (typeof camera === "string") {
+      try { camera = namedCam(cwd, camera); }
+      catch {
+        note = `\ncamera ${JSON.stringify(camera)} is not defined; compared from the baseline's ${b.camera ? "saved camera" : "page camera"}.`;
+        camera = undefined;
+      }
+    }
     const now = await game.page.evaluate(AT) as Baseline;
-    if (now.frame !== b.frame) { await game.reload(); await play(game, [{ wait: b.frame }]); }
-    const l = await look(game), of = `${name} (saved ${b.saved.slice(0, 10)}, frame ${b.frame}, ${b.width}x${b.height}@${b.dpr})`;
+    // a baseline saved after `interact` steps is that play's scene: stepping to its frame number alone compared another (dev #178)
+    if (b.steps?.length) {
+      await game.reload();
+      await play(game, b.steps);
+      const at = (await game.page.evaluate(AT) as Baseline).frame;
+      if (at < b.frame) await play(game, [{ wait: b.frame - at }]);
+      game.played = [...b.steps];
+      note += `\nReplayed the baseline's ${b.steps.length} interact steps from a reload before comparing.`;
+    } else if (now.frame !== b.frame) { await game.reload(); await play(game, [{ wait: b.frame }]); }
+    const sameCamera = !camera || JSON.stringify([camera.position, camera.lookAt]) === JSON.stringify([b.camera?.position, b.camera?.lookAt]);
+    const view = sameCamera ? "" : `; using the baseline's ${b.camera ? `saved camera ${JSON.stringify(b.camera)}` : "page camera"}, not the requested camera`;
+    const l = await (b.camera ? lookFrom(game, b.camera) : look(game)), of = `${name} (saved ${b.saved.slice(0, 10)}, frame ${b.frame}, ${b.width}x${b.height}@${b.dpr})${view}`;
     if (now.width !== b.width || now.height !== b.height || now.dpr !== b.dpr)
-      return { look: l, text: `Compare: the page is ${now.width}x${now.height}@${now.dpr} but ${of} was taken at another size, so no pixel diff; open the page at size [${b.width}, ${b.height}]${b.dpr === 1 ? "" : ` with dpr ${b.dpr}`} to compare.` };
+      return { look: l, text: `Compare: the page is ${now.width}x${now.height}@${now.dpr} but ${of} was taken at another size, so no pixel diff; open the page at size [${b.width}, ${b.height}]${b.dpr === 1 ? "" : ` with dpr ${b.dpr}`} to compare.${note}` };
     const diff = l.picture.replace(/\.png$/, "-diff.png");
-    return { look: l, text: `Compare: ${+(pictureDiff(`${base}.png`, l.picture, diff) * 100).toPrecision(2)}% of pixels differ from ${of}; diff at ${diff}` };
+    if (b.renderer && b.renderer !== gpuLine(game))
+      return { look: l, text: `Compare: ${of}. Baseline ${b.renderer} Page ${gpuLine(game)} Pixels from another renderer do not compare; no pixel diff.${note}` };
+    const blocks = { regions: [] as number[][], more: 0 }, share = pictureDiff(`${base}.png`, l.picture, diff, blocks);
+    const result = share ? `${+(share * 100).toPrecision(2)}% of pixels differ from ${of} in significant cells; regions [x0, y0, x1, y1] in the page's pixels: ${blocks.regions.map(box => `[${box.join(", ")}]`).join(", ")}` : `the page is the same as ${of} (byte-identical or noise only)`;
+    return { look: l, text: `Compare: ${result}${blocks.more ? ` (+${blocks.more} more)` : ""}; diff at ${diff}${note}` };
   });
 }

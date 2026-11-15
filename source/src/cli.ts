@@ -73,11 +73,16 @@ switch (REPO || !["contract-lint", "bench"].includes(cmd!) ? cmd : undefined) {
     const edit = ref ? { ref, file: value("--edit-file") ?? "", time: value("--edit-time") ?? new Date().toISOString(), session: value("--session") ?? "" } : undefined;
     try {
       const s = readState(dir);
-      // the server's game is this check's game unless the command line names another
-      const r = (!url || url === s.url) && (!command || command === s.command) ? await askServer(dir, { edit, ci }, s.server) : null;
       // the opt-in "Tested with paprika3d" footer (src/tested-with.ts), loaded only when the switch is set
       const footer = process.env.PAPRIKA3D_TESTED_WITH ? (await import("./tested-with.ts")).testedWith(process.env, json) : "";
-      const print = (r: CheckReply) => console.log(json ? JSON.stringify({ passed: r.passed, failed: r.failed, changed: r.changed, text: r.text }) : r.text + footer);
+      const print = (r: CheckReply) => console.log(json ? JSON.stringify({ passed: r.passed, failed: r.failed, changed: r.changed, text: r.text }) : r.text + (r.drew ? `\n${r.drew}` : "") + footer);
+      // nothing saved to rerun: say so, with no Chrome opened (the contract the plugin never lists is asked for only in its arm, dev #359)
+      if (process.env.PAPRIKA3D_LOOP !== "contract" && !existsSync(join(dir, "game-tests.json")) && !existsSync(join(dir, "game-contract.json"))) {
+        print({ passed: 0, failed: 0, changed: false, text: `No saved checks in ${dir}: no game-tests.json to rerun. \`interact\` with \`expect\` and \`save\` keeps a play as a check that this reruns.` });
+        process.exit(0);
+      }
+      // the server's game is this check's game unless the command line names another
+      const r = (!url || url === s.url) && (!command || command === s.command) ? await askServer(dir, { edit, ci }, s.server) : null;
       if (r) { print(r); process.exit(r.failed ? 1 : 0); }
       // Chrome only, never the fallback engine: a hook's check downloads nothing, and the exit below ends only Chrome
       const game = await openGame({ url: url ?? (command ? undefined : s.url ?? undefined), command: command ?? (url ? undefined : s.command ?? undefined), cwd: dir, engine: "chromium" });

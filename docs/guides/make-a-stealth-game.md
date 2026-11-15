@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a stealth game in three.js: a guard's view cone and hiding
 
@@ -287,7 +288,7 @@ Leaving at once, the guard walks away from the player the whole time and the vau
 paprika3d does not design the level or tell you whether sneaking feels tense; it reports, frame by frame, what the guard saw. To add it to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal, the window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

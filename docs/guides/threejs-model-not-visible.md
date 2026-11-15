@@ -20,6 +20,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-14
 review: weekly
+reviewed: 2026-11-09
 ---
 # Find out why a three.js model is not visible
 
@@ -39,7 +40,7 @@ Checking these by hand means logging bounding boxes, moving the camera, and read
 paprika3d needs Google Chrome and Node 20.11 or later, and the Claude Code plugin needs Claude Code 2.1.118 or later.
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 npm install three
 ```

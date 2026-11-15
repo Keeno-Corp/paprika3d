@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # AI prompt to make a game: what to tell the agent so the three.js game comes out as you meant
 

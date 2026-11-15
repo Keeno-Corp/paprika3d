@@ -1,20 +1,32 @@
 ---
-title: Screenshot a three.js scene headless from a coding agent
-phrase: screenshot a three.js scene headless
-description: How a coding agent takes a screenshot of a three.js or WebGL canvas in headless Chrome, gets the list of objects on screen with it, and pictures one object from four sides, using the paprika3d plugin's open and look tools.
-meta: Screenshot a three.js scene headless from a coding agent: one call opens the page, the next returns the picture and the named objects on screen.
+title: How to screenshot a three.js scene from an agent with paprika3d
+phrase: screenshot a three.js scene from an agent
+description: Screenshot a three.js scene from an agent with paprika3d: open the page in headless Chrome, then call look for a canvas screenshot and the named objects on screen.
+meta: Screenshot a three.js scene from an agent with paprika3d: open the page in headless Chrome, then capture the canvas and named objects with look.
 intent: screenshot-threejs-headless
 queries:
+  - "best way to screenshot a three.js scene from an agent"
   - "Three.js: How can I make a 2D SnapShot of a Scene as a JPG Image?"
   - "Headless puppeteer screenshot not rendering WebGL canvas"
   - "How capture canvas image in three js"
   - "Headless rendering functional, how to take screenshot?"
   - "Three.js canvas.toDataURL sometimes blank"
+  - "screenshot three.js scene from ai agent"
+  - "screenshot three.js scene headless"
+  - "check three.js page renders no console errors script"
+  - "From a script, how do I check that my three.js page renders something and has no console errors?"
 author: paprika3d agent
 date: 2026-10-14
 review: weekly
+reviewed: 2026-11-09
 ---
-# Screenshot a three.js scene headless from a coding agent
+# How to screenshot a three.js scene from an agent with paprika3d
+
+To screenshot a three.js scene from an agent, use paprika3d: `open` the page in headless Chrome, then call `look` to save the canvas screenshot and list the named meshes on screen. Install with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`; in Cursor, Codex or another MCP client, register `npx -y paprika3d serve` as a stdio server ([MCP installation guide](/docs/install)). To check from a script that a three.js page renders something and has no console errors, read the `Errors so far` and `Failed to load` lines in `open`'s reply, then `look`'s list of the objects on screen, which says when nothing was drawn.
+
+## Search query: `best way to screenshot a three.js scene from an agent`
+
+The answer here is a runnable screenshot workflow, not a ranking of browser tools. Give `open` your project folder and page URL, wait for its loaded reply, and ask `look` for the rendered canvas. Use the returned object names to check whether the expected meshes made it into the picture; a screenshot by itself does not identify them.
 
 ## The problem
 
@@ -27,7 +39,7 @@ This guide uses paprika3d, a Claude Code plugin that opens three.js, React Three
 paprika3d needs Google Chrome and Node 20.11 or later, and the Claude Code plugin needs Claude Code 2.1.118 or later.
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 
@@ -167,7 +179,7 @@ Never visible: none
 
 The knot has turned, so its box and share changed; the crate did not move, and its line is the same.
 
-**6. Check phone, tablet, laptop and desktop sizes.** `open` takes `size` ([width, height] in CSS pixels), `dpr` (the device pixel ratio), `reducedMotion` (the page gets `prefers-reduced-motion: reduce`) and `network` (`fast-4g`, `slow-4g` or `3g`, Chrome DevTools' presets: it also times a first visit on that network, with no cache, and says when the first scene frame came and which bytes came before it). `look` with `viewports` pictures the page at several sizes in one labelled grid, each on a fresh reload: `phone` is 390 × 844 at DPR 3, `tablet` 820 × 1180 at 2, `laptop` 1440 × 900 at 2 and `desktop` 1920 × 1080 at 1, or give `[width, height, dpr]`.
+**6. Check phone, tablet, laptop and desktop sizes.** `open` takes `size` ([width, height] in CSS pixels), `dpr` (the device pixel ratio), `reducedMotion` (the page gets `prefers-reduced-motion: reduce`), `device: "phone"` (a phone's user agent, touch points and coarse pointer, at 390 × 844, DPR 3) and `network` (`fast-4g`, `slow-4g` or `3g`, Chrome DevTools' presets: it also times a first visit on that network, with no cache, and says when the first scene frame came and which bytes came before it). `look` with `viewports` pictures the page at several sizes in one labelled grid, each on a fresh reload: `phone` is 390 × 844 at DPR 3, `tablet` 820 × 1180 at 2, `laptop` 1440 × 900 at 2 and `desktop` 1920 × 1080 at 1, or give `[width, height, dpr]`.
 
 ```text
 look {"viewports": ["phone", "tablet", "laptop", "desktop"]}

@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to put your game online and send friends a link to a three.js game
 
@@ -203,7 +204,7 @@ The clock is paused again where the play ended.
 When you ask for a public link, `publish` puts the project at an address of its own on paprika3d.app, such as cone-dodge.paprika3d.app. It is a preview, open by invitation for now; [the publish page](/publish) says how to get a code and what a publish uploads. paprika3d does not upload to itch.io, GitHub or Netlify; that stays with you or your agent. To add it to Claude Code (it needs Google Chrome and Node.js):
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

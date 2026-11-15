@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-11-01
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a plane game in three.js: flying through hoops
 
@@ -289,7 +290,7 @@ Close behind, the plane covers 2.9% of the picture and hides the island ahead. F
 paprika3d does not tell you whether the plane is fun to fly or whether the controls feel right in your hands; fly it yourself and change the numbers. It also does not check this against real aircraft. To add it to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

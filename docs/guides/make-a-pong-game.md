@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a pong game in three.js: the bounce and a computer paddle
 
@@ -188,7 +189,7 @@ So it returns slow balls and straight balls, and a fast ball hit wide off your p
 These are exactly the bugs you notice while playing and then struggle to put into words. paprika3d is a plugin for Claude Code (and an MCP server, a tool server other agents can use) that gives the agent a browser of its own, so it opens the game, sets the ball where it wants, and reads the angle and the score frame by frame. Two commands in the terminal install it:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

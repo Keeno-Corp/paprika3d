@@ -31,7 +31,7 @@ export const scrub = (text: string) => text.replace(/ppk_live_[0-9A-Za-z]*/g, "p
 export const configDir = () => process.env.PAPRIKA3D_CONFIG_DIR || join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "paprika3d");
 const CREDENTIALS = "credentials.json", PROJECTS = "projects.json", TOLD = "publish-told";
 /** Where a person asks for an invite while publishing is an invite-only preview. */
-export const INVITE_URL = "https://paprika3d.com/waitlist";
+export const INVITE_URL = "https://paprika3d.com/waitlist?ref=publish";
 
 // ---- build -------------------------------------------------------------------------------------------------------
 
@@ -301,7 +301,7 @@ export function guidance(e: PublishError, where: string): string {
   const b = e.body, why = scrub(String(b.reason ?? ""));
   switch (e.status) {
     case 401: return b.replaced ? scrub(replacedWords(b, where)) : `The publish server refused the publish key in ${where} (${why}). Tell the person; do not make, paste or print a key yourself.`;
-    case 402: return `Not published: ${why}. Republishing one of this key's games (the same project) still works. The person can ask for more games on the waitlist: ${b.waitlist_url ?? "https://paprika3d.com/waitlist"}`;
+    case 402: return `Not published: ${why}. Republishing one of this key's games (the same project) still works. The person can ask for more games on the waitlist: ${b.waitlist_url ?? INVITE_URL}`;
     case 403: return /invite/i.test(why) ? `Not published: ${why}. Publishing to paprika3d.app is an invite-only preview: tell the person they can ask for an invite at ${INVITE_URL}, then set PAPRIKA3D_PUBLISH_INVITE to the code.` : `Not published: ${why}. Tell the person.`;
     case 429: { const s = Number(b.retry_after) || 60; return `Not published: rate limit (${why}). Try again in ${s} s (${s < 120 ? "about a minute" : `about ${Math.ceil(s / 60)} minutes`}); tell the person if they are waiting.`; }
     case 400: case 413: return `Not published: ${why}.`;
@@ -340,7 +340,7 @@ async function mint(who: Who): Promise<Cred> {
 const splitClient = (c: string): [string | null, string | null] => { const i = c.lastIndexOf("/"); return !c || c === "unknown" ? [null, null] : i > 0 ? [c.slice(0, i), c.slice(i + 1)] : [c, null]; };
 
 export type Who = { client: string; model?: string };
-type Reply = { url: string; public_id: string; slug: string; version: number; claim_url: string; held?: string; warning?: string; remaining_quota: unknown; files: number; uploaded: number; seconds: number; warnings: string[] };
+type Reply = { url: string; public_id: string; slug: string; version: number; claim_url: string; held?: string; warning?: string; remaining_quota: unknown; playtest_url?: string; playtest_expires?: string; playtest?: string; files: number; uploaded: number; seconds: number; warnings: string[] };
 
 /** Replaces this install's key (POST /v1/key/rotate): the server refuses the old secret from then on, and the new one is
     written over it in credentials.json, never shown. Publishes nothing.
@@ -372,7 +372,7 @@ async function rotateKey(api: string, who: Who): Promise<string> {
 }
 
 /** Builds and publishes the project in `cwd`; returns the reply text. Refusals throw with words the agent can relay. */
-export async function publish(cwd: string, who: Who, opts: { slug?: string; rotate?: boolean } = {}): Promise<string> {
+export async function publish(cwd: string, who: Who, opts: { slug?: string; rotate?: boolean; playtest?: boolean; feedback?: boolean } = {}): Promise<string> {
   const t0 = Date.now(), api = apiBase();
   // the key goes only over https (http to this machine, for `wrangler dev`), and a key from the environment only to the
   // default API unless the person says otherwise: a project's .mcp.json or settings can set PAPRIKA3D_PUBLISH_API
@@ -382,6 +382,7 @@ export async function publish(cwd: string, who: Who, opts: { slug?: string; rota
     throw new Error(`Nothing was published: PAPRIKA3D_PUBLISH_KEY is sent only to ${DEFAULT_API}, and PAPRIKA3D_PUBLISH_API points at ${scrub(api)}. Tell the person: they can set PAPRIKA3D_PUBLISH_API_TRUST=1 if they trust that server.`);
   if (opts.rotate) return rotateKey(api, who);
   if (!existsSync(cwd) || !statSync(cwd).isDirectory()) throw new Error(`publish: ${cwd} is not a folder`);
+  if (opts.feedback) return readFeedback(cwd, api);
   await ready(api, !savedKey(api)); // a server that is not there, or a mint that would be refused, is said before a build
   const built = await build(cwd);
   if (!built.files.has("index.html")) throw new Error(built.kind === "vite" ? "The Vite build has no index.html at its top; nothing was published." : "The project has no index.html at its top: publish serves a folder whose page is index.html. Nothing was published.");
@@ -422,7 +423,7 @@ export async function publish(cwd: string, who: Who, opts: { slug?: string; rota
       for (let h = queue.shift(); h; h = queue.shift())
         await call(`/v1/blobs/${h}`, { method: "PUT", body: readFileSync(byHash.get(h)!), secret: key!.secret, headers: { "x-paprika3d-session": s!.session, "content-type": "application/octet-stream" } });
     }));
-    const done = await call(`/v1/publish/${s.session}/finalize`, { json: {}, secret: key.secret });
+    const done = await call(`/v1/publish/${s.session}/finalize`, { json: opts.playtest ? { playtest: true } : {}, secret: key.secret });
     keepSlug(cwd, slug, api);
     if (key.unsaved) { // a rotated key only in memory (rotateKey): saved now if the file can be written
       try { storeKey(api, { public_id: key.public_id!, secret: key.secret }, { rotated: new Date().toISOString() }); unsaved.delete(`${configDir()} ${api}`); built.warnings.push(`saved the rotated publish key to ${join(configDir(), CREDENTIALS)}, never shown`); }
@@ -430,10 +431,42 @@ export async function publish(cwd: string, who: Who, opts: { slug?: string; rota
     }
     if (key.from === "file" && !key.public_id) { const f = join(configDir(), CREDENTIALS), c = readJson(f); if (c[api]) { c[api].public_id = done.public_id; writePrivate(f, JSON.stringify(c, null, 2)); } }
     const reply: Reply = { url: done.url, public_id: done.public_id, slug: done.slug, version: done.version, claim_url: done.claim_url, ...done.held && { held: scrub(String(done.held)) }, ...done.warning && { warning: scrub(String(done.warning)) }, remaining_quota: done.remaining_quota,
+      ...done.playtest_url && { playtest_url: done.playtest_url, playtest_expires: done.playtest_expires,
+        playtest: "Send playtest_url to the friends who should try this build: it stays on this version until playtest_expires whatever is published later, is never listed or indexed, and has a Feedback button (no account). Read what they send with `publish` { cwd, feedback: true }." },
       files: built.files.size, uploaded: s.missing.length, seconds: Math.round((Date.now() - t0) / 100) / 10, warnings: built.warnings };
     return scrub(JSON.stringify(reply, null, 2)) + told(minted); // a hostile or proxied server could echo the key in a URL
   } catch (e) {
     if (e instanceof PublishError) throw new Error(guidance(e, where()));
+    throw new Error(scrub(e instanceof Error ? e.message : String(e)));
+  }
+}
+
+/** What playtesters sent from this project's playtest links, newest first; each picture saved to
+    <project>/paprika3d/feedback/<id>.<ext>, and the notes since the last read marked `new`. Publishes nothing. */
+async function readFeedback(cwd: string, api: string): Promise<string> {
+  const key = savedKey(api), { slug, kept } = slugFor(cwd, api);
+  if (!key || !kept) return "This project was never published from this install, so it has no playtest links and no feedback. Publish it with `playtest: true` for a link to send friends.";
+  const dir = join(cwd, "paprika3d", "feedback"), seenFile = join(dir, "last-read.txt");
+  let seen = ""; try { seen = readFileSync(seenFile, "utf8").trim(); } catch {}
+  try {
+    const { feedback } = await call(`/v1/feedback?slug=${encodeURIComponent(slug)}`, { secret: key.secret }) as { feedback: { id: string; at: string; shot: boolean; [k: string]: unknown }[] };
+    if (!feedback.length) return `No feedback yet on ${slug}. Feedback comes from a playtest link's Feedback button: publish with \`playtest: true\` and send the person the playtest_url.`;
+    mkdirSync(dir, { recursive: true });
+    const items: Record<string, unknown>[] = [];
+    for (const f of feedback) {
+      let picture: string | null = null;
+      if (f.shot && /^[0-9A-Za-z]{16}$/.test(f.id)) {
+        const r = await fetch(`${api}/v1/feedback/${f.id}/shot`, { headers: { authorization: `Bearer ${key.secret}` }, signal: AbortSignal.timeout(60_000) });
+        if (r.ok) { picture = join(dir, `${f.id}.${r.headers.get("content-type") === "image/png" ? "png" : "jpg"}`); writeFileSync(picture, new Uint8Array(await r.arrayBuffer())); }
+      }
+      const { shot: _, ...rest } = f;
+      items.push({ ...f.at > seen && { new: true }, ...rest, ...picture && { picture } });
+    }
+    writeFileSync(seenFile, feedback[0]!.at);
+    const fresh = items.filter(i => i.new).length;
+    return scrub(`${feedback.length} notes on ${slug} from playtest links (${fresh} new since the last read), newest first; \`version\` is the build the tester played. Open each picture, and reproduce what a note says with open, interact and look before fixing it.\n` + JSON.stringify(items, null, 1));
+  } catch (e) {
+    if (e instanceof PublishError) throw new Error(guidance(e, keyWhere(key)));
     throw new Error(scrub(e instanceof Error ? e.message : String(e)));
   }
 }

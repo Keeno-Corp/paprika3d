@@ -116,6 +116,37 @@
       return p;
     };
   }
+  // The server's watchdog hears these on its own session while the main thread is busy (src/browser.ts Game.progress):
+  // a frame stepped is progress, and a WebGL link or WebGPU pipeline in flight in the GPU process holds the main thread
+  // for as long as SwiftShader takes (a minute on a TSL page, dev #404) without being a loop.
+  const tell = (s) => { try { window.__paprika3dProgress?.(s); } catch {} };
+  let gpuCompiles = 0, told = -Infinity;
+  const linking = new Set();
+  const compiles = (d) => { gpuCompiles += d; tell("c" + (gpuCompiles + linking.size)); };
+  for (const C of [window.WebGLRenderingContext, window.WebGL2RenderingContext]) {
+    const P = C?.prototype;
+    if (!P) continue;
+    const link = P.linkProgram, param = P.getProgramParameter, use = P.useProgram, del = P.deleteProgram;
+    const linked = (p) => { if (linking.delete(p)) compiles(0); };
+    P.linkProgram = function (p) { linking.add(p); compiles(0); return link.apply(this, arguments); };
+    P.getProgramParameter = function (p) { const r = param.apply(this, arguments); if (linking.size) linked(p); return r; };
+    P.useProgram = function (p) { const r = use.apply(this, arguments); if (linking.size) linked(p); return r; };
+    P.deleteProgram = function (p) { if (linking.size) linked(p); return del.apply(this, arguments); };
+  }
+  const D = window.GPUDevice?.prototype;
+  if (D) for (const k of ["createRenderPipeline", "createComputePipeline", "createRenderPipelineAsync", "createComputePipelineAsync"]) {
+    const real = D[k];
+    if (!real) continue;
+    D[k] = function () {
+      compiles(1);
+      let r;
+      try { r = real.apply(this, arguments); } catch (e) { compiles(-1); throw e; }
+      // a pipeline made at once compiles on the GPU timeline: done when the queue's work is
+      const done = () => compiles(-1), p = k.endsWith("Async") ? r : this.queue.onSubmittedWorkDone();
+      Promise.resolve(p).then(done, done);
+      return r;
+    };
+  }
   const clear = (id) => {
     live.delete(id);
     // a far timer set and cleared every frame never reaches the top: rebuild once cleared ones outnumber live ones
@@ -171,6 +202,7 @@
 
   /** Moves virtual time by dt: moves CSS animations on, fires due timers in order, then one animation frame. */
   function frame(dt) {
+    if (realNow() - told > 250) { told = realNow(); tell("f"); }
     animate(dt);
     const end = now + dt;
     runTimers(end);
@@ -184,6 +216,9 @@
   // paused steps left 38 s of GPU work for the next call to pay and a running page's screenshot never came (#25). A GPU
   // pays nothing: there the sync cost 3% and slowed sheets (docs/optimize-log.md).
   const sync = () => cfg.software ? window.__harness?.sync() : undefined;
+  // when the main thread last ran a real task, as a step knows it: each step ends by posting one, so back-to-back steps
+  // in one evaluate (feel's watch) count their frames together and separate calls start afresh
+  let yielded = realNow();
   const realTick = () => new Promise(ok => { const c = new MessageChannel(); c.port1.onmessage = () => { c.port1.close(); ok(); }; c.port2.postMessage(0); });
 
   // One pump chain per resume: resume, pause and resume again within one real frame left the first chain's start
@@ -197,11 +232,16 @@
     if (!running || c !== chain) return;
     const began = realNow();
     frame((t - last) * scale);
-    Promise.resolve(sync()).catch(() => {}); // WebGPU's sync is a promise; a lost device must not raise a page error
     last = t;
-    const wait = pace - (realNow() - began);
-    if (pace && wait > 1) realSetTimeout(() => realRaf(pump(c)), wait - 1); // the frame comes a little after the timer
-    else realRaf(pump(c));
+    const next = () => {
+      const wait = pace - (realNow() - began);
+      if (pace && wait > 1) realSetTimeout(() => realRaf(pump(c)), wait - 1); // the frame comes a little after the timer
+      else realRaf(pump(c));
+    };
+    // WebGPU's sync is a promise: the next frame waits for it, or 0.9 ms frames queued 40 s of SwiftShader work for
+    // perf's next sync to pay (#268); a lost device must not raise a page error
+    const s = sync();
+    if (s?.then) s.then(next, next); else next();
   };
 
   // real time, so a dead worker's reply cannot stall a step (and the harness's tool queue) until puppeteer gives up;
@@ -219,7 +259,6 @@
     async step(n = 1, dt = 1000 / 60) {
       booting = false;
       stepping++;
-      let yielded = realNow();
       try { for (let i = 0; i < n; i++) {
         frame(dt);
         // a browser runs every microtask before the next frame; a callback that awaits an async function needs a few
@@ -227,13 +266,12 @@
         for (let k = 0; k < 16; k++) await null;
         const h = held; held = [];
         if (h.length) await Promise.all(h.map(settle));
-        if (cfg.software) {
-          await sync();
-          // a synced step is one main-thread task as long as its frames' GPU work: a real task each second lets
-          // guarded()'s ping answer, which reads 30 s of silence as hung
-          if (realNow() - yielded > 1000) { await realTick(); yielded = realNow(); }
-        }
-      } } finally { stepping--; }
+        if (cfg.software) await sync();
+        // a step is one main-thread task as long as its frames: a real task each second lets guarded()'s ping answer,
+        // which reads 30 s of silence as hung. The second counts across calls: feel's one-frame steps in one evaluate,
+        // each just under a second on SwiftShader, never yielded and the page was closed (dev #283)
+        if (realNow() - yielded > 1000) { await realTick(); yielded = realNow(); }
+      } } finally { stepping--; realTick().then(() => { yielded = realNow(); }); }
       return now;
     },
     hold(p) { if (!running) held.push(p); },

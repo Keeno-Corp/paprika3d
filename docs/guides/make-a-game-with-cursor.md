@@ -10,11 +10,16 @@ queries:
   - "can cursor make games"
   - "Anyone tried using Cursor with gaming engine like godot/unity/unreal?"
   - "Vibe Coding - am I an idiot?"
+  - "cursor codex run inspect three.js game"
+  - "How do I let Cursor or Codex run and inspect my three.js game while it writes the code?"
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a game with Cursor: a three.js game the agent can see and play
+
+To let Cursor or Codex run and inspect a three.js game while it writes the code, register paprika3d as an MCP server: `npx -y paprika3d serve` over stdio, which gives the agent `open`, `look` and `interact`. In Claude Code, the plugin installs with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`.
 
 Yes, you can make a game with Cursor, even if you have never written code. Cursor is a code editor (a program for writing and editing code files) with an AI agent built in: you describe what you want in its chat, and the agent writes the files, runs commands in a terminal (the text window where commands run) and reads what they print. A small browser game is a good first project for it, because a game made of web pages needs nothing installed beyond a browser.
 
@@ -159,7 +164,7 @@ To add it to Cursor, create a file named `mcp.json` in a folder named `.cursor` 
 A `.cursor/mcp.json` in your home folder instead makes it available in every project. Cursor starts the server itself, and its settings list the server and its tools once it is running. Then add the skills, short instruction files that tell the agent when to use each tool and what its replies mean, by running this once in Cursor's terminal:
 
 ```bash
-npx skills add paprika3d/paprika3d
+npx skills add Keeno-Corp/paprika3d
 ```
 
 Without the skills, add one sentence to your requests: "after each change, use the paprika tools to open the page, look at it and play it."

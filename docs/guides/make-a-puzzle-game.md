@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-11-01
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a puzzle game in three.js: pushing boxes onto targets
 
@@ -311,7 +312,7 @@ level to prove each one can be solved, and print the fewest moves for each.
 paprika3d is a plugin for Claude Code, and an MCP server (the standard way to hand tools to other coding agents), that opens a three.js game in a hidden Chrome browser so the agent can play it and read its state. It fits puzzles well, because a puzzle's correctness is exact: a solution either finishes the level or it does not. Add it to Claude Code with two lines in a terminal (the text window where you type commands):
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

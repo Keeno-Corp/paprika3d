@@ -1,6 +1,6 @@
 // Finish notes (Stop): the first time an agent that opened a game this session tries to stop, it is told once, as facts,
 // what it never ran: source files changed after the last `interact` or `look` (the final version never played or seen,
-// from the session's run folders) and the last plain look's fault lines (last-test.json, written by the server). AA-3D
+// from the session's run folders; a call still running counts, playing.json) and the last plain look's fault lines (last-test.json, written by the server). AA-3D
 // gpu-short-1: with the plugin, agents stopped about a minute after their first draft with a Lighting fault still open and
 // a reply with no fault lines read as done. It once asked for zoom and opening looks, a longer play, a saved-check rerun and
 // "the one thing a viewer would notice", and later "Do these, or say why they do not apply"; JC's playtest and the Door
@@ -34,13 +34,17 @@ const root = last && resolve(last.run, "..", "..", "..");
 const ran = last && (() => { try { return JSON.parse(readFileSync(join(last.run, "ran.json"), "utf8")).files as string[] | null; } catch { return null; } })();
 const real = (p: string) => { try { return realpathSync(p); } catch { return p; } };
 const files = ran && new Set(ran.map(real));
-const changed = root && last ? sourcesSince(root, Date.parse(last.at), p => !files || files.has(real(p))).map(p => relative(root, p)) : [];
+// a look, play or check still running (playing.json, the server's, gone when the call answers), as a background task is:
+// it started on the sources as they were then, so a file changed before it is being played now (dev #384)
+const live = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; } };
+const playing = Math.max(0, ...mine.map(run => { try { const p = JSON.parse(readFileSync(join(run, "playing.json"), "utf8")) as { at: string; pid: number }; return live(p.pid) ? Date.parse(p.at) : 0; } catch { return 0; } }));
+const changed = root && last ? sourcesSince(root, Math.max(Date.parse(last.at), playing), p => !files || files.has(real(p))).map(p => relative(root, p)) : [];
 
 const todo: string[] = [], asked: string[] = []; // asked: the items by key, for the dev build's telemetry (src/telemetry.ts)
 const ask = (key: string, line: string) => { todo.push(line); asked.push(key); };
 // a subagent's page is not the lead's to play: one still running has not looked yet, and the lead never called open (#183).
 // shortcut: Stop's input does not say which subagents still run, so their edits and fault lines still count; upgrade if it does
-if (!last) { if (leadRuns(input.transcript_path).some(r => existsSync(r))) ask("unplayed", "This session opened the game but never played or looked at it (`interact`, `look`)."); }
+if (!last) { if (!playing && leadRuns(input.transcript_path).some(r => existsSync(r))) ask("unplayed", "This session opened the game but never played or looked at it (`interact`, `look`)."); }
 else if (changed.length) ask("changed", `${changed.slice(0, 5).join(", ")}${changed.length > 5 ? ` and ${changed.length - 5} more` : ""} changed after your last \`interact\` or \`look\`: the final version was never played or seen.`);
 if (last?.faults.length) ask("faults", `Your last \`look\` reported:\n${last.faults.map(f => `  ${f}`).join("\n")}`);
 stopEvent(asked);

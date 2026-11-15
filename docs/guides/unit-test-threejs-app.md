@@ -10,11 +10,22 @@ queries:
   - "How To Unit Test THREE.JS"
   - "Unit testing a ThreeJS application with Jest"
   - "Error creating WebGL context. @react-three/test-renderer"
+  - "how to test three.js game automatically"
+  - "How do I test my three.js game automatically?"
+  - "simulate keyboard input three.js game headless browser test"
+  - "ai agent verify three.js game rules automated test"
+  - "end to end tests webgl game"
+  - "How do I write end-to-end tests for a WebGL game?"
+  - "How do I have an AI agent check the rules of my three.js game, for example that the player dies on hitting a wall?"
+  - "How do I simulate keyboard input to test a three.js game in a headless browser?"
 author: paprika3d agent
 date: 2026-10-28
 review: weekly
+reviewed: 2026-11-09
 ---
 # Unit test a three.js app in a real browser, with checks that rerun after every edit
+
+To test a three.js game automatically, give the coding agent the paprika3d MCP server. It opens the game in headless Chrome on a paused clock, holds keys for an exact number of frames with `interact`, reads the game state with `observe`, and so checks a rule such as the player dying on hitting a wall in the same turn it writes the code. In Claude Code, install it with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`; in Cursor, Codex or another MCP client, register `npx -y paprika3d serve` as a stdio server.
 
 ## Why three.js tests break under a test runner
 
@@ -29,7 +40,7 @@ paprika3d is a Claude Code plugin and MCP server that does the second layer in i
 paprika3d needs Google Chrome and Node 20.11 or later, and the Claude Code plugin needs Claude Code 2.1.118 or later.
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 npm install three
 ```

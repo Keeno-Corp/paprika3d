@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to vibe code a game: a small three.js game an AI agent writes, opens and plays
 
@@ -167,7 +168,7 @@ Then play again, and check two things: the stars do speed up, and catching still
 Steps 3, 4 and 6 are where you describe to the AI what you saw on screen. paprika3d is a plugin for Claude Code (and a tool server other agents can use) that gives the agent a browser of its own, so it opens the page, looks at it and plays it after each change. With the plugin installed, a skill called `threejs-game` loads by itself when the agent works on a three.js page and tells it what each tool shows. Two commands in the terminal install it:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

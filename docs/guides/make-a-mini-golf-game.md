@@ -11,6 +11,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-31
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a mini golf game in three.js: drag, putt and roll
 
@@ -294,7 +295,7 @@ The ball looks still from frame 151 and its speed rounds to 0, yet the game stil
 These replies were captured on 2026-10-31 on a machine with no graphics card, where Chrome draws in software. paprika3d does not design holes or judge whether one is too hard; it plays the putts you or the agent choose and reports what the ball did. To add it to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal, the window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

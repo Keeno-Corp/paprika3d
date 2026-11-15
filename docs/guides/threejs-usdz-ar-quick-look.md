@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-28
 review: weekly
+reviewed: 2026-11-09
 ---
 # three.js USDZ exporter for AR Quick Look: why the file grows, how to shrink it, and reading it back
 
@@ -30,7 +31,7 @@ paprika3d runs pages in Chrome on the machine the agent uses, and none of that i
 paprika3d needs Google Chrome and Node 20.11 or later, and the Claude Code plugin needs Claude Code 2.1.118 or later.
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 npm install three
 ```

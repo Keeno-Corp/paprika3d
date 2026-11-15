@@ -13,10 +13,12 @@ import { STRIDE } from "./physics.ts";
 export type Vec = { x: number; y: number; z: number };
 /** One rigid body with one collider. `size` is half extents for a box ([h] for a cube), [radius] for a sphere and
  *  [halfHeight, radius] for a capsule along y. A kinematic body is velocity-based, moved by `linvel` inputs. Sensors and
- *  bodies with `events` report contact start and end. */
+ *  bodies with `events` report contact start and end. `rot` is the starting rotation; friction (Rapier's default 0.5),
+ *  restitution (0), density (1), damping (0) and `ccd` (off) are Rapier's own. */
 export type BodySpec = {
   row: number; shape: "box" | "sphere" | "capsule"; size: number[]; type?: "dynamic" | "fixed" | "kinematic";
-  pos: Vec; lockRotations?: boolean; sensor?: boolean; events?: boolean;
+  pos: Vec; rot?: Vec & { w: number }; lockRotations?: boolean; sensor?: boolean; events?: boolean;
+  friction?: number; restitution?: number; density?: number; linearDamping?: number; angularDamping?: number; ccd?: boolean;
 };
 export type Input = ({ op: "linvel" | "impulse" | "teleport"; row: number } & Vec) | { op: "add"; body: BodySpec } | { op: "remove"; row: number };
 /** A ray from a fixed `origin`, or from the body in row `from` (plus `offset`) where it is after the step the ray is cast
@@ -55,11 +57,18 @@ export function createHandler() {
     if (index.has(b.row)) throw new Error(`row ${b.row} already has a physics body`);
     const d = b.type === "fixed" ? RAPIER.RigidBodyDesc.fixed() : b.type === "kinematic" ? RAPIER.RigidBodyDesc.kinematicVelocityBased() : RAPIER.RigidBodyDesc.dynamic();
     d.setTranslation(b.pos.x, b.pos.y, b.pos.z);
+    if (b.rot) d.setRotation(b.rot);
     if (b.lockRotations) d.lockRotations();
+    if (b.linearDamping !== undefined) d.setLinearDamping(b.linearDamping);
+    if (b.angularDamping !== undefined) d.setAngularDamping(b.angularDamping);
+    if (b.ccd) d.setCcdEnabled(true);
     const rb = world.createRigidBody(d);
     const [x, y = x, z = x] = b.size;
     const cd = b.shape === "sphere" ? RAPIER.ColliderDesc.ball(x) : b.shape === "capsule" ? RAPIER.ColliderDesc.capsule(x, y) : RAPIER.ColliderDesc.cuboid(x, y, z);
     if (b.sensor) cd.setSensor(true);
+    if (b.friction !== undefined) cd.setFriction(b.friction);
+    if (b.restitution !== undefined) cd.setRestitution(b.restitution);
+    if (b.density !== undefined) cd.setDensity(b.density);
     if (b.sensor || b.events) cd.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
     const e = { row: b.row, body: rb.handle, collider: world.createCollider(cd, rb).handle, sensor: !!b.sensor };
     link(e, list.push(e) - 1);

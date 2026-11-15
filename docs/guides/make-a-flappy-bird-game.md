@@ -11,6 +11,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-31
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a flappy bird game in three.js: a flap, gravity and gaps
 
@@ -255,7 +256,7 @@ The score text is the one thing that changes when the round ends. A shake, a fla
 These replies were captured on 2026-10-31 on a machine with no graphics card, where Chrome draws in software. paprika3d does not decide whether the gaps are too hard or the game is fun; it reports what happened, frame by frame, and you or the agent decide what to change. To add it to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal, the window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

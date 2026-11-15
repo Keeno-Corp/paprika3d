@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a tower defense game in three.js: a path, towers and waves
 
@@ -356,7 +357,7 @@ That is why the game lays one tile per square. These replies were captured on 20
 paprika3d does not balance the game for you or know whether it is fun; it tells you whether a given set of towers holds a given wave, which the agent can check after every change to the numbers. To add it to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal, the window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

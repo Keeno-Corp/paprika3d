@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-31
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a fruit ninja game in three.js: swipe to slice
 
@@ -292,7 +293,7 @@ The fruit went, two halves came and moved smoothly, and the score changed. There
 These replies were captured on 2026-10-31 on a machine with no graphics card, where Chrome draws in software. paprika3d emulates a touch screen in a desktop Chrome; it is not a phone, so a check on a real phone still matters before you share the game. It does not say whether the game is fun or the waves too hard. To add it to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal, the window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

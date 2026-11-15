@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to add a game over screen and a restart to a three.js game
 
@@ -222,7 +223,7 @@ The `window.__game` object at the end lets a test tool read the lives and score,
 A game over screen is tedious to test by hand: you have to lose a whole round every time you change it. paprika3d is a plugin for Claude Code (and an MCP server for other coding agents) that lets the agent set that moment up and play it. Install it in Claude Code with:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

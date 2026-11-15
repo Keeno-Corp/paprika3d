@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # My kid wants to make a video game: making a small three.js game together with an AI agent
 
@@ -162,7 +163,7 @@ Some ideas are big ("can it be multiplayer online?"). Say it goes on the list fo
 paprika3d is a plugin for Claude Code that lets the agent open the game, see it and play it before you do, so it finds its own mistakes instead of your child finding them. It adds two things a family can use too: a picture of the game, and a short GIF (a little looping animation) of a play. In Claude Code it installs with two commands in the terminal:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

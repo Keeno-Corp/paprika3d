@@ -11,6 +11,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a game feel good: what reacts to each hit and pickup in a three.js game
 
@@ -213,7 +214,7 @@ Each reaction is there, on the frames of the catch: the camera shake, the basket
 paprika3d does not judge whether your game is fun or whether a reaction is too much. It reports what moved, flashed, popped and played after an event, and on which frame; whether that feels right is yours to decide by playing. To add it to Claude Code (it needs Google Chrome and Node.js on your computer), run these two lines in a terminal, the text window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

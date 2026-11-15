@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to save the high score of a game in the browser, for a three.js game
 
@@ -203,7 +204,7 @@ The `window.__game` object at the end lets a test tool read the score and the hi
 paprika3d is a plugin for Claude Code (and an MCP server for other coding agents) that lets the agent run and play the game itself. Install it in Claude Code with:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

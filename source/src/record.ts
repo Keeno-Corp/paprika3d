@@ -179,7 +179,7 @@ export function clipText(c: Clip, game: Game): string {
 
 // `interact` `record: "video"`: footage for a person. The steps play on the paused clock, every frame drawn and pictured
 // (the HTML over the canvas included, as look's picture), and each picture is one frame of a 60 fps video, so it is smooth
-// whatever the machine's speed. The encoder runs in an isolated world of the game's own page: WebCodecs needs a secure
+// whatever the machine's speed (`fps: 30` pictures every other frame; `size` caps the longest side). The encoder runs in an isolated world of the game's own page: WebCodecs needs a secure
 // context, which the page's localhost origin is and the bare util page's about:blank is not, and a world of its own
 // leaves the game's globals and faked clock alone. H.264 High (Chrome had it on the Mac and on Linux, 2026-10-25, where
 // Baseline was missing); the server muxes the chunks with mp4-muxer (MIT; its successor mediabunny is MPL-2.0, which the
@@ -189,9 +189,13 @@ export function clipText(c: Clip, game: Game): string {
 export const VIDEO_MAX_S = 60;
 const KEEP = 30; // every 30th picture (and the last) is kept for the four-moment strip
 
-const ENCODER = `(async () => {
+/** `fps`: 60, every stepped frame filmed, or 30, every other one; `size`: the video's longest side at most, in px (the
+    page's full size by default). */
+export type VideoOpts = { fps?: 30 | 60; size?: number };
+
+const encoder = (fps: number, size: number) => `(async () => {
   if (typeof VideoEncoder !== "function") return null;
-  const configs = ["avc1.640033", "avc1.640028"].map(codec => ({ codec, framerate: 60, avc: { format: "avc" } }));
+  const configs = ["avc1.640033", "avc1.640028"].map(codec => ({ codec, framerate: ${fps}, avc: { format: "avc" } }));
   let base = null;
   for (const c of configs) if (await VideoEncoder.isConfigSupported({ ...c, width: 1280, height: 720, bitrate: 5e6 }).then(r => r.supported, () => false)) { base = c; break; }
   if (!base) return null;
@@ -201,7 +205,9 @@ const ENCODER = `(async () => {
   window.__harnessVideo = {
     async add(jpeg) {
       if (failed) throw new Error(failed);
-      const bmp = await createImageBitmap(new Blob([Uint8Array.fromBase64?.(jpeg) ?? Uint8Array.from(atob(jpeg), c => c.charCodeAt(0))])); // as PNG_BLOB in look.ts
+      let bmp = await createImageBitmap(new Blob([Uint8Array.fromBase64?.(jpeg) ?? Uint8Array.from(atob(jpeg), c => c.charCodeAt(0))])); // as PNG_BLOB in look.ts
+      const k = ${size} ? Math.min(1, ${size} / Math.max(bmp.width, bmp.height)) : 1;
+      if (k < 1) { const big = bmp; bmp = await createImageBitmap(big, { resizeWidth: Math.max(2, Math.round(big.width * k)), resizeHeight: Math.max(2, Math.round(big.height * k)), resizeQuality: "high" }); big.close(); }
       // sized by the first picture, rounded down to even (4:2:0); a later picture of another size (after a resize step) is scaled to it
       const w = bmp.width & ~1, h = bmp.height & ~1;
       if (!enc) {
@@ -213,8 +219,8 @@ const ENCODER = `(async () => {
         enc.configure({ ...base, width: w, height: h, bitrate: Math.max(2e6, Math.round(10e6 * w * h / (1920 * 1080))) });
         this.size = [w, h];
       }
-      const f = new VideoFrame(bmp, { timestamp: Math.round(n * 1e6 / 60), duration: Math.round(1e6 / 60), visibleRect: { x: 0, y: 0, width: Math.min(w, this.size[0]), height: Math.min(h, this.size[1]) }, displayWidth: this.size[0], displayHeight: this.size[1] });
-      enc.encode(f, { keyFrame: n % 120 === 0 }); f.close(); bmp.close(); n++;
+      const f = new VideoFrame(bmp, { timestamp: Math.round(n * 1e6 / ${fps}), duration: Math.round(1e6 / ${fps}), visibleRect: { x: 0, y: 0, width: Math.min(w, this.size[0]), height: Math.min(h, this.size[1]) }, displayWidth: this.size[0], displayHeight: this.size[1] });
+      enc.encode(f, { keyFrame: n % ${2 * fps} === 0 }); f.close(); bmp.close(); n++;
       while (enc.encodeQueueSize > 4) await new Promise(r => enc.addEventListener("dequeue", r, { once: true }));
       return out.splice(0);
     },
@@ -224,8 +230,8 @@ const ENCODER = `(async () => {
 })()`;
 
 export interface Video {
-  /** The MP4 in the run folder, its bytes, width and height, frames and seconds of game time. */
-  path: string; bytes: number; width: number; height: number; frames: number; seconds: number;
+  /** The MP4 in the run folder, its bytes, width and height, frames, frames a second and seconds of game time. */
+  path: string; bytes: number; width: number; height: number; frames: number; fps: number; seconds: number;
   /** Four moments of it in one labelled picture, for an agent, which cannot watch a video. */
   strip: string;
   /** Frames the steps ran past VIDEO_MAX_S, played but not filmed. */
@@ -234,10 +240,10 @@ export interface Video {
 
 let videos = 0;
 
-/** Starts filming the game's page: `frame()` pictures the frame just drawn and encodes it, `stop()` writes the video and
-    its strip. The caller steps the clock, one drawn frame per `frame()`. */
-export async function startVideo(game: Game): Promise<{ frame(): Promise<void>; stop(): Promise<Video> }> {
-  const page = game.page;
+/** Starts filming the game's page: `frame()` pictures the frame just drawn and encodes it (every other one at 30 fps),
+    `stop()` writes the video and its strip. The caller steps the clock, one drawn frame per `frame()`. */
+export async function startVideo(game: Game, o: VideoOpts = {}): Promise<{ frame(): Promise<void>; stop(): Promise<Video> }> {
+  const page = game.page, fps = o.fps ?? 60, every = 60 / fps;
   const cdp = await page.createCDPSession().catch(e => { throw e instanceof EngineUnsupported ? new EngineUnsupported("record") : e; });
   const world = async (expression: string) => {
     const r = await cdp.send("Runtime.evaluate", { expression, contextId, awaitPromise: true, returnByValue: true });
@@ -248,39 +254,40 @@ export async function startVideo(game: Game): Promise<{ frame(): Promise<void>; 
   try {
     const { frameTree } = await cdp.send("Page.getFrameTree");
     ({ executionContextId: contextId } = await cdp.send("Page.createIsolatedWorld", { frameId: frameTree.frame.id, worldName: "paprika3d-video" }));
-    codec = await world(ENCODER);
+    codec = await world(encoder(fps, o.size ?? 0));
   } catch (e) { await cdp.detach().catch(() => {}); throw e; }
   if (!codec) {
     await cdp.detach().catch(() => {});
     throw new Error(`record: "video" needs WebCodecs' VideoEncoder with H.264, which this page has not (WebCodecs needs a secure context: http://localhost or https); record: true makes a GIF instead; nothing was played`);
   }
   const chunks: [string, boolean, number, number][] = [], kept: [number, string][] = [];
-  let frames = 0, unfilmed = 0, last = "";
+  let frames = 0, stepped = 0, unfilmed = 0, last = "";
   // the isolated world goes with its document: a page that reloaded itself is a new page at frame 0 (as startRecording says)
-  const lost = (e: unknown) => /Cannot find context|context was destroyed|Execution context/i.test(String(e)) ? new Error(`record: ${REC_NAVIGATED}, ${(frames / 60).toFixed(1)} s in, so the frames after it are of a new page at frame 0: no video was written`) : e;
+  const lost = (e: unknown) => /Cannot find context|context was destroyed|Execution context/i.test(String(e)) ? new Error(`record: ${REC_NAVIGATED}, ${(stepped / 60).toFixed(1)} s in, so the frames after it are of a new page at frame 0: no video was written`) : e;
   return {
     async frame() {
-      if (frames >= VIDEO_MAX_S * 60) { unfilmed++; return; }
+      if (stepped >= VIDEO_MAX_S * 60) { unfilmed++; return; }
+      if (stepped++ % every) return;
       const jpeg = await page.screenshot({ type: "jpeg", quality: 92, optimizeForSpeed: true, encoding: "base64" }) as string;
       chunks.push(...await world(`window.__harnessVideo.add(${JSON.stringify(jpeg)})`).catch(e => { throw lost(e); }));
-      if (frames % KEEP === 0) kept.push([frames, jpeg]);
+      if (frames % (KEEP * fps / 60) === 0) kept.push([frames, jpeg]);
       last = jpeg; frames++;
     },
     async stop() {
       const end = await world("window.__harnessVideo.end()").catch(e => { throw lost(e); }).finally(() => cdp.detach().catch(() => {})) as { chunks: typeof chunks; config: Record<string, unknown> & { codec: string; description?: string }; size: [number, number] } | null;
       if (!end || !frames) throw new Error("record: no frame was filmed: no step ran a frame");
       chunks.push(...end.chunks);
-      const [width, height] = end.size, muxer = new Muxer({ target: new ArrayBufferTarget(), video: { codec: "avc", width, height, frameRate: 60 }, fastStart: "in-memory" });
+      const [width, height] = end.size, muxer = new Muxer({ target: new ArrayBufferTarget(), video: { codec: "avc", width, height, frameRate: fps }, fastStart: "in-memory" });
       const decoderConfig = { ...end.config, ...end.config.description && { description: Buffer.from(end.config.description, "base64") } };
-      for (const [i, [data, key, t, d]] of chunks.entries()) muxer.addVideoChunkRaw(Buffer.from(data, "base64"), key ? "key" : "delta", t * 1e6, (d || 1 / 60) * 1e6, i ? undefined : { decoderConfig } as any);
+      for (const [i, [data, key, t, d]] of chunks.entries()) muxer.addVideoChunkRaw(Buffer.from(data, "base64"), key ? "key" : "delta", t * 1e6, (d || 1 / fps) * 1e6, i ? undefined : { decoderConfig } as any);
       muxer.finalize();
       const bytes = new Uint8Array(muxer.target.buffer), n = ++videos;
       const path = join(game.runDir, `video-${n}.mp4`), strip = join(game.runDir, `video-${n}.png`);
       writeFileSync(path, bytes);
       if (kept.at(-1)![0] !== frames - 1) kept.push([frames - 1, last]);
       const at = [...new Set([0, 1, 2, 3].map(i => Math.round(i * (kept.length - 1) / 3)))].map(i => kept[i]!);
-      writeFileSync(strip, Buffer.from(await page.evaluate(`${COMPOSE}(${JSON.stringify(at.map(k => k[1]))}, ${JSON.stringify(at.map(k => `${(k[0] / 60).toFixed(1)} s`))})`) as string, "base64"));
-      return { path, bytes: bytes.length, width, height, frames, seconds: Math.round(frames / 60 * 100) / 100, strip, unfilmed };
+      writeFileSync(strip, Buffer.from(await page.evaluate(`${COMPOSE}(${JSON.stringify(at.map(k => k[1]))}, ${JSON.stringify(at.map(k => `${(k[0] / fps).toFixed(1)} s`))})`) as string, "base64"));
+      return { path, bytes: bytes.length, width, height, frames, fps, seconds: Math.round(frames / fps * 100) / 100, strip, unfilmed };
     },
   };
 }
@@ -288,7 +295,7 @@ export async function startVideo(game: Game): Promise<{ frame(): Promise<void>; 
 /** The reply's lines for a video. */
 export function videoText(v: Video): string {
   const kb = v.bytes / 1024, size = kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.round(kb)} KB`;
-  return `Filmed ${v.seconds} s of game time: ${v.path} (MP4, H.264, ${size}, ${v.width} × ${v.height}, ${v.frames} frames at 60 fps), footage for a person to watch; four moments of it: ${v.strip}.`
-    + `\nThe steps played on the paused clock, every frame drawn and pictured, so the video is smooth whatever the machine's speed. It has no sound, and real frame timing is not measured here (record: true plays in real time and measures it).`
+  return `Filmed ${v.seconds} s of game time: ${v.path} (MP4, H.264, ${size}, ${v.width} × ${v.height}, ${v.frames} frames at ${v.fps} fps), footage for a person to watch; four moments of it: ${v.strip}.`
+    + `\nThe steps played on the paused clock, every frame drawn and ${v.fps < 60 ? "every other one" : "each"} pictured, so the video is smooth whatever the machine's speed. It has no sound, and real frame timing is not measured here (record: true plays in real time and measures it).`
     + (v.unfilmed ? `\nThe video stops at ${VIDEO_MAX_S} s: the last ${v.unfilmed} frames of the steps played without being filmed.` : "");
 }

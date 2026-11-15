@@ -12,8 +12,13 @@ export const COPLANAR = `(() => {
   let spent = 0;
   const h = window.__harness, budget = window.__harnessConfig?.coplanarWork ?? 3.5e7, late = (share = 1) => spent > budget * share;
   const [scene, { camera: c0 }] = h.main(), camera = h.lookCam?.from === c0 ? h.lookCam.to : c0; // as SETUP: \`look\`'s stand-in camera
-  // a material that places its own vertices draws elsewhere than its geometry; polygon offset is the fix; no depth test never fights
-  const skip = m => !m || m.polygonOffset || !m.depthTest || m.isShaderMaterial || Object.hasOwn(m, "onBeforeCompile");
+  // a material that places its own vertices draws elsewhere than its geometry (a node material's positionNode or vertexNode,
+  // a displacement map: a clipmap terrain's flat levels lifted from a height texture read as 48 fights, dev #317); polygon
+  // offset is the fix; no depth test never fights
+  // a material that draws no colour is not seen to flicker (a click target's hit box: material.visible = false, colorWrite
+  // off or opacity 0, dev #420); only one that still writes depth stays in, since it cuts flickering holes in a mesh that draws
+  const blank = m => m.colorWrite === false || (m.transparent && m.opacity === 0);
+  const skip = m => !m || m.visible === false || (blank(m) && !m.depthWrite) || m.polygonOffset || !m.depthTest || m.isShaderMaterial || Object.hasOwn(m, "onBeforeCompile") || m.positionNode || m.vertexNode || (m.displacementMap && m.displacementScale);
   const meshes = [];
   scene.traverseVisible(o => {
     const g = o.geometry, p = g?.attributes?.position;
@@ -27,7 +32,7 @@ export const COPLANAR = `(() => {
   // instanced bricks whose top row is flush with the mortar fights there, not at the first brick: 3jsbench pilot-1)
   // shortcut: a mesh over 20k triangles (instances included) is judged by its first 20k, the scene by its first 500k;
   // raise them if a big merged mesh hides a fight. Two instances of one InstancedMesh pair as two faces of one mesh do.
-  const tris = [], unchecked = new Set(); // unchecked: meshes some of whose faces were not compared within the budget
+  const tris = [], per9 = [], unchecked = new Set(); // unchecked: meshes some of whose faces were not compared within the budget
   let total = 0, x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
   for (const o of meshes) {
     if (total >= 500000) { for (let i = tris.length; i < meshes.length; i++) unchecked.add(i); break; }
@@ -43,7 +48,7 @@ export const COPLANAR = `(() => {
       const X = w[s] = a[0] * x + a[4] * y + a[8] * z + a[12], Y = w[s + 1] = a[1] * x + a[5] * y + a[9] * z + a[13], Z = w[s + 2] = a[2] * x + a[6] * y + a[10] * z + a[14];
       if (X < x0) x0 = X; if (X > x1) x1 = X; if (Y < y0) y0 = Y; if (Y > y1) y1 = Y; if (Z < z0) z0 = Z; if (Z > z1) z1 = Z;
     }
-    tris.push(w); total += n; spent += 10 * n;
+    tris.push(w); per9.push(o.isInstancedMesh ? per * 9 : Infinity); total += n; spent += 10 * n;
   }
   const R = Math.max(1e-6, Math.hypot(x1 - x0, y1 - y0, z1 - z0) / 2), minA = 1e-10 * R * R;
   // Faces fight when the depth buffer cannot tell them apart: a 24-bit buffer's step at their distance from the camera
@@ -55,6 +60,9 @@ export const COPLANAR = `(() => {
   // each triangle keyed by its plane: unit normal to 1e-3 as one number (each part 0 to 2000), and offset to that step;
   // a plane's faces in one flat list of (offset, mesh, face): string keys and a Map per offset and mesh took half the time
   const planes = new Map(), cx = e[12], cy = e[13], cz = e[14], K = 2001;
+  // world to clip space, to tell a fight inside this camera's view from one outside it (a roof 230 units behind a camera in
+  // a ship's hold read as in view, dev #269)
+  const clipM = new camera.matrixWorld.constructor().copy(camera.matrixWorld).invert().premultiply(camera.projectionMatrix).elements;
   for (let mi = 0; mi < tris.length; mi++) {
     // each face keyed by the side it draws (BackSide draws the faces turned away, so its normal is flipped); whether the
     // camera sees a fight is decided per pair below, so one on a face turned away (the top of a wall looked at from below
@@ -87,15 +95,16 @@ export const COPLANAR = `(() => {
       if (k - s > 1) {
         const by = new Map();
         for (let i = s; i < k; i++) { const mi = b[ix[i] + 1], l = by.get(mi); l ? l.push(b[ix[i] + 2]) : by.set(mi, [b[ix[i] + 2]]); }
-        work.push([kn, by]);
+        work.push([kn, by, k - s]); // k - s: its faces
       }
       s = k;
     }
   }
   // fights between meshes first: one mesh's own faces (most meshes have some in one plane) must not spend the budget first;
-  // then each mesh's own faces mesh by mesh, so a check out of budget has compared every face of the first meshes (by normal,
-  // every curved mesh had a face left: checked 0 of 103)
-  work.sort((a, b) => (b[1].size > 1) - (a[1].size > 1) || a[1].keys().next().value - b[1].keys().next().value);
+  // those cheapest first, so one big shared plane cannot spend the budget on its own (16 flat terrain chunks: not checked
+  // for 141 of 141 meshes, dev #315); then each mesh's own faces mesh by mesh, so a check out of budget has compared every
+  // face of the first meshes (by normal, every curved mesh had a face left: checked 0 of 103)
+  work.sort((a, b) => (b[1].size > 1) - (a[1].size > 1) || (a[1].size > 1 && a[2] - b[2]) || a[1].keys().next().value - b[1].keys().next().value);
   const owner = (o) => { for (let p = o.parent; p; p = p.parent) if (p.name) return ' in "' + p.name + '"'; return ""; };
   const label = (o) => o.name ? '"' + o.name + '"' : "an unnamed " + o.geometry.type + owner(o);
   const both = (a, b) => label(a) !== label(b) ? label(a) + " and " + label(b) : a.name ? "two meshes named " + label(a) : "two unnamed " + a.geometry.type + "s" + owner(a);
@@ -127,25 +136,38 @@ export const COPLANAR = `(() => {
     const dOf = (mi, t) => tris[mi][t] * nx + tris[mi][t + 1] * ny + tris[mi][t + 2] * nz;
     const dist = (mu, mv, dn) => Math.max(1e-6, Math.hypot(mu * ux + mv * vx + dn * nx - cx, mu * uy + mv * vy + dn * ny - cy, mu * uz + mv * vz + dn * nz - cz));
     // a fight between meshes a and b (a === b: two faces of one mesh) over [u0, u1] × [v0, v1] of this plane
-    const report = (a, b, area, u0, v0, u1, v1, dA, dB, t) => {
+    const report = (a, b, area, u0, v0, u1, v1, dA, dB, t, which = "") => {
       // how big the overlap looks from the camera (its area over its distance squared, about the share of a steradian):
       // under 1e-4, some 150 pixels of a 1280 × 800 picture, a flicker no player notices
       const mu = (u0 + u1) / 2, mv = (v0 + v1) / 2, z = dist(mu, mv, dA), looks = area / (z * z), gap = 2 * step(z);
       if (looks < 1e-4 || Math.abs(dA - dB) > gap) return;
+      if ([a, b].every(mi => blank([meshes[mi].material].flat()[0]))) return; // neither draws a colour (dev #420)
       // the camera sees the fight when the faces' drawn side is turned to it, or when both draw both sides
       const double = (mi) => [meshes[mi].material].flat()[0].side === 2;
-      const seen = (double(a) && double(b)) || nx * (cx - mu * ux - mv * vx - dA * nx) + ny * (cy - mu * uy - mv * vy - dA * ny) + nz * (cz - mu * uz - mv * vz - dA * nz) > 0;
-      const key = a + "|" + b + "|" + seen;
-      if (found.has(key) && found.get(key).looks >= looks) return;
+      const facing = (double(a) && double(b)) || nx * (cx - mu * ux - mv * vx - dA * nx) + ny * (cy - mu * uy - mv * vy - dA * ny) + nz * (cz - mu * uz - mv * vz - dA * nz) > 0;
+      // outside the view when all four corners of the overlap lie past one clip plane
+      const out = new Array(6).fill(true);
+      for (const [cu, cv] of [[u0, v0], [u1, v0], [u0, v1], [u1, v1]]) {
+        const X = cu * ux + cv * vx + dA * nx, Y = cu * uy + cv * vy + dA * ny, Z = cu * uz + cv * vz + dA * nz, m = clipM;
+        const px = m[0] * X + m[4] * Y + m[8] * Z + m[12], py = m[1] * X + m[5] * Y + m[9] * Z + m[13], pz = m[2] * X + m[6] * Y + m[10] * Z + m[14], pw = m[3] * X + m[7] * Y + m[11] * Z + m[15];
+        [px > pw, px < -pw, py > pw, py < -pw, pz > pw, pz < -pw].forEach((o, i) => { if (!o) out[i] = false; });
+      }
+      const inView = !out.some(Boolean), seen = facing && inView;
+      const key = a + "|" + b + "|" + seen, places = (found.get(key)?.places ?? 0) + 1;
+      if (found.has(key) && found.get(key).looks >= looks) { found.get(key).places = places; return; }
       const axis = ["x", "y", "z"].find((_, k) => Math.abs([nx, ny, nz][k]) === 1), w = tris[a];
       const where = axis ? axis + " = " + w[t + "xyz".indexOf(axis)].toFixed(2) : "a plane facing (" + [nx, ny, nz].map(x => x.toFixed(2)).join(", ") + ")";
-      const pair = (a === b ? label(meshes[a]) + " has two faces in one plane" : both(meshes[a], meshes[b]) + " share a face plane") + " (" + where + ") over " + f(u1 - u0) + " × " + f(v1 - v0) + " units";
+      const pair = (a === b ? label(meshes[a]) + which + " has two faces in one plane" : both(meshes[a], meshes[b]) + " share a face plane") + " (" + where + ") over " + f(u1 - u0) + " × " + f(v1 - v0) + " units"
+        // a mesh fighting itself: where this place is, since its name alone does not find it in a merged mesh (dev #417)
+        + (a === b ? " around (" + [mu * ux + mv * vx + dA * nx, mu * uy + mv * vy + dA * ny, mu * uz + mv * vz + dA * nz].map(x => +x.toFixed(1) || 0).join(", ") + ")" : "");
       const k = [nx, ny, nz].map(Math.abs), big = k.indexOf(Math.max(...k)), toward = big === 1 ? (ny > 0 ? "above" : "below") : "the " + ([nx, ny, nz][big] > 0 ? "+" : "-") + "xyz"[big] + " side";
       // the gap the depth buffer can tell apart at this distance, so the agent knows how far is enough
       const off = "at least " + f(gap) + " units off the plane";
-      found.set(key, { looks, seen, text: seen
-        ? "Surfaces: " + pair + ": they flicker as the camera moves (z-fighting). Move one " + off + " (what the depth buffer can tell apart at " + f(z) + " units from this camera), give the top one material.polygonOffset = true with polygonOffsetFactor -1, or remove the hidden face."
-        : "Surfaces out of view: " + pair + ", on faces turned away from this camera: they flicker when seen from " + toward + ". Look from there; move one " + off + " or remove the hidden face, unless that side is never seen." });
+      const also = (n) => n > 1 ? " (" + (n - 1) + " more place" + (n > 2 ? "s" : "") + " like it in this mesh)" : "";
+      found.set(key, { looks, seen, places, text: (n) => seen
+        ? "Surfaces: " + pair + also(n) + ": they flicker as the camera moves (z-fighting). Move one " + off + " (what the depth buffer can tell apart at " + f(z) + " units from this camera, and more from farther away), give the top one material.polygonOffset = true with polygonOffsetFactor -1, or remove the hidden face."
+        : !inView ? "Surfaces out of view: " + pair + also(n) + ", outside this camera's view: they flicker when a camera looks there. Look there with look's camera; move one " + off + " or remove the hidden face, unless it is never seen."
+        : "Surfaces out of view: " + pair + also(n) + ", on faces turned away from this camera: they flicker when seen from " + toward + ". Look from there; move one " + off + " or remove the hidden face, unless that side is never seen." });
     };
     // faces of one mesh: neighbours share only an edge (no area in common), so an overlap past 1% of the smaller face is
     // a decal or marking merged into the mesh (a start line merged into the road's geometry); swept along u
@@ -171,7 +193,12 @@ export const COPLANAR = `(() => {
       // two faces with exactly one edge in common (any triangulated surface) meet only along it: no clip needed
       const edge = (i, j) => { let c = 0; for (let a = 0; a < 6; a += 2) for (let b = 0; b < 6; b += 2) if (p[i * 6 + a] === p[j * 6 + b] && p[i * 6 + a + 1] === p[j * 6 + b + 1]) c++; return c >= 2; }; // 3: the same triangle twice (an instance pool left at one matrix) draws one colour, no flicker
       const order = [...Array(n).keys()].sort((i, j) => lo(i) - lo(j));
-      let area = 0, u0 = Infinity, v0 = Infinity, u1 = -Infinity, v1 = -Infinity, first;
+      // one region per instance (or pair of instances) of an InstancedMesh: one box around every copy's pairs spanned the
+      // island ("over 34 × 43 units" for 3 houses), where no copy has a fight that big
+      // and one per group of faces that overlap in a plain mesh: 100 houses merged into one geometry, two boards overlapping
+      // on each, read "over 8.3 × 240 units", the spread of the whole mesh (dev #417)
+      const many = per9[A.mi] < Infinity, inst = k => (A.l[k] / per9[A.mi]) | 0, regions = new Map(), pairs = [];
+      const up = new Int32Array(n).map((_, k) => k), root = k => { while (up[k] !== k) k = up[k] = up[up[k]]; return k; };
       for (let oi = 0; oi < n; oi++) {
         if (late()) { stop(); break groups; }
         const i = order[oi], ih = hi(i), ivl = vlo(i), ivh = vhi(i);
@@ -190,11 +217,37 @@ export const COPLANAR = `(() => {
           if (a <= 0.01 * Math.min(A.ta[i], A.ta[j])) continue;
           const di = dOf(A.mi, A.l[i]), dj = dOf(A.mi, A.l[j]);
           if (Math.abs(di - dj) > 2 * step(dist((pu0 + pu1) / 2, (pv0 + pv1) / 2, di))) continue;
-          area += a; first ??= A.l[i];
-          if (pu0 < u0) u0 = pu0; if (pu1 > u1) u1 = pu1; if (pv0 < v0) v0 = pv0; if (pv1 > v1) v1 = pv1;
+          up[root(i)] = root(j);
+          pairs.push(i, j, a, pu0, pv0, pu1, pv1);
         }
       }
-      if (area) report(A.mi, A.mi, area, u0, v0, u1, v1, dOf(A.mi, first), dOf(A.mi, first), first);
+      for (let k = 0; k < pairs.length; k += 7) {
+        const i = pairs[k], j = pairs[k + 1], a = pairs[k + 2], pu0 = pairs[k + 3], pv0 = pairs[k + 4], pu1 = pairs[k + 5], pv1 = pairs[k + 6];
+        const ia = many ? Math.min(inst(i), inst(j)) : root(i), ib = many ? Math.max(inst(i), inst(j)) : 0, key = ia * 1e6 + ib, g = regions.get(key);
+        if (!g) { regions.set(key, { ia, ib, area: a, u0: pu0, v0: pv0, u1: pu1, v1: pv1, first: A.l[i] }); continue; }
+        g.area += a; if (pu0 < g.u0) g.u0 = pu0; if (pu1 > g.u1) g.u1 = pu1; if (pv0 < g.v0) g.v0 = pv0; if (pv1 > g.v1) g.v1 = pv1;
+      }
+      // groups whose boxes touch are one place: a rug whose diagonal lies on its floor's overlaps each half apart
+      let places = [...regions.values()];
+      if (!many) {
+        places.sort((a, b) => a.u0 - b.u0);
+        for (let i = 0; i < places.length; i++) {
+          const g = places[i];
+          if (!g) continue;
+          for (let j = i + 1; j < places.length && !late(); j++) {
+            const h = places[j];
+            spent += 1;
+            if (!h) continue;
+            if (h.u0 > g.u1) break;
+            if (h.v0 > g.v1 || h.v1 < g.v0) continue;
+            g.area += h.area; if (h.u1 > g.u1) g.u1 = h.u1; if (h.v0 < g.v0) g.v0 = h.v0; if (h.v1 > g.v1) g.v1 = h.v1;
+            places[j] = null; j = i; // its box grew: from its first neighbour again
+          }
+        }
+        places = places.filter(Boolean);
+      }
+      for (const g of places) report(A.mi, A.mi, g.area, g.u0, g.v0, g.u1, g.v1, dOf(A.mi, g.first), dOf(A.mi, g.first), g.first,
+        !many ? "" : g.ia === g.ib ? " instance " + g.ia : " instances " + g.ia + " and " + g.ib);
     }
     // which cells of a G × G grid over the rect a mesh's triangles cover (cell centres, edges excluded so touching tiles share none)
     const cover = (m, [r0, s0, r1, s1]) => {
@@ -231,8 +284,8 @@ export const COPLANAR = `(() => {
   }
   // up to 3 lines for fights in view, then 1 for those on faces this camera cannot see, then what the budget left unchecked
   const sorted = [...found.values()].sort((a, b) => b.looks - a.looks), shown = sorted.filter(l => l.seen), away = sorted.filter(l => !l.seen);
-  const more = shown.length - 3, out = shown.slice(0, 3).map((l, i) => i === 2 && more > 0 ? l.text + " (" + more + " more pairs like it)" : l.text);
-  if (away.length) out.push(away[0].text + (away.length > 1 ? " (" + (away.length - 1) + " more pairs out of view)" : ""));
+  const more = shown.length - 3, out = shown.slice(0, 3).map((l, i) => i === 2 && more > 0 ? l.text(l.places) + " (" + more + " more pairs like it)" : l.text(l.places));
+  if (away.length) out.push(away[0].text(away[0].places) + (away.length > 1 ? " (" + (away.length - 1) + " more pairs out of view)" : ""));
   // meshes past the work or triangle limit were not all compared: say so rather than nothing, in a line that starts as a
   // Surfaces line does, so no Surfaces line never reads as a clean check (#161: 0 of 103 meshes read as clean)
   if (unchecked.size) out.push("Surfaces: not checked for " + unchecked.size + " of " + meshes.length + " meshes (the z-fighting check's work or triangle limit ran out first), so a fight on them is not named here.");

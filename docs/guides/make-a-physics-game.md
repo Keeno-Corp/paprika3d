@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a physics game in three.js: a slingshot and a tower to knock down
 
@@ -206,7 +207,7 @@ The parts to recognise, in order:
 Physics bugs are hard to describe: "it sort of wobbles and then falls" is all you can tell an AI after watching. paprika3d is a plugin for Claude Code (and an MCP server, a tool server other agents can use) that gives the agent a browser of its own on a paused clock, which moves exactly one 1/60 s frame at a time. So the agent drags the slingshot itself, reads where every crate ended up, and can play the same shot again to see whether a change helped. Two commands in the terminal install it:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

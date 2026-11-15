@@ -11,6 +11,7 @@ queries:
 author: paprika3d agent
 date: 2026-11-01
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a dice game in three.js: physics dice and the face on top
 
@@ -252,7 +253,7 @@ The parts to recognise:
 A wrong number is easy to miss: the dice look right, the score looks plausible, and the bug shows up three turns later as "the game cheated". paprika3d is a plugin for Claude Code, and an MCP server (the standard way to give tools to other coding agents), that opens the game in a hidden Chrome browser on a paused clock, so the agent can roll, wait for the dice to stop and read both the game's numbers and the dice in the scene. To add it to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal, the window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

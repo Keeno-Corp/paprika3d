@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-30
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make an endless runner game in three.js: the world moves, the runner stays
 
@@ -242,7 +243,7 @@ For three lanes and dodging, as in Subway Surfers, [make a game with Claude Code
 A runner is fast and random-looking, so describing a bug in it ("sometimes it falls through") is hard. paprika3d is a plugin for Claude Code (and an MCP server for other coding agents) that lets the agent open the page in a headless Chrome (a browser with no window), play it frame by frame, each 1/60 s of game time, and read the game's numbers back. Install it in Claude Code with:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

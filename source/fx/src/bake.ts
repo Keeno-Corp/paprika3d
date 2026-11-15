@@ -5,9 +5,11 @@ import type { AnimationClip, Object3D } from "three";
 
 /** `object` and its children as a GLB; the root keeps its world transform, so a baked piece loads where it stood. */
 export async function bake(object: Object3D, o: { animations?: AnimationClip[] } = {}): Promise<ArrayBuffer> {
-  const { GLTFExporter } = await import("three/addons/exporters/GLTFExporter.js");
+  const [{ GLTFExporter }, { clone }] = await Promise.all([import("three/addons/exporters/GLTFExporter.js"), import("three/addons/utils/SkeletonUtils.js")]);
   object.updateWorldMatrix(true, false);
-  const root = object.clone();
+  // SkeletonUtils' clone binds each copied SkinnedMesh to the copied bones; Object3D.clone() keeps the originals, which the
+  // GLB does not hold, so every joint was invalid (#246)
+  const root = clone(object);
   object.matrixWorld.decompose(root.position, root.quaternion, root.scale);
   return await new GLTFExporter().parseAsync(root, { binary: true, animations: o.animations ?? [] }) as ArrayBuffer;
 }

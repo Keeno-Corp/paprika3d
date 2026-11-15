@@ -47,6 +47,7 @@ export function installGame(world: World, bodies: { player: RigidBody }) {
     setState: (s: { score?: number; player?: Vec; velocity?: Vec }) => {   // every schema key but bodies (a count), applied at once
       if (s.score !== undefined) score = s.score;
       if (s.player) bodies.player.setTranslation({ ...bodies.player.translation(), ...s.player }, true);   // fields left out keep their values
+      if (s.player) world.propagateModifiedBodyPositionsToColliders();   // a character controller's next query sees the collider at its new place
       if (s.player || s.velocity) bodies.player.setLinvel(s.velocity ?? { x: 0, y: 0, z: 0 }, true);
     },
   };

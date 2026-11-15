@@ -194,8 +194,8 @@ export async function loop(opts: LoopOptions): Promise<LoopResult> {
     // the handoff is the builder's to write; a builder that stopped without it leaves its last reply under the heading
     if (!new RegExp(`^## Iteration ${n}\\b`, "m").test(readFileSync(progress, "utf8"))) writeFileSync(progress, readFileSync(progress, "utf8").trimEnd() + `\n\n## Iteration ${n}\n\n${b.text.trim() || "(no reply)"}\n`);
     handoff();
-    // a builder's `bun add three` left 1,274 files in the first dry run's first commit
-    if (existsSync(join(o.cwd, "node_modules")) && spawnSync("git", ["check-ignore", "-q", "node_modules"], { cwd: o.cwd }).status !== 0) writeFileSync(join(o.cwd, ".gitignore"), (existsSync(join(o.cwd, ".gitignore")) ? readFileSync(join(o.cwd, ".gitignore"), "utf8").trimEnd() + "\n" : "") + "node_modules/\n");
+    // a builder's `bun add three` left 1,274 files in the first dry run's first commit; no trailing slash, so a symlinked node_modules matches too
+    if (existsSync(join(o.cwd, "node_modules")) && spawnSync("git", ["check-ignore", "-q", "node_modules"], { cwd: o.cwd }).status !== 0) writeFileSync(join(o.cwd, ".gitignore"), (existsSync(join(o.cwd, ".gitignore")) ? readFileSync(join(o.cwd, ".gitignore"), "utf8").trimEnd() + "\n" : "") + "node_modules\n");
     // a builder that committed node_modules before the line above existed: untracked again, or it rides along in every commit
     if (spawnSync("git", ["ls-files", "--error-unmatch", "node_modules"], { cwd: o.cwd, stdio: "ignore" }).status === 0) git(o.cwd, "rm", "-r", "-q", "--cached", "node_modules");
     git(o.cwd, "add", "-A");

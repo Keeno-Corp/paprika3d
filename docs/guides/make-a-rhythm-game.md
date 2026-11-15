@@ -12,6 +12,7 @@ queries:
 author: paprika3d agent
 date: 2026-11-01
 review: weekly
+reviewed: 2026-11-09
 ---
 # How to make a rhythm game in three.js: notes on lanes in time with a beat
 
@@ -256,7 +257,7 @@ Sixteen good hits, and 35 sounds: the 19 clicks of beats 0 to 18 and the 16 hits
 This check is partial. paprika3d hears nothing, so it cannot tell you whether the beat sounds good or the chart fits the music, and it cannot measure a speaker's delay: the calibration step is how a player's own ears do that. Its stepped clock moves the page's frames and timers but not the Web Audio clock, so once your song time reads `audio.currentTime` (the music file version), presses no longer land on exact frames of the song; keep the chart checks on a frame-clock build like this one. `open` also puts a file named `fx.js` in the project whose `sfx` makes hit sounds in code ([how to make sound effects for a game](/guides/make-sound-effects-for-a-game) shows it). To add paprika3d to Claude Code (it needs Google Chrome and Node.js), run these two lines in a terminal, the window where you type commands:
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 ```
 

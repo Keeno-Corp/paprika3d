@@ -75,10 +75,10 @@ export const tex = {
     return done(c);
   },
   /** A radial blob fading from `color` to transparent: a glow (additive) or a contact shadow (black, normal blending).
-      `falloff` (0 to 1) is how far out it is still a quarter strength; `opacity` is the alpha at the centre. */
+      `falloff` (0 to 1, a share of the radius, clamped) is how far out it is still a quarter strength; `opacity` is the alpha at the centre. */
   glow(color: C = "#fff", { size = 128, falloff = 0.4, opacity = 1 } = {}) {
-    const [c, x] = canvas(size), h = size / 2, g = x.createRadialGradient(h, h, 0, h, h, h);
-    g.addColorStop(0, css(color, opacity)); g.addColorStop(falloff, css(color, opacity / 4)); g.addColorStop(1, css(color, 0));
+    const [c, x] = canvas(size), h = size / 2, g = x.createRadialGradient(h, h, 0, h, h, h), f = Math.min(1, Math.max(0, +falloff || 0));
+    g.addColorStop(0, css(color, opacity)); g.addColorStop(f, css(color, opacity / 4)); g.addColorStop(1, css(color, 0));
     x.fillStyle = g; x.fillRect(0, 0, size, size);
     return done(c);
   },

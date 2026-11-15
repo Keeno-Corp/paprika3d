@@ -13,6 +13,7 @@ queries:
 author: paprika3d agent
 date: 2026-10-28
 review: weekly
+reviewed: 2026-11-09
 ---
 # three.js page speed and Lighthouse: what a 3D hero costs the rest of the page
 
@@ -31,7 +32,7 @@ paprika3d is a Claude Code plugin and MCP server that opens a three.js page in i
 paprika3d needs Google Chrome and Node 20.11 or later, and the Claude Code plugin needs Claude Code 2.1.118 or later.
 
 ```bash
-claude plugin marketplace add paprika3d/paprika3d
+claude plugin marketplace add Keeno-Corp/paprika3d
 claude plugin install paprika3d@paprika3d
 npm install three
 ```
@@ -123,7 +124,7 @@ perf {"budget": "site"}
 
 21.5 ms median frame (p95 33.6 ms, 46 fps on average), 3 draw calls, 2512 triangles, 0 MB assets; over budget: frameMs 21.5 of 16.7 ms, scriptMB 2.02 of 1 MB; site budget; software renderer (no GPU): frame time is no budget signal, do not optimize for it
 Largest scripts: three.core.js 1.39 MB, three.module.js 0.63 MB. Fix: serve a production build (vite build minifies three.js and drops what the page does not import), compressed.
-First scene frame: 2.7 s after navigation on fast-4g, a first visit with no cache (scripts 2.02 MB by 2.7 s).
+First scene frame: 2.7 s after navigation on fast-4g (8.1 Mbps down, 1.35 Mbps up, 165 ms latency), a first visit with no cache on a software renderer (no GPU: its shader compiles and first frame take far longer than a GPU's) (scripts 2.02 MB by 2.7 s).
 ```
 
 The page's own text is 65 words; its script is 2.02 MB of three.js, twice the site budget, and the scene's first frame waits for all of it. The frame time is over budget because this host has no GPU, as the reply says. The fix the reply names, a production build, is shown step by step with its before and after in [three.js model loading slow](/guides/threejs-model-loading-slow), which also covers a model too large for the asset budget; this page has no model file.
