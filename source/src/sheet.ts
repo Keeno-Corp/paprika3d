@@ -66,6 +66,18 @@ export const PROVIDERS: Provider[] = [
       poll: { url: "https://api.tripo3d.ai/v2/openapi/task/{data.task_id}", status: "data.status", done: ["success"], failed: ["failed", "cancelled", "banned", "expired"] },
       result: { path: "data.output.pbr_model|data.output.model", as: "url" }, price: 0.3, about: true, time: "1 to 3 min" } },
 ];
+/** The hosts `p`'s key may go to: those its table entries name. A URL taken from a reply (fal's status_url and
+    response_url) is signed only when it is https on one of them, so a reply can never send the key elsewhere. */
+export function keyHosts(p: Provider): Set<string> {
+  const hosts = new Set<string>();
+  for (const e of [p.board, p.turnaround, p.model, p.rig])
+    for (const u of [e?.url, e?.pre?.url, e?.poll?.url, e?.poll?.fetch]) {
+      const m = u && /^https:\/\/([^/{}:?#]+)\//i.exec(u);
+      if (m) hosts.add(m[1]!.toLowerCase());
+    }
+  return hosts;
+}
+
 /** The fixed recommendation orders: for pictures, the models that take reference images and keep the subject, then price,
     then sync over polling; for a game model, the fast cheap one for props first, then the ones a hero wants. */
 export const IMAGE_ORDER = ["fal", "gemini", "openai"];
@@ -199,10 +211,14 @@ const authHeaders = (p: Provider, f: Found): Record<string, string> => ({ [p.aut
 export type Made = { bytes: Buffer; ext: string; model: string; price: number; about: boolean; url?: string; clips?: { name: string; bytes: Buffer }[] };
 /** `url` and `height`: a rig's model and its height in metres. */
 export type GenOpts = { model?: string; timeoutMs?: number; pollMs?: number; url?: string; height?: number };
-/** `s` with every copy of `f`'s key replaced by [hidden]. Applied to the whole text before any cut, so a key across the
-    cut is never shown in part. */
+/** `s` with every copy of `f`'s key replaced by [hidden]: as it is, URL-encoded (a proxy's page echoing a URL; fal's
+    keys hold a colon) and JSON-escaped (a reply quoting the request). Applied to the whole text before any cut, so a key
+    across the cut is never shown in part. */
 export function hideKey(f: Pick<Found, "key">, s: string): string {
-  return f.key ? s.split(f.key).join("[hidden]") : s;
+  if (!f.key) return s;
+  const forms = new Set([f.key, encodeURIComponent(f.key), encodeURIComponent(f.key).toLowerCase(), JSON.stringify(f.key).slice(1, -1)]);
+  for (const k of [...forms].sort((a, b) => b.length - a.length)) s = s.split(k).join("[hidden]");
+  return s;
 }
 
 /** One picture or model from `f`'s provider: the table entry's calls, its poll and its result, within the timeout. Errors
@@ -214,14 +230,24 @@ export async function generate(f: Found, kind: GenKind, prompt: string, refs: Re
   if (takesRefs && !refs.length) throw new Error(`${p.name}'s ${kind} takes a reference picture: give pictures`);
   const limit = o.timeoutMs ?? (kind === "model" || kind === "rig" ? 600_000 : 90_000), deadline = Date.now() + limit, model = o.model ?? e.model, auth = authHeaders(p, f);
   if (!/^[\w./:-]+$/.test(model) || model.includes("..")) throw new Error(`${p.name}: model "${model}" is not a model name`);
-  const hide = (s: string) => hideKey(f, s), ext = (MIME_EXT[refs[0]?.mime ?? ""] ?? "jpg");
+  const hide = (s: string) => hideKey(f, s), ext = (MIME_EXT[refs[0]?.mime ?? ""] ?? "jpg"), hosts = keyHosts(p);
   const call = async (url: string, init: RequestInit = {}, signed = true): Promise<Response> => {
     const left = deadline - Date.now();
     if (left <= 0) throw new Error(`${p.name} took longer than ${limit < 1000 ? `${limit} ms` : `${Math.round(limit / 1000)} s`}`);
     if (!/^(https?|data):/i.test(url)) throw new Error(`${p.name}'s reply names a ${url.split(":")[0]}: URL; only http(s) and data: are fetched`);
+    if (signed) {
+      let u: URL | undefined;
+      try { u = new URL(url); } catch { /* refused below */ }
+      if (!u || u.protocol !== "https:" || u.username || u.password || u.port || !hosts.has(u.hostname.toLowerCase()))
+        throw new Error(hide(`${p.name}'s reply names ${u ? `${u.protocol}//${u.host}` : "a URL"} to call with the key; the key goes only over https to ${[...hosts].join(", ")}`));
+    }
     let r: Response;
-    try { r = await fetch(url, { ...init, headers: { ...signed ? auth : {}, ...init.headers as Record<string, string> }, signal: AbortSignal.timeout(left) }); }
+    // a signed call never follows a redirect: fetch would resend a custom key header (Gemini's x-goog-api-key) to wherever
+    // the Location points, other hosts and plain http included, past the host check above
+    try { r = await fetch(url, { ...init, headers: { ...signed ? auth : {}, ...init.headers as Record<string, string> }, ...signed && { redirect: "manual" as const }, signal: AbortSignal.timeout(left) }); }
     catch (err) { throw new Error(hide(`${p.name} unreachable: ${(err as Error).message}`)); }
+    if (signed && (r.type === "opaqueredirect" || (r.status >= 300 && r.status < 400)))
+      throw new Error(hide(`${p.name} answered ${r.status || "a redirect"} to a call with the key; the key never follows a redirect, so nothing more was sent`));
     if (!r.ok) throw new Error(`${p.name} answered ${r.status}: ${hide(await r.text()).slice(0, 200)}`);
     return r;
   };
@@ -354,7 +380,7 @@ export async function sheet(chrome: () => Promise<Browser>, a: SheetArgs, env: E
     return { text: `Saved ${file} (${f.provider.name} ${m.model}, ${m.about ? "about " : ""}${usd(m.price)}), with ${file.replace(/\.\w+$/, ".json")} beside it.`,
       jpeg: await preview(chrome, m.bytes).catch(() => undefined) };
   } catch (err) {
-    const why = `${f.provider.name} made no ${kind}: ${(err as Error).message}`;
+    const why = hideKey(f, `${f.provider.name} made no ${kind}: ${(err as Error)?.message ?? err}`); // whatever threw, the reply never holds the key
     if (!pics.length) return { text: `${why}.` };
     // the free board made earlier, with its palette and notes, is never written over by the fallback (dev #375)
     if (existsSync(inside(cwd, "refs/sheets/LOOK.png"))) return { text: `${why}. The free board refs/sheets/LOOK.png stands as it was.` };

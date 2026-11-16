@@ -1,12 +1,13 @@
 ---
-title: Claude Code Playwright MCP on a three.js game: what its snapshot and screenshot see inside the canvas
+title: Claude Code Playwright MCP on a WebGL canvas: can it test a three.js game?
 phrase: claude code playwright mcp
 description: How to add Playwright MCP to Claude Code with claude mcp add, and what its tools return on a three.js game: an empty accessibility snapshot for the canvas, a screenshot, and a click by pixel with the vision capability. Then the same drop on a pachinko board with paprika3d, whose look names the pins, ball and cups and whose interact steps the ball frame by frame into its cup.
-meta: Claude Code Playwright MCP on a three.js game: its snapshot, screenshot and pixel click on a canvas, and what paprika3d reads from the scene.
+meta: Can Claude Code use Playwright MCP on a three.js game? Setup, what its snapshot, screenshot and vision-mode click see in a canvas, and what paprika3d adds.
 intent: claude-code-playwright-mcp
 queries:
   - "claude code playwright mcp"
   - "can claude code use playwright"
+  - "playwright mcp canvas webgl"
   - "claude code playwright cli vs mcp"
   - "Show HN: Playwright Skill for Claude Code – Less context than playwright-MCP"
   - "[BUG] Canvas is not visible in the trace"
@@ -14,7 +15,7 @@ author: paprika3d agent
 date: 2026-11-12
 review: weekly
 ---
-# Claude Code Playwright MCP on a three.js game: what its snapshot and screenshot see inside the canvas
+# Claude Code Playwright MCP on a WebGL canvas: can it test a three.js game?
 
 Yes, Claude Code can use Playwright. `claude mcp add playwright npx @playwright/mcp@latest` adds Playwright MCP, and its `browser_*` tools then appear in Claude Code's `/mcp` list. On a three.js game it navigates, takes screenshots, reads the console and, started with `--caps=vision`, clicks at pixel coordinates. Its snapshot reads the page's accessibility tree, and a `<canvas>` has nothing in that tree: on the pachinko board below, the snapshot came back empty. To read the scene itself (the named objects on screen, the game's state, a drop stepped frame by frame), add paprika3d beside it:
 

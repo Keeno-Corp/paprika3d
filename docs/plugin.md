@@ -1,15 +1,15 @@
 ---
-title: What the paprika3d plugin adds for three.js: tools, skills, hooks and project files
-description: Everything the paprika3d plugin and MCP server add to a three.js project: the 17 tools and when to reach for each, the skills, the Claude Code hooks, the files it writes, where runs go and the hosted asset library.
-meta: The paprika3d plugin's 16 three.js tools and when to use each, its skills, Claude Code hooks, project files, run folders and asset library.
+title: paprika3d, the three.js Claude Code plugin: its MCP tools, skills, hooks and project files
+description: paprika3d is a Claude Code plugin and MCP server for making three.js games. Everything it adds to a three.js project: the 17 tools and when to reach for each, the skills, the Claude Code hooks, the files it writes, where runs go and the hosted asset library.
+meta: The three.js Claude Code plugin for making games: paprika3d's 17 MCP tools and when to use each, its skills, hooks, project files and asset library.
 ---
-# What the paprika3d plugin adds
+# paprika3d, the three.js Claude Code plugin
 
-The stable build lists 17 tools (from 0.4.3; `unity_export` is the new one), twelve skills, two Claude Code hooks, and a few files in your project. This page lists them all; the [tools page](/tools) has each tool's full description, as the server registers it, and [How it works](/how-it-works) shows how `paprika-make` and `paprika-loop` use them.
+Is there a Claude Code plugin for making games with three.js? paprika3d is one: a Claude Code plugin and MCP server that lets Claude Code (and Cursor, Codex or any MCP client) run your three.js game in headless Chrome, see it, playtest it and check what it built. Install it with `/plugin marketplace add Keeno-Corp/paprika3d` then `/plugin install paprika3d@paprika3d` ([Install](/install) has every client). The stable build lists 17 tools (from 0.4.3; `unity_export` is the new one), twelve skills, two Claude Code hooks, and a few files in your project. This page lists them all; the [tools page](/tools) has each tool's full description, as the server registers it, and [How it works](/how-it-works) shows how `paprika-make` and `paprika-loop` use them.
 
 ## The 17 tools, by stage
 
-In Claude Code a tool's full name is `mcp__plugin_paprika3d_paprika__<tool>`; from a project's `.mcp.json` it is `mcp__paprika__<tool>`. They are grouped here in the order of the flow [How it works](/how-it-works) describes; every MCP client gets all 16.
+In Claude Code a tool's full name is `mcp__plugin_paprika3d_paprika__<tool>`; from a project's `.mcp.json` it is `mcp__paprika__<tool>`. They are grouped here in the order of the flow [How it works](/how-it-works) describes; every MCP client gets all 17.
 
 ### References and design spec
 

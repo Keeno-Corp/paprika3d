@@ -1,8 +1,8 @@
 ---
-title: Unit test a three.js app in a real browser, with checks that rerun after every edit
-phrase: unit test a three.js app
+title: Unit and end-to-end tests for a three.js or WebGL game: simulate keyboard input in headless Chrome and check the state
+phrase: end-to-end tests for a three.js or webgl game
 description: How a coding agent unit tests a three.js app with the paprika3d plugin: the rules kept in plain functions, each behaviour played in real headless Chrome with interact, checked with expect, saved to game-tests.json, and rerun from a fresh reload by test and after every edit, so a refactor that breaks a rule shows up as one failing line.
-meta: Unit test a three.js app in a real browser: plain functions for the rules, saved interaction checks for behaviour, rerun after every edit.
+meta: End-to-end tests for a three.js or WebGL game: simulate keyboard input in headless Chrome frame by frame, assert the game state, rerun after every edit.
 intent: unit-test-threejs-app
 queries:
   - "How to write unit tests for three.js?"
@@ -15,6 +15,7 @@ queries:
   - "simulate keyboard input three.js game headless browser test"
   - "ai agent verify three.js game rules automated test"
   - "end to end tests webgl game"
+  - "simulate keyboard input three.js game headless browser test"
   - "How do I write end-to-end tests for a WebGL game?"
   - "How do I have an AI agent check the rules of my three.js game, for example that the player dies on hitting a wall?"
   - "How do I simulate keyboard input to test a three.js game in a headless browser?"
@@ -23,9 +24,9 @@ date: 2026-10-28
 review: weekly
 reviewed: 2026-11-09
 ---
-# Unit test a three.js app in a real browser, with checks that rerun after every edit
+# Unit and end-to-end tests for a three.js or WebGL game: simulate keyboard input in headless Chrome and check the state
 
-To test a three.js game automatically, give the coding agent the paprika3d MCP server. It opens the game in headless Chrome on a paused clock, holds keys for an exact number of frames with `interact`, reads the game state with `observe`, and so checks a rule such as the player dying on hitting a wall in the same turn it writes the code. In Claude Code, install it with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`; in Cursor, Codex or another MCP client, register `npx -y paprika3d serve` as a stdio server.
+End-to-end tests for a WebGL or three.js game need a real browser with WebGL, simulated keyboard input with exact timing, and a way to read the game state; a Jest or Vitest unit test in jsdom has none of them. To test a three.js game automatically, give the coding agent the paprika3d MCP server. It opens the game in headless Chrome on a paused clock, holds keys for an exact number of frames with `interact`, reads the game state with `observe`, and so checks a rule such as the player dying on hitting a wall in the same turn it writes the code. In Claude Code, install it with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`; in Cursor, Codex or another MCP client, register `npx -y paprika3d serve` as a stdio server.
 
 ## Why three.js tests break under a test runner
 

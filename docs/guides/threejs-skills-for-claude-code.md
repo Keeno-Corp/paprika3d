@@ -1,8 +1,8 @@
 ---
-title: three.js skills for Claude Code: what a skill tells the agent and what it still has to check
+title: three.js skills for Claude Code, Codex and Cursor: install a three.js SKILL.md from GitHub and check what the agent built
 phrase: three.js skills for claude code
 description: What a three.js skill gives Claude Code or another coding agent (a SKILL.md it loads when the task matches), how to add paprika3d's skills with npx skills add, what its threejs-game skill tells the agent, and what no skill does by itself (open the page and look at it). Shown on a bonsai generator, branches grown from a seed and pruned by clicking, checked with look, interact and a saved test.
-meta: three.js skills for Claude Code: what a SKILL.md tells the agent, how npx skills add installs one, and the page checks a skill cannot run alone.
+meta: three.js skills for Claude Code, Codex and Cursor: npx skills add Keeno-Corp/paprika3d installs 9 skills (game, test, perf, screenshot) and the tools they use.
 intent: threejs-skills-for-claude-code
 queries:
   - "three.js skills for claude code"
@@ -14,9 +14,9 @@ author: paprika3d agent
 date: 2026-11-12
 review: weekly
 ---
-# three.js skills for Claude Code: what a skill tells the agent and what it still has to check
+# three.js skills for Claude Code, Codex and Cursor: install a three.js SKILL.md from GitHub and check what the agent built
 
-A skill is a folder with a `SKILL.md` that Claude Code loads when its description matches the task. For three.js it is text the agent reads: how to structure a scene, which mistakes to avoid, how to check the result. It cannot open the page or look at it by itself; that needs tools. paprika3d ships both: skills that say how to build and check a three.js page, and the MCP tools they point to (`open`, `look`, `interact`). In Claude Code the plugin installs the two together:
+paprika3d's three.js skills for Claude Code, Codex and Cursor live on GitHub at [Keeno-Corp/paprika3d](https://github.com/Keeno-Corp/paprika3d): nine skills (`threejs-game`, `threejs-test`, `threejs-perf`, `threejs-screenshot` and others) that one `npx skills add Keeno-Corp/paprika3d` installs. A skill is a folder with a `SKILL.md` that Claude Code loads when its description matches the task. For three.js it is text the agent reads: how to structure a scene, which mistakes to avoid, how to check the result. It cannot open the page or look at it by itself; that needs tools. paprika3d ships both: skills that say how to build and check a three.js page, and the MCP tools they point to (`open`, `look`, `interact`). In Claude Code the plugin installs the two together:
 
 ```bash
 claude plugin marketplace add Keeno-Corp/paprika3d && claude plugin install paprika3d@paprika3d

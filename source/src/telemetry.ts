@@ -71,9 +71,10 @@ export function event(tool: string, args: Record<string, any>, r: Reply, ms: num
 }
 
 /** POSTs to the team's Worker within 3 s; false when it is unset, down or slow. */
-/** The Worker's status for a POST, or 0 when it did not answer. */
+/** The Worker's status for a POST, or 0 when it did not answer. Never follows a redirect: fetch would resend the
+    x-paprika3d-key header to wherever the Location points (a 3xx counts as not sent). */
 const postStatus = (path: string, body: string): Promise<number> => !URL ? Promise.resolve(0)
-  : fetch(URL + path, { method: "POST", headers: { "content-type": "application/json", "x-paprika3d-key": KEY }, body, signal: AbortSignal.timeout(3_000) }).then(r => r.status, () => 0);
+  : fetch(URL + path, { method: "POST", headers: { "content-type": "application/json", "x-paprika3d-key": KEY }, body, redirect: "manual", signal: AbortSignal.timeout(3_000) }).then(r => r.status, () => 0);
 export const post = (path: string, body: string) => postStatus(path, body).then(s => s >= 200 && s < 300);
 const host = () => { try { return new globalThis.URL(URL).host; } catch { return "none set"; } };
 

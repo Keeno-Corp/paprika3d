@@ -3,6 +3,7 @@
 // the movement stutters, though the frames are fast: a person saw it in a game `perf` called within budget (2026-11-01).
 // So the first play after an edit that holds a key is played again on a page of its own, which the agent's page never
 // sees, with its last frames stepped at 10 ms each. No real time and no GPU in it: the same game gives the same line.
+// The same page then takes frames of 0.1 s, for the Motion at 10 fps line: a position that runs away there (dev #437).
 import { rmSync } from "node:fs";
 import type { Browser } from "puppeteer-core";
 import { openGame, type Game } from "./browser.ts";
@@ -12,6 +13,7 @@ import { act, motionStart, statePos, type Step } from "./input.ts";
 const RUNUP = 12; // frames at 1/60 s to get up to speed, and how long a hold must be to count
 const FRAMES = 30, MS = 10; // six of the five-frame cycles a 100 Hz display goes through
 const STILL = 0.2; // the share of frames that says stutter; whole steps at 100 Hz read 0.4
+const SLOW_MS = 100, SLOW_FRAMES = 200, SLOW_REAL_MS = 4000, FAR = 1e9; // 20 s at 10 frames a second, the longest frame the skill's Time rule lets a game take
 const TRIES = 3; // plays that showed no movement (a menu, a wall) before these sources are left alone
 const MAX_MS = 15_000;
 
@@ -45,13 +47,29 @@ async function measure(seat: { probe?: Game }, game: Game, steps: Step[], first:
       const tick = () => { if (!on) return; cams.forEach((cam, i) => { cam.updateWorldMatrix(true, false); const e = cam.matrixWorld.elements; cameras[i].push([e[12], e[13], e[14]]); }); requestAnimationFrame(tick); };
       requestAnimationFrame(tick);
       h.skip = true;
-      try { await __clock.step(${FRAMES}, ${MS}); } finally { h.skip = false; on = false; }
-      return { subject: window.__harnessMotion?.end() ?? null, cameras };
-    })()`) as { subject: { name: string; samples: number[][] } | null; cameras: number[][][] };
+      let slow = null;
+      try {
+        await __clock.step(${FRAMES}, ${MS});
+        // then frames of 0.1 s, as a slow machine gives: an integrator stable at 1/60 s can blow up there (dev #437)
+        const at = cameras.map(c => c.length), sAt = window.__harnessMotion ? ${FRAMES} : 0, t0 = Performance.prototype.now.call(performance);
+        const off = p => p.slice(0, 3).some(x => !(Math.abs(x) < ${FAR}));
+        for (let f = 1; f <= ${SLOW_FRAMES} && !slow && Performance.prototype.now.call(performance) - t0 < ${SLOW_REAL_MS}; f++) {
+          await __clock.step(1, ${SLOW_MS});
+          const s = window.__harnessMotion?.peek();
+          if (s && s.samples.length > sAt && off(s.samples.at(-1)) && !s.samples.slice(0, sAt + 1).some(off)) slow = { name: s.name, f };
+          else if (cameras.some((c, i) => off(c.at(-1)) && !c.slice(0, at[i]).some(off))) slow = { name: "the camera", f };
+        }
+        cameras.forEach((c, i) => c.length = at[i]);
+      } finally { h.skip = false; on = false; }
+      const subject = window.__harnessMotion?.end() ?? null;
+      if (subject) subject.samples.length = Math.min(subject.samples.length, ${FRAMES} + 2);
+      return { subject, cameras, slow };
+    })()`) as { subject: { name: string; samples: number[][] } | null; cameras: number[][][]; slow: { name: string; f: number } | null };
+    const slow = out.slow ? `Motion at 10 fps (${out.slow.name}): its position ran away (past ${FAR.toExponential()} or not a number) after ${out.slow.f} frames of 0.1 s while ${keys.join(" + ")} is held, though every 1/60 s frame here reads fine. A slow machine gives frames that long: run the physics in fixed 1/60 s steps inside an accumulator, so a long frame takes several steps instead of one big one.` : "";
     const seen: [string | undefined, number | null][] = [[out.subject?.name, stillShare(out.subject?.samples ?? [])], ...out.cameras.map((c): [string, number | null] => ["the camera", stillShare(c)])];
-    if (seen.every(([, share]) => share === null)) return null;
+    if (seen.every(([, share]) => share === null)) return slow || null;
     const bad = seen.find(([, share]) => share !== null && share >= STILL);
-    return !bad ? "" : `Motion at 100 Hz (${bad[0]}): it stands still on ${Math.round(bad[1]! * 100)}% of frames while ${keys.join(" + ")} is held, which a 100 or 120 Hz screen shows as stutter though every frame here looks even. A thing moved in whole 1/60 s steps is drawn between its last two (prev + (cur - prev) * acc / STEP, or game-state's between()); or move it by the frame's elapsed time.`;
+    return !bad ? slow : (slow && slow + "\n") + `Motion at 100 Hz (${bad[0]}): it stands still on ${Math.round(bad[1]! * 100)}% of frames while ${keys.join(" + ")} is held, which a 100 or 120 Hz screen shows as stutter though every frame here looks even. A thing moved in whole 1/60 s steps is drawn between its last two (prev + (cur - prev) * acc / STEP, or game-state's between()); or move it by the frame's elapsed time.`;
   } finally {
     await probe.close().catch(() => {});
     rmSync(probe.runDir, { recursive: true, force: true });

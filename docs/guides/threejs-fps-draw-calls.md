@@ -1,8 +1,8 @@
 ---
-title: Measure three.js draw calls and FPS, and find what costs the frame
-phrase: three.js draw calls and fps
+title: Why is my three.js scene slow? Measure frame time, FPS and draw calls
+phrase: three.js scene slow
 description: How a coding agent measures a three.js page's frame time, FPS, draw calls and triangles with the paprika3d plugin's perf tool, splits them by named group, times a change such as instancing or a lower pixel ratio in one call, and checks which GPU the page drew on.
-meta: Measure three.js draw calls and FPS, see which named group costs the frame, and time a fix like instancing or a lower pixel ratio in one call.
+meta: Find why a three.js game is slow on mobile or a scroll animation stutters: measure frame time, FPS, draw calls and triangles by group, and set a CI budget.
 intent: threejs-fps-draw-calls
 queries:
   - "Three.js Possibly Not Using GPU?"
@@ -23,9 +23,9 @@ date: 2026-10-28
 review: weekly
 reviewed: 2026-11-09
 ---
-# Measure three.js draw calls and FPS, and find what costs the frame
+# Why is my three.js scene slow? Measure frame time, FPS and draw calls
 
-To measure the frame time of a three.js scene, find what makes a game slow on a phone, or keep a page under a triangle and draw call budget, a coding agent calls the paprika3d plugin's `perf` tool and reads the frame time, draw calls and triangles split by named group. In Claude Code, install it with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`; in Cursor, Codex or another MCP client, register `npx -y paprika3d serve` as a stdio server.
+When a three.js scene is slow (a game at 20 FPS on mobile, a scroll animation that stutters, a page over its triangle and draw call budget in CI), measure the frame time before changing anything: a coding agent calls the paprika3d plugin's `perf` tool and reads the median and p95 frame time, FPS, draw calls and triangles split by named group, so the bottleneck has a name. In Claude Code, install it with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`; in Cursor, Codex or another MCP client, register `npx -y paprika3d serve` as a stdio server.
 
 ## What a slow frame is made of
 

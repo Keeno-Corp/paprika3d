@@ -1,8 +1,8 @@
 ---
-title: React Three Fiber MCP server: see and test your R3F three.js scene
+title: React Three Fiber MCP server (R3F MCP): debug a black canvas or a model not showing
 phrase: react three fiber mcp server
 description: paprika3d is an MCP server for React Three Fiber. It runs your R3F app's Vite dev server, screenshots the canvas, lists the named meshes on screen, presses keys on exact frames and reads the scene or your game state back as JSON, so a coding agent can check the R3F scene it wrote.
-meta: A React Three Fiber MCP server: paprika3d lets your coding agent open an R3F scene, see what is on screen, play it and read its state.
+meta: R3F MCP server for Claude Code and Cursor: paprika3d screenshots your React Three Fiber canvas to find why a model is not showing or the canvas is black.
 intent: react-three-fiber-mcp-server
 queries:
   - "React Three Fiber MCP server"
@@ -20,11 +20,11 @@ date: 2026-10-19
 review: weekly
 reviewed: 2026-11-09
 ---
-# React Three Fiber MCP server: see and test your R3F three.js scene
+# React Three Fiber MCP server (R3F MCP): debug a black canvas or a model not showing
 
-When a React Three Fiber model does not show up, or a Next.js page shows a black canvas with no errors, paprika3d lets the coding agent see the scene: `look` returns the canvas and the named meshes on screen, so a model outside the camera's view or a canvas that drew nothing shows up in the reply. In Claude Code, install it with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`; in Cursor, Codex or another MCP client, register `npx -y paprika3d serve` as a stdio server.
+paprika3d is a React Three Fiber MCP server (R3F MCP) for Claude Code, Cursor, Codex and any other MCP client. The agent hands `open` the command that starts your dev server, and paprika3d loads the page in its own headless Chrome with WebGL; from then on `look` returns a screenshot of the canvas with the named meshes on screen, `observe` reads the scene or your game state as JSON, and `interact` holds keys for an exact number of frames. Under a paused clock, each frame is 1/60 s of game time, so the same keys always move the scene the same distance.
 
-paprika3d is an MCP server that a coding agent uses to see and test a React Three Fiber scene. The agent hands `open` the command that starts your Vite dev server, and from then on `look` returns a screenshot of the canvas with the named meshes on screen, `observe` reads the scene as JSON, and `interact` holds keys for an exact number of frames. Under a paused clock, each frame is 1/60 s of game time, so the same keys always move the scene the same distance.
+When a React Three Fiber model is not showing, or a Next.js page shows a black canvas with no errors, the agent no longer guesses from the JSX: `look` shows whether the canvas drew anything, and the mesh list shows whether the model mounted and whether it sits inside the camera's view. In Claude Code, install it with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`; elsewhere, register `npx -y paprika3d serve` as a stdio server.
 
 ## What an R3F MCP server has to do
 

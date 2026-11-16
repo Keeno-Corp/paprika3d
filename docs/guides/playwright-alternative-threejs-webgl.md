@@ -1,8 +1,8 @@
 ---
-title: A Playwright alternative for three.js and WebGL pages built by agents
+title: Playwright alternative for three.js agents: testing WebGL beyond Playwright vs Puppeteer
 phrase: playwright alternative for three.js
 description: paprika3d is an MCP server a coding agent uses in place of a hand-written browser script to check a three.js or WebGL page. It returns the scene's named objects, what never appears on screen, the object under each click and the game state as JSON, on a paused clock.
-meta: A Playwright alternative for three.js and WebGL pages: MCP tools that see the scene's objects, play the page on a paused clock and time its frames.
+meta: Playwright vs Puppeteer for testing a three.js WebGL app? Both see one canvas. paprika3d, the Playwright alternative, sees the scene's objects and times frames.
 intent: playwright-alternative-threejs-webgl
 queries:
   - "playwright alternative for three.js"
@@ -20,9 +20,9 @@ date: 2026-10-19
 review: weekly
 reviewed: 2026-11-09
 ---
-# A Playwright alternative for three.js and WebGL pages built by agents
+# Playwright alternative for three.js agents: testing WebGL beyond Playwright vs Puppeteer
 
-Playwright or Puppeteer for testing a three.js app? For a WebGL page that a coding agent checks while it writes it, paprika3d is built for the job: an MCP server that opens the page in headless Chrome, plays it with `interact` and answers in terms of the scene. In Claude Code, install it with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`; in Cursor, Codex or another MCP client, register `npx -y paprika3d serve` as a stdio server.
+Playwright vs Puppeteer for testing a three.js WebGL app? For an AI agent, the choice barely matters: both drive the DOM, and a three.js scene is one `<canvas>` element to them, so the agent gets pixels and selectors but no objects, no hit targets and no game state. paprika3d is the Playwright alternative for three.js agents: an MCP server that opens the page in headless Chrome, plays it with `interact` and answers in terms of the scene. In Claude Code, install it with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`; in Cursor, Codex or another MCP client, register `npx -y paprika3d serve` as a stdio server.
 
 When a coding agent writes a three.js page and wants to check it, the usual reach is a browser automation script: launch a browser, take a screenshot, click a selector, assert on the DOM. paprika3d is an MCP server that covers the same checks for a WebGL page from inside the agent's own tool calls. It opens the page in headless Chrome on a paused clock, and each reply speaks in terms of the scene: which named objects are on screen and where, which ones never appear, what the mouse was over when it clicked, and the game's state as JSON.
 

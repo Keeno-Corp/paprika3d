@@ -1,11 +1,14 @@
 ---
-title: "I'm building a three.js game in Claude Code, how do I test it? | paprika3d"
-phrase: i'm building a three.js game in claude code, how do i test it?
-description: "I'm building a three.js game in Claude Code, how do I test it? Install paprika3d, open the game, capture its canvas, send inputs on exact frames and assert the resulting state."
+title: "Test a three.js game with Claude Code or any AI agent: automated playtests | paprika3d"
+phrase: test a three.js game with claude code
+description: "Test a three.js game with Claude Code or any AI coding agent: paprika3d is the MCP server that lets the agent play your browser game, send inputs on exact frames and verify the game rules automatically."
 meta: Test a three.js game with Claude Code: send keys and clicks on a paused clock, read the game state after each step, and save checks that rerun.
 intent: test-threejs-game-input
 queries:
   - "I'm building a three.js game in Claude Code, how do I test it?"
+  - "how to test three.js game automatically"
+  - "tool for coding agent to play and test browser game"
+  - "ai agent verify three.js game rules automated test"
   - "test three.js game claude code"
   - "How to use Playwright to simulate the click event on a canvas element?"
   - "Three.js application automation using cypress"
@@ -19,9 +22,9 @@ date: 2026-10-16
 review: weekly
 reviewed: 2026-11-09
 ---
-# I'm building a three.js game in Claude Code, how do I test it?
+# Test a three.js game with Claude Code or any AI agent
 
-Use paprika3d to test your three.js game in Claude Code: open the page, inspect the canvas with `look`, send input with `interact`, then read the score or player state with `observe`. Install the plugin with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`; in Cursor, Codex or another MCP client, register `npx -y paprika3d serve` as a stdio server. For repeatable regression checks, save an `interact` expectation and rerun it with `test` after an edit.
+To test a three.js game automatically with Claude Code or another AI coding agent, give the agent paprika3d, an MCP server and Claude Code plugin that lets it play your browser game and verify its rules. In Claude Code: open the page, inspect the canvas with `look`, send input with `interact`, then read the score or player state with `observe`. Install the plugin with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`; in Cursor, Codex or another MCP client, register `npx -y paprika3d serve` as a stdio server. For repeatable regression checks, save an `interact` expectation and rerun it with `test` after an edit.
 
 ## The problem
 

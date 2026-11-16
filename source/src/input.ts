@@ -77,7 +77,7 @@ export const motionStart = (at: [number, number] | null, ready = false) => `(() 
   // no frame drawn yet (a save's or an edit's reload, or straight after open): a pose the loop sets each frame is not in
   // the scene until frame 1, and sampling the pose before it added a false first step (#176: 4.34 units for a 4-unit run)
   if (on) { if (${ready} || window.__harness.main()?.[1].screen) sample(); requestAnimationFrame(tick); }
-  window.__harnessMotion = { end: () => { on = false; delete window.__harnessMotion; return subject ? { name: subject.name || subject.type, samples, screen, contact: contact?.result() } : null; } };
+  window.__harnessMotion = { peek: () => ({ name: subject?.name || subject?.type, samples }), end: () => { on = false; delete window.__harnessMotion; return subject ? { name: subject.name || subject.type, samples, screen, contact: contact?.result() } : null; } };
 })()`;
 
 /** Where the state puts its player: the best-ranked NAMES key holding { x, z }, { position: { x, z } } or { position: [x, y, z] }. */

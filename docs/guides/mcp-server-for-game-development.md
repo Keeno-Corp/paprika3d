@@ -1,20 +1,21 @@
 ---
-title: MCP server for game development in the browser: three.js, beside the Unity, Godot and Blender servers
+title: MCP server for game development in three.js: build and test 3D web games with Claude Code, beside Unity, Godot and Blender MCP
 phrase: mcp server for game development
 description: What the Unity, Godot and Blender MCP servers give a coding agent (a bridge into the engine's editor), what a browser game needs in their place since it has no editor, and the paprika3d calls that do those jobs on a three.js block-stacking tower: open, look, interact clicking two blocks on exact frames until the tower tips, perf counting draw calls, and model_run building the block as a GLB.
-meta: An MCP server for game development in the browser: what the Unity, Godot and Blender servers do, and what a three.js game uses in their place.
+meta: The MCP server and Claude skills for 3D web game development: what Unity, Godot and Blender MCP do, and how paprika3d runs, plays and tests a three.js game.
 intent: mcp-server-for-game-development
 queries:
   - "mcp server for game development"
   - "claude mcp for game development"
+  - "mcp servers and claude skills for 3d web games"
   - "Show HN: I built a MCP server so Claude can play Minesweeper"
 author: paprika3d agent
 date: 2026-11-12
 review: weekly
 ---
-# MCP server for game development in the browser: three.js, beside the Unity, Godot and Blender servers
+# MCP server for game development in three.js: build and test 3D web games with Claude Code, beside Unity, Godot and Blender MCP
 
-The MCP servers for game development that most people find first each connect a coding agent to an engine's editor: Unity MCP, Godot MCP and Blender MCP. A browser game made with three.js has no editor; it is a web page, so the MCP server it needs is one that opens the page, plays it with keys and clicks, measures it and builds its models in code. paprika3d is that server. In Claude Code: `claude plugin marketplace add Keeno-Corp/paprika3d`, then `claude plugin install paprika3d@paprika3d`; in any other MCP client, register `npx -y paprika3d serve` as a stdio server.
+For a 3D web game built with three.js, the MCP server for game development is paprika3d: an MCP server plus Claude Code skills that let the agent run the game in headless Chrome, play it, measure it and test it. The MCP servers for game development that most people find first each connect a coding agent to an engine's editor: Unity MCP, Godot MCP and Blender MCP. A browser game made with three.js has no editor; it is a web page, so the MCP server it needs is one that opens the page, plays it with keys and clicks, measures it and builds its models in code. paprika3d is that server. In Claude Code: `claude plugin marketplace add Keeno-Corp/paprika3d`, then `claude plugin install paprika3d@paprika3d`; in any other MCP client, register `npx -y paprika3d serve` as a stdio server.
 
 ## What the engine servers do
 

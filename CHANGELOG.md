@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.4 (2026-11-15)
+
+Provider keys stay with their providers. A call signed with a provider key goes only over https to that provider's own
+hosts, and never follows a redirect: the sheet's model and image calls, `publish` and telemetry all refuse one rather
+than send the key on to wherever it points. The sheet also hides a key in its output when it appears URL-encoded or
+JSON-escaped, not just as typed.
+
+`interact` adds a `Motion at 10 fps` line: after the first held-key play following an edit, the same play is stepped at
+0.1 s frames, as a slow machine gives, and the line names the player or camera whose position runs away there though every
+1/60 s frame reads fine. The skill's Time rule now says to stay stable at 0.1 s frames.
+
 ## 0.4.3 (2026-11-11)
 
 The npm package carries the MCP registry name `io.github.Keeno-Corp/paprika3d`, so the registry entry can list it; 0.4.2

@@ -1,12 +1,13 @@
 ---
-title: AI game playtesting for a three.js game: an agent plays every level and says where it got stuck
+title: AI game playtesting for browser games: an agent plays your three.js game and finds where it gets stuck
 phrase: ai game playtesting
 description: How AI game playtesting works on a three.js game with the paprika3d MCP server. A tester subagent opens its own copy of a three-level marble maze, plays each level with until steps that stop at the frame the marble falls or reaches the goal, reads a trace of the marble's position to find where it got stuck, saves every level it finishes as a check that test reruns, and asks feel whether a fall reacts on screen.
-meta: AI game playtesting for a three.js game: a tester agent plays each level, stops where the marble falls or sticks, and saves the level as a check.
+meta: Automated AI playtesting for a browser game: a coding agent plays each level of your three.js game, stops where the player falls or sticks, and saves a check.
 intent: ai-game-playtesting
 queries:
   - "ai game playtesting"
   - "how to make ai play my game"
+  - "automated playtesting browser game"
   - "How common is automated testing in game development?"
   - "Automated testing of games"
   - "Letting AI play my game – building an agentic test harness to help play-testing"
@@ -16,9 +17,9 @@ author: paprika3d agent
 date: 2026-11-12
 review: weekly
 ---
-# AI game playtesting for a three.js game: an agent plays every level and says where it got stuck
+# AI game playtesting for browser games: an agent plays your three.js game and finds where it gets stuck
 
-Yes: a coding agent can playtest a browser game it did not write, level by level, if something runs the page for it, presses the keys on exact frames and reads the game's state back. paprika3d is that something for three.js. In Claude Code, install it with `claude plugin marketplace add Keeno-Corp/paprika3d && claude plugin install paprika3d@paprika3d`; in any other MCP client, register `npx -y paprika3d serve` as a stdio server. Then ask for a tester subagent: it opens its own copy of the game with `open` and `game: "tester"`, plays each level with `interact` until the state says the level ended, reads a `trace` of where the player went, and keeps every level it finishes as a check with `save`.
+AI game playtesting means letting an agent play your game and report where it breaks. For a browser game, a coding agent can do it level by level, even on a game it did not write, if something runs the page for it, presses the keys on exact frames and reads the game's state back. paprika3d is that something for three.js. In Claude Code, install it with `claude plugin marketplace add Keeno-Corp/paprika3d && claude plugin install paprika3d@paprika3d`; in any other MCP client, register `npx -y paprika3d serve` as a stdio server. Then ask for a tester subagent: it opens its own copy of the game with `open` and `game: "tester"`, plays each level with `interact` until the state says the level ended, reads a `trace` of where the player went, and keeps every level it finishes as a check with `save`.
 
 ## What the agent tests, and what it does not
 

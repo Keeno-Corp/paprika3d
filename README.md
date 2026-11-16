@@ -13,6 +13,8 @@
 
 <!-- /hero -->
 
+**The Claude Code plugin for three.js game development:** Claude Code skills and MCP tools that let Claude, Cursor and Codex run, inspect and playtest 3D web games. Where Playwright MCP sees a three.js canvas as one picture, paprika3d reads the scene inside it.
+
 It takes a three.js game from references on the web to a look and character sheets, a design doc with the creative calls left to you, the build, then loops that keep improving it, all in one lean package of tools. Along the way your agent plays the game, measures every frame and finds or builds the models. That is how the game gets good: it finds the invisible model, the file that never loaded and the flickering faces, and fixes them before it tells you it is done.
 
 In Claude Code the whole flow is two commands, `/paprika3d:paprika-make <request>` and `/paprika3d:paprika-loop <request> for <time>`. Codex, Gemini CLI, Cursor and other MCP clients get the same tools, and the skills with `npx skills add Keeno-Corp/paprika3d`.

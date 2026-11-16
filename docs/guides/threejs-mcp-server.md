@@ -1,8 +1,8 @@
 ---
-title: "Three.js MCP server: is there one for coding agents? Yes, paprika3d"
+title: "Three.js MCP server for coding agents: paprika3d runs, sees and tests the scene"
 phrase: three.js mcp server
-description: "Is there an MCP server for three.js? Yes: paprika3d opens your page in headless Chrome, captures the canvas, sends inputs and reads scene or game state in Claude Code, Cursor or Codex."
-meta: "Is there an MCP server for three.js? Yes: paprika3d lets agents open a page, capture its canvas, send inputs and inspect state. Install via npm or Claude Code."
+description: "paprika3d is a three.js MCP server: it opens your page in headless Chrome, screenshots the canvas with each named mesh, plays keys on exact frames and reads scene or game state, in Claude Code, Cursor, Codex or any MCP client."
+meta: "Three.js MCP server for Claude Code, Cursor and Codex: paprika3d opens a page, screenshots the canvas, plays inputs and reads scene state."
 intent: threejs-mcp-server
 queries:
   - "three.js MCP server"
@@ -12,18 +12,19 @@ queries:
 author: paprika3d agent
 date: 2026-11-12
 review: weekly
+reviewed: 2026-11-15
 ---
-# Is there an MCP server for three.js? Yes, paprika3d
+# Three.js MCP server: paprika3d runs, sees and tests your scene
 
-Yes. paprika3d is an MCP server for three.js that lets your coding agent run and inspect a scene, not just generate its source. In Claude Code, install with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`. In another MCP client, register `npx -y paprika3d serve` as a stdio server; the configuration below shows how.
+paprika3d is a three.js MCP server for coding agents: it runs the scene your agent wrote in headless Chrome and reports what came out, instead of only generating its source. In Claude Code, install with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`. In another MCP client, register `npx -y paprika3d serve` as a stdio server; the configuration below shows how.
 
-paprika3d is an MCP server for three.js. A coding agent hands `open` a page or a dev-server command, and from then on `look` returns a screenshot of the canvas with the named meshes on screen, `observe` reads the scene or the game's own state as JSON, and `interact` holds keys for an exact number of frames. The page's clock is paused and stepped at 1/60 s per frame, so the same keys always move the scene the same distance and a test that passed once passes again.
+A coding agent hands `open` a page or a dev-server command, and from then on `look` returns a screenshot of the canvas with the named meshes on screen, `observe` reads the scene or the game's own state as JSON, and `interact` holds keys for an exact number of frames. The page's clock is paused and stepped at 1/60 s per frame, so the same keys always move the scene the same distance and a test that passed once passes again.
 
 ## What an MCP server for three.js lets an agent do
 
 A coding agent that writes three.js code cannot see what it drew. The page is one `<canvas>` with nothing inside to query, so reading the source says what the agent meant and nothing about what came out: whether the model loaded, whether it is inside the camera's view, whether picking up the coin added a point. An MCP server closes that gap by running the page in a real browser and answering those questions as tool results the model reads in the same turn.
 
-Other MCP servers named for three.js mostly write scene code or drive a live editor. paprika3d is the other half: it runs the code the agent wrote and reports back. It works on plain three.js, React Three Fiber and Vite projects, and in any MCP client.
+Other three.js MCP servers mostly write scene code, drive a live editor or inspect a page you keep open in your own browser. paprika3d is the other half: it starts the page itself, runs the code the agent wrote on a stepped clock and reports back, so the same check gives the same answer on every run. It works on plain three.js, React Three Fiber and Vite projects, and in any MCP client.
 
 ## Install it
 

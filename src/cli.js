@@ -48667,7 +48667,7 @@ var STATE = "window.__game?.observe ? __game.observe() : null", NAMES, motionSta
   // no frame drawn yet (a save's or an edit's reload, or straight after open): a pose the loop sets each frame is not in
   // the scene until frame 1, and sampling the pose before it added a false first step (#176: 4.34 units for a 4-unit run)
   if (on) { if (${ready3} || window.__harness.main()?.[1].screen) sample(); requestAnimationFrame(tick); }
-  window.__harnessMotion = { end: () => { on = false; delete window.__harnessMotion; return subject ? { name: subject.name || subject.type, samples, screen, contact: contact?.result() } : null; } };
+  window.__harnessMotion = { peek: () => ({ name: subject?.name || subject?.type, samples }), end: () => { on = false; delete window.__harnessMotion; return subject ? { name: subject.name || subject.type, samples, screen, contact: contact?.result() } : null; } };
 })()`, FORWARD, STEERS_NOT, SCREEN_KEYS, AUDIO = "[window.__harness?.audio ?? 0, window.__harness?.sounds?.length ?? 0]", soundText = (before, after, names = []) => !after ? "" : after > before ? `Sound: ${after - before} started during these steps${names.length ? ` (${names.join(", ")})` : ""}.` : `Sound: none started during these steps (${after} since load).`, TRACE_MAX = 600, traceStart = (paths) => `(() => {
   const paths = ${JSON.stringify(paths)}, rows = [], get = (o, p) => p.split(".").reduce((v, k) => v?.[k], o);
   const sample = () => { let s; try { s = window.__game?.observe?.(); } catch {}
@@ -63294,13 +63294,29 @@ async function measure2(seat, game, steps, first2, browser, cwd) {
       const tick = () => { if (!on) return; cams.forEach((cam, i) => { cam.updateWorldMatrix(true, false); const e = cam.matrixWorld.elements; cameras[i].push([e[12], e[13], e[14]]); }); requestAnimationFrame(tick); };
       requestAnimationFrame(tick);
       h.skip = true;
-      try { await __clock.step(${FRAMES}, ${MS}); } finally { h.skip = false; on = false; }
-      return { subject: window.__harnessMotion?.end() ?? null, cameras };
-    })()`), seen2 = [[out.subject?.name, stillShare(out.subject?.samples ?? [])], ...out.cameras.map((c) => ["the camera", stillShare(c)])];
+      let slow = null;
+      try {
+        await __clock.step(${FRAMES}, ${MS});
+        // then frames of 0.1 s, as a slow machine gives: an integrator stable at 1/60 s can blow up there (dev #437)
+        const at = cameras.map(c => c.length), sAt = window.__harnessMotion ? ${FRAMES} : 0, t0 = Performance.prototype.now.call(performance);
+        const off = p => p.slice(0, 3).some(x => !(Math.abs(x) < ${FAR}));
+        for (let f = 1; f <= ${SLOW_FRAMES} && !slow && Performance.prototype.now.call(performance) - t0 < ${SLOW_REAL_MS}; f++) {
+          await __clock.step(1, ${SLOW_MS});
+          const s = window.__harnessMotion?.peek();
+          if (s && s.samples.length > sAt && off(s.samples.at(-1)) && !s.samples.slice(0, sAt + 1).some(off)) slow = { name: s.name, f };
+          else if (cameras.some((c, i) => off(c.at(-1)) && !c.slice(0, at[i]).some(off))) slow = { name: "the camera", f };
+        }
+        cameras.forEach((c, i) => c.length = at[i]);
+      } finally { h.skip = false; on = false; }
+      const subject = window.__harnessMotion?.end() ?? null;
+      if (subject) subject.samples.length = Math.min(subject.samples.length, ${FRAMES} + 2);
+      return { subject, cameras, slow };
+    })()`), slow = out.slow ? `Motion at 10 fps (${out.slow.name}): its position ran away (past ${FAR.toExponential()} or not a number) after ${out.slow.f} frames of 0.1 s while ${keys.join(" + ")} is held, though every 1/60 s frame here reads fine. A slow machine gives frames that long: run the physics in fixed 1/60 s steps inside an accumulator, so a long frame takes several steps instead of one big one.` : "", seen2 = [[out.subject?.name, stillShare(out.subject?.samples ?? [])], ...out.cameras.map((c) => ["the camera", stillShare(c)])];
     if (seen2.every(([, share]) => share === null))
-      return null;
+      return slow || null;
     let bad = seen2.find(([, share]) => share !== null && share >= STILL);
-    return !bad ? "" : `Motion at 100 Hz (${bad[0]}): it stands still on ${Math.round(bad[1] * 100)}% of frames while ${keys.join(" + ")} is held, which a 100 or 120 Hz screen shows as stutter though every frame here looks even. A thing moved in whole 1/60 s steps is drawn between its last two (prev + (cur - prev) * acc / STEP, or game-state's between()); or move it by the frame's elapsed time.`;
+    return !bad ? slow : (slow && slow + `
+`) + `Motion at 100 Hz (${bad[0]}): it stands still on ${Math.round(bad[1] * 100)}% of frames while ${keys.join(" + ")} is held, which a 100 or 120 Hz screen shows as stutter though every frame here looks even. A thing moved in whole 1/60 s steps is drawn between its last two (prev + (cur - prev) * acc / STEP, or game-state's between()); or move it by the frame's elapsed time.`;
   } finally {
     await probe2.close().catch(() => {}), rmSync7(probe2.runDir, { recursive: !0, force: !0 });
   }
@@ -63334,7 +63350,7 @@ async function pacing(game, steps, chrome2, cwd) {
     clearTimeout(timer2);
   }
 }
-var RUNUP = 12, FRAMES = 30, MS = 10, STILL = 0.2, TRIES = 3, MAX_MS = 15000, holds2 = (s) => ("key" in s) && (s.down === !0 || s.down === void 0 && (s.frames ?? 1) >= RUNUP), tried;
+var RUNUP = 12, FRAMES = 30, MS = 10, STILL = 0.2, SLOW_MS = 100, SLOW_FRAMES = 200, SLOW_REAL_MS = 4000, FAR = 1e9, TRIES = 3, MAX_MS = 15000, holds2 = (s) => ("key" in s) && (s.down === !0 || s.down === void 0 && (s.frames ?? 1) >= RUNUP), tried;
 var init_pacing = __esm(() => {
   init_browser2();
   init_fingerprint();
@@ -63595,12 +63611,12 @@ async function installed(client) {
     return;
   mcpClient = client.slice(0, 64);
   try {
-    let f = join23(telemetryDir(), "pinged"), body = JSON.stringify({ ...base(), client: client.slice(0, 64) }), version = "0.4.3";
-    if (existsSync15(f) && readFileSync20(f, "utf8") === "0.4.3")
+    let f = join23(telemetryDir(), "pinged"), body = JSON.stringify({ ...base(), client: client.slice(0, 64) }), version = "0.4.4";
+    if (existsSync15(f) && readFileSync20(f, "utf8") === "0.4.4")
       return;
     let answer = await postStatus("/install", body);
     if (answer && answer < 500)
-      writeFileSync12(f, "0.4.3");
+      writeFileSync12(f, "0.4.4");
   } catch {}
 }
 async function usedToday() {
@@ -63634,8 +63650,8 @@ function stopEvent(asked) {
 `);
   } catch {}
 }
-var off, ON = !1, PUBLISHED = !0, FEEDBACK, ISSUES = "https://github.com/Keeno-Corp/paprika3d/issues/new", ISSUE_CMD = 'gh issue create -R Keeno-Corp/paprika3d -t "agent-report: <summary>" -b "<the report>"', URL3 = "https://paprika3d-telemetry.paprika3d.workers.dev", KEY = "9cf6093e07a2c1cc94161e84dbdb59268440ff04d06b7be9", telemetryDir = () => join23(harnessHome(), "telemetry"), run2, KINDS3, id = "", base = () => ({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), install: install2(), run: run2, version: "0.4.3", os: platform(), node: process.versions.node.split(".")[0] }), scrub = (s) => (s.split(`
-`)[0] ?? "").replace(/[a-z]+:\/\/\S+/gi, "<url>").replace(/(?:[A-Za-z]:\\|~?\/)[^\s:'"`,)]+/g, "<path>").slice(0, 160), extra, last3 = null, postStatus = (path14, body) => !URL3 ? Promise.resolve(0) : fetch(URL3 + path14, { method: "POST", headers: { "content-type": "application/json", "x-paprika3d-key": KEY }, body, signal: AbortSignal.timeout(3000) }).then((r) => r.status, () => 0), host = () => {
+var off, ON = !1, PUBLISHED = !0, FEEDBACK, ISSUES = "https://github.com/Keeno-Corp/paprika3d/issues/new", ISSUE_CMD = 'gh issue create -R Keeno-Corp/paprika3d -t "agent-report: <summary>" -b "<the report>"', URL3 = "https://paprika3d-telemetry.paprika3d.workers.dev", KEY = "9cf6093e07a2c1cc94161e84dbdb59268440ff04d06b7be9", telemetryDir = () => join23(harnessHome(), "telemetry"), run2, KINDS3, id = "", base = () => ({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), install: install2(), run: run2, version: "0.4.4", os: platform(), node: process.versions.node.split(".")[0] }), scrub = (s) => (s.split(`
+`)[0] ?? "").replace(/[a-z]+:\/\/\S+/gi, "<url>").replace(/(?:[A-Za-z]:\\|~?\/)[^\s:'"`,)]+/g, "<path>").slice(0, 160), extra, last3 = null, postStatus = (path14, body) => !URL3 ? Promise.resolve(0) : fetch(URL3 + path14, { method: "POST", headers: { "content-type": "application/json", "x-paprika3d-key": KEY }, body, redirect: "manual", signal: AbortSignal.timeout(3000) }).then((r) => r.status, () => 0), host = () => {
   try {
     return new globalThis.URL(URL3).host;
   } catch {
@@ -63784,6 +63800,7 @@ __export(exports_sheet, {
   prefsFile: () => prefsFile,
   prefs: () => prefs,
   optionProblem: () => optionProblem,
+  keyHosts: () => keyHosts,
   hideKey: () => hideKey,
   generate: () => generate,
   found: () => found,
@@ -63798,6 +63815,16 @@ __export(exports_sheet, {
 import { existsSync as existsSync16, mkdirSync as mkdirSync12, readFileSync as readFileSync22, writeFileSync as writeFileSync13 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
 import { dirname as dirname17, extname as extname9, join as join25, relative as relative14, resolve as resolve19, sep as sep5 } from "node:path";
+function keyHosts(p) {
+  let hosts = /* @__PURE__ */ new Set;
+  for (let e of [p.board, p.turnaround, p.model, p.rig])
+    for (let u of [e?.url, e?.pre?.url, e?.poll?.url, e?.poll?.fetch]) {
+      let m = u && /^https:\/\/([^/{}:?#]+)\//i.exec(u);
+      if (m)
+        hosts.add(m[1].toLowerCase());
+    }
+  return hosts;
+}
 function found(env2 = process.env) {
   let opt = (k) => [env2[`PAPRIKA3D_IMAGE_${k}`], env2[`CLAUDE_PLUGIN_OPTION_IMAGE_${k}`]].find((v2) => !absent(v2))?.trim(), out = [], optName = opt("PROVIDER")?.toLowerCase(), optKey = opt("KEY"), chosen = optName && byName(optName);
   if (chosen && optKey)
@@ -63932,7 +63959,12 @@ function body(step, v2, refs) {
   return form;
 }
 function hideKey(f, s) {
-  return f.key ? s.split(f.key).join("[hidden]") : s;
+  if (!f.key)
+    return s;
+  let forms = /* @__PURE__ */ new Set([f.key, encodeURIComponent(f.key), encodeURIComponent(f.key).toLowerCase(), JSON.stringify(f.key).slice(1, -1)]);
+  for (let k of [...forms].sort((a2, b2) => b2.length - a2.length))
+    s = s.split(k).join("[hidden]");
+  return s;
 }
 async function generate(f, kind, prompt, refs, o = {}) {
   let p = f.provider, e = endpoint(p, kind);
@@ -63943,18 +63975,28 @@ async function generate(f, kind, prompt, refs, o = {}) {
   let limit = o.timeoutMs ?? (kind === "model" || kind === "rig" ? 600000 : 90000), deadline = Date.now() + limit, model = o.model ?? e.model, auth = authHeaders(p, f);
   if (!/^[\w./:-]+$/.test(model) || model.includes(".."))
     throw Error(`${p.name}: model "${model}" is not a model name`);
-  let hide = (s) => hideKey(f, s), ext = MIME_EXT[refs[0]?.mime ?? ""] ?? "jpg", call = async (url3, init = {}, signed = !0) => {
+  let hide = (s) => hideKey(f, s), ext = MIME_EXT[refs[0]?.mime ?? ""] ?? "jpg", hosts = keyHosts(p), call = async (url3, init = {}, signed = !0) => {
     let left = deadline - Date.now();
     if (left <= 0)
       throw Error(`${p.name} took longer than ${limit < 1000 ? `${limit} ms` : `${Math.round(limit / 1000)} s`}`);
     if (!/^(https?|data):/i.test(url3))
       throw Error(`${p.name}'s reply names a ${url3.split(":")[0]}: URL; only http(s) and data: are fetched`);
+    if (signed) {
+      let u;
+      try {
+        u = new URL(url3);
+      } catch {}
+      if (!u || u.protocol !== "https:" || u.username || u.password || u.port || !hosts.has(u.hostname.toLowerCase()))
+        throw Error(hide(`${p.name}'s reply names ${u ? `${u.protocol}//${u.host}` : "a URL"} to call with the key; the key goes only over https to ${[...hosts].join(", ")}`));
+    }
     let r;
     try {
-      r = await fetch(url3, { ...init, headers: { ...signed ? auth : {}, ...init.headers }, signal: AbortSignal.timeout(left) });
+      r = await fetch(url3, { ...init, headers: { ...signed ? auth : {}, ...init.headers }, ...signed && { redirect: "manual" }, signal: AbortSignal.timeout(left) });
     } catch (err) {
       throw Error(hide(`${p.name} unreachable: ${err.message}`));
     }
+    if (signed && (r.type === "opaqueredirect" || r.status >= 300 && r.status < 400))
+      throw Error(hide(`${p.name} answered ${r.status || "a redirect"} to a call with the key; the key never follows a redirect, so nothing more was sent`));
     if (!r.ok)
       throw Error(`${p.name} answered ${r.status}: ${hide(await r.text()).slice(0, 200)}`);
     return r;
@@ -64080,7 +64122,7 @@ async function sheet2(chrome2, a2, env2 = process.env, o = {}) {
       })
     };
   } catch (err) {
-    let why = `${f.provider.name} made no ${kind}: ${err.message}`;
+    let why = hideKey(f, `${f.provider.name} made no ${kind}: ${err?.message ?? err}`);
     if (!pics.length)
       return { text: `${why}.` };
     if (existsSync16(inside3(cwd, "refs/sheets/LOOK.png")))
@@ -64280,7 +64322,8 @@ var init_sheet = __esm(() => {
         time: "1 to 3 min"
       }
     }
-  ], IMAGE_ORDER = ["fal", "gemini", "openai"], MODEL_ORDER = ["fal", "tripo", "meshy"];
+  ];
+  IMAGE_ORDER = ["fal", "gemini", "openai"], MODEL_ORDER = ["fal", "tripo", "meshy"];
   jobs = /* @__PURE__ */ new Map, MIME2 = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" }, MIME_EXT = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
   CELL2 = { w: 400, h: 300, label: 30, pad: 12 };
 });
@@ -64767,12 +64810,15 @@ async function call(path14, init = {}) {
     r = await fetch(api3 + path14, {
       method: init.method ?? (init.json !== void 0 ? "POST" : "GET"),
       headers,
+      ...init.secret && { redirect: "manual" },
       body: init.json !== void 0 ? JSON.stringify(init.json) : init.body,
       signal: AbortSignal.timeout(120000)
     });
   } catch (e) {
     throw Error(scrub2(`The publish server at ${api3} did not answer (${e?.message ?? e}); nothing was published. Try again in a minute.`));
   }
+  if (init.secret && (r.type === "opaqueredirect" || r.status >= 300 && r.status < 400))
+    throw Error(scrub2(`Not published: the publish server at ${api3} answered ${r.status || "a redirect"} to a call with the key, and the key never follows a redirect. Try again in a minute; tell the person if it keeps happening.`));
   let text = await r.text(), body2;
   try {
     body2 = JSON.parse(text);
@@ -64834,7 +64880,7 @@ async function mint(who) {
     client_version,
     model: who.model ?? null,
     os: platform2(),
-    plugin_version: "0.4.3"
+    plugin_version: "0.4.4"
   }, headers: invite ? { "x-paprika3d-invite": invite } : {} });
   if (!had)
     writePrivate(join26(configDir(), "install-id"), install3);
@@ -64902,7 +64948,7 @@ async function publish(cwd, who, opts = {}) {
   try {
     if (!key2)
       key2 = await mint(who), minted = !0;
-    let agent = { install: installId(), client: who.client === "unknown" ? null : who.client, model: who.model ?? null, plugin_version: "0.4.3" }, chosen = opts.slug ? { slug: opts.slug, kept: !0 } : slugFor(cwd, api3), slug3 = chosen.slug, s;
+    let agent = { install: installId(), client: who.client === "unknown" ? null : who.client, model: who.model ?? null, plugin_version: "0.4.4" }, chosen = opts.slug ? { slug: opts.slug, kept: !0 } : slugFor(cwd, api3), slug3 = chosen.slug, s;
     for (let tries = 0;!s; tries++)
       try {
         s = await call("/v1/publish", { json: { slug: slug3, files: manifest, agent }, secret: key2.secret });
@@ -64971,7 +65017,7 @@ async function readFeedback(cwd, api3) {
     for (let f of feedback) {
       let picture = null;
       if (f.shot && /^[0-9A-Za-z]{16}$/.test(f.id)) {
-        let r = await fetch(`${api3}/v1/feedback/${f.id}/shot`, { headers: { authorization: `Bearer ${key2.secret}` }, signal: AbortSignal.timeout(60000) });
+        let r = await fetch(`${api3}/v1/feedback/${f.id}/shot`, { headers: { authorization: `Bearer ${key2.secret}` }, redirect: "manual", signal: AbortSignal.timeout(60000) });
         if (r.ok)
           picture = join26(dir, `${f.id}.${r.headers.get("content-type") === "image/png" ? "png" : "jpg"}`), writeFileSync14(picture, new Uint8Array(await r.arrayBuffer()));
       }
@@ -65601,7 +65647,7 @@ function skillResource(uri) {
 async function handle(method, params) {
   switch (method) {
     case "initialize":
-      return client = [params?.clientInfo?.name, params?.clientInfo?.version].filter(Boolean).join("/") || client, installed(client), { protocolVersion: params?.protocolVersion ?? "2025-06-18", capabilities: { tools: COMPACT ? { listChanged: !0 } : {}, prompts: {}, resources: {} }, serverInfo: { name: "paprika3d", title: "paprika3d", version: "0.4.3" }, instructions: INSTRUCTIONS };
+      return client = [params?.clientInfo?.name, params?.clientInfo?.version].filter(Boolean).join("/") || client, installed(client), { protocolVersion: params?.protocolVersion ?? "2025-06-18", capabilities: { tools: COMPACT ? { listChanged: !0 } : {}, prompts: {}, resources: {} }, serverInfo: { name: "paprika3d", title: "paprika3d", version: "0.4.4" }, instructions: INSTRUCTIONS };
     case "ping":
       return {};
     case "tools/list":

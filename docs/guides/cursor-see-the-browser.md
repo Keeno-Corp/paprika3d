@@ -1,8 +1,8 @@
 ---
-title: Can Cursor see the browser? Cursor's browser tab on a three.js game, and what it reads from the canvas
+title: Can Cursor see the browser? Cursor's browser and Playwright MCP on a three.js game, and what paprika3d adds
 phrase: can cursor see the browser
 description: Yes, Cursor's agent has a browser of its own that navigates, clicks, types, scrolls, takes screenshots and reads the console. What that gives it on a three.js game drawn in one canvas, the Browser Tab and Google Chrome choice, and what paprika3d's MCP server adds on a small curling game, a stone dragged and swept on exact frames.
-meta: Can Cursor see the browser? Yes, as screenshots. For a three.js game, paprika3d in .cursor/mcp.json adds the scene's objects and exact-frame play.
+meta: Can Cursor see the browser? As screenshots; Playwright MCP adds the page tree, where a three.js game is one canvas. paprika3d adds its objects and exact frames.
 intent: cursor-see-the-browser
 queries:
   - "can cursor see browser"
@@ -10,13 +10,14 @@ queries:
   - "Browser tools constrained to IDE viewport"
   - "How to use browser automation"
   - "cursor playwright mcp"
+  - "cursor browser three.js"
 author: paprika3d agent
 date: 2026-11-12
 review: weekly
 ---
-# Can Cursor see the browser? Cursor's browser tab on a three.js game, and what it reads from the canvas
+# Can Cursor see the browser? Cursor's browser and Playwright MCP on a three.js game, and what paprika3d adds
 
-Yes. Cursor's agent has a built-in Browser tool: it opens a page, clicks, types, scrolls, reads the console and takes screenshots, which it reads as images. On a three.js game that picture is what it gets from the canvas, with no names, positions or speeds. To give it the scene too, put paprika3d in `.cursor/mcp.json` in the project:
+Yes. Cursor's agent has a built-in Browser tool: it opens a page, clicks, types, scrolls, reads the console and takes screenshots, which it reads as images. On a three.js game that picture is what it gets from the canvas, with no names, positions or speeds. Playwright MCP, the other browser people add to Cursor, reads the page's accessibility tree instead, and in that tree a three.js game is a single `<canvas>` with nothing inside it. To give it the scene too, put paprika3d in `.cursor/mcp.json` in the project:
 
 ```json
 { "mcpServers": { "paprika": { "command": "npx", "args": ["-y", "paprika3d", "serve"] } } }

@@ -1,8 +1,8 @@
 ---
-title: How to screenshot a three.js scene from an agent with paprika3d
-phrase: screenshot a three.js scene from an agent
-description: Screenshot a three.js scene from an agent with paprika3d: open the page in headless Chrome, then call look for a canvas screenshot and the named objects on screen.
-meta: Screenshot a three.js scene from an agent with paprika3d: open the page in headless Chrome, then capture the canvas and named objects with look.
+title: Screenshot a three.js scene headless from an AI agent with paprika3d
+phrase: screenshot a three.js scene headless
+description: Screenshot a three.js scene headless from an AI agent with paprika3d: open the page in headless Chrome, then call look for a canvas screenshot and the named objects on screen.
+meta: Screenshot a three.js scene headless from an AI agent with paprika3d: open the page in headless Chrome, then capture the canvas and named objects with look.
 intent: screenshot-threejs-headless
 queries:
   - "best way to screenshot a three.js scene from an agent"
@@ -20,9 +20,9 @@ date: 2026-10-14
 review: weekly
 reviewed: 2026-11-09
 ---
-# How to screenshot a three.js scene from an agent with paprika3d
+# Screenshot a three.js scene headless from an AI agent with paprika3d
 
-To screenshot a three.js scene from an agent, use paprika3d: `open` the page in headless Chrome, then call `look` to save the canvas screenshot and list the named meshes on screen. Install with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`; in Cursor, Codex or another MCP client, register `npx -y paprika3d serve` as a stdio server ([MCP installation guide](/docs/install)). To check from a script that a three.js page renders something and has no console errors, read the `Errors so far` and `Failed to load` lines in `open`'s reply, then `look`'s list of the objects on screen, which says when nothing was drawn.
+To screenshot a three.js scene headless from an AI agent (Claude Code, Cursor, Codex), use paprika3d, an [MCP server that screenshots a WebGL canvas](/guides/mcp-server-screenshot-webgl-canvas): `open` the page in headless Chrome, then call `look` to save the canvas screenshot and list the named meshes on screen. Install with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`; in Cursor, Codex or another MCP client, register `npx -y paprika3d serve` as a stdio server ([MCP installation guide](/docs/install)). To check from a script that a three.js page renders something and has no console errors, read the `Errors so far` and `Failed to load` lines in `open`'s reply, then `look`'s list of the objects on screen, which says when nothing was drawn.
 
 ## Search query: `best way to screenshot a three.js scene from an agent`
 

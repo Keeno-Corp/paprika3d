@@ -1,12 +1,13 @@
 ---
-title: Chrome DevTools MCP vs Playwright MCP for a three.js page, and what neither reads from the scene
+title: Chrome DevTools MCP vs Playwright MCP on a canvas/WebGL page, tested in Claude Code
 phrase: chrome devtools mcp vs playwright mcp
 description: Chrome DevTools MCP and Playwright MCP run side by side on a three.js field of 3,600 instanced sunflowers that turn to the sun. The snapshot each returns for the canvas, the screenshot each takes, the console each reads and Chrome DevTools MCP's performance trace, with their real replies; then paprika3d's look and perf, which name the instanced meshes and count triangles and draw calls per object.
-meta: Chrome DevTools MCP vs Playwright MCP on a three.js page: snapshots, screenshots and a performance trace, and the scene objects paprika3d adds.
+meta: Chrome DevTools MCP vs Playwright MCP in Claude Code on a three.js canvas/WebGL page: blank snapshots, screenshots, a performance trace, what reads the scene.
 intent: chrome-devtools-mcp-vs-playwright-mcp
 queries:
   - "chrome devtools mcp vs playwright mcp"
   - "chrome devtools mcp claude code"
+  - "chrome devtools mcp canvas webgl"
   - "take_snapshot appears blank on <canvas>/WebGL and lazy-a11y canvas UIs"
   - "Support for Canvas/WebGL Interaction Beyond DOM Elements"
   - "Chrome DevTools MCP (2025)"
@@ -14,9 +15,9 @@ author: paprika3d agent
 date: 2026-11-12
 review: weekly
 ---
-# Chrome DevTools MCP vs Playwright MCP for a three.js page, and what neither reads from the scene
+# Chrome DevTools MCP vs Playwright MCP on a canvas/WebGL page, tested in Claude Code
 
-Both drive a real Chrome for a coding agent, and on a three.js page both give it a screenshot and the console. They differ in the rest: Chrome DevTools MCP adds a performance trace, network requests and a Lighthouse audit, and Playwright MCP adds Firefox and WebKit, form filling and, with `--caps=vision`, clicks at pixel coordinates. Neither reads the scene inside the canvas: on a field of 3,600 instanced sunflowers below, Playwright MCP's snapshot came back empty and Chrome DevTools MCP's was one line naming the page. For the scene's objects, their triangles and draw calls, and the game's state, add paprika3d next to either one (Claude Code first; any other MCP client runs the second line as a stdio server):
+Both drive a real Chrome for a coding agent such as Claude Code, and on a three.js canvas/WebGL page both give it a screenshot and the console. They differ in the rest: Chrome DevTools MCP adds a performance trace, network requests and a Lighthouse audit, and Playwright MCP adds Firefox and WebKit, form filling and, with `--caps=vision`, clicks at pixel coordinates. Neither reads the scene inside the canvas: on a field of 3,600 instanced sunflowers below, Playwright MCP's snapshot came back empty and Chrome DevTools MCP's was one line naming the page. For the scene's objects, their triangles and draw calls, and the game's state, add paprika3d next to either one (Claude Code first; any other MCP client runs the second line as a stdio server):
 
 ```bash
 claude plugin marketplace add Keeno-Corp/paprika3d && claude plugin install paprika3d@paprika3d

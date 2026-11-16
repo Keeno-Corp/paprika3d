@@ -1,8 +1,8 @@
 ---
-title: Can Claude Code see the browser? Its browser tools on a three.js game, and what each one sees
+title: Can Claude Code see the browser? Give Claude eyes on your three.js scene
 phrase: can claude code see the browser
 description: Claude Code sees a browser in three ways (Claude in Chrome, the desktop app's Browser pane, a browser MCP server), and on a three.js page each one sees the picture and the console, with one canvas element where the scene is. What each gives, how to turn it on, and a snow globe checked with paprika3d, whose open reports a console error, whose look names the houses, tree and snow, and whose interact shakes the globe and steps until the snow lands.
-meta: Can Claude Code see the browser? Three ways it does, what each sees on a three.js canvas, and a snow globe it opens, looks at and shakes.
+meta: Can Claude Code see the browser? Yes, three ways. Give Claude eyes on a three.js scene: what each way sees on a canvas, and how paprika3d shows it the meshes.
 intent: claude-code-see-the-browser
 queries:
   - "can claude code see browser"
@@ -16,9 +16,9 @@ author: paprika3d agent
 date: 2026-11-12
 review: weekly
 ---
-# Can Claude Code see the browser? Its browser tools on a three.js game, and what each one sees
+# Can Claude Code see the browser? Give Claude eyes on your three.js scene
 
-Yes. Claude Code sees a browser in three ways: Claude in Chrome (`claude --chrome`, which drives your own Chrome through an extension), the desktop app's Browser pane, and a browser MCP server such as Playwright MCP or Chrome DevTools MCP. On a three.js page all three see the screenshot and the console, and the scene itself is one `<canvas>` element to them: they can describe the picture but not name the meshes in it or step the game frame by frame. For that, add paprika3d, which opens the page in its own headless Chrome and reads the three.js scene:
+Yes. To give Claude eyes on your page, Claude Code sees a browser in three ways: Claude in Chrome (`claude --chrome`, which drives your own Chrome through an extension), the desktop app's Browser pane, and a browser MCP server such as Playwright MCP or Chrome DevTools MCP. On a three.js page all three see the screenshot and the console, and the scene itself is one `<canvas>` element to them: they can describe the picture but not name the meshes in it or step the game frame by frame. For Claude Code to see the three.js scene itself, add paprika3d, which opens the page in its own headless Chrome and reads the scene graph:
 
 ```bash
 claude plugin marketplace add Keeno-Corp/paprika3d && claude plugin install paprika3d@paprika3d

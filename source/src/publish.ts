@@ -275,9 +275,12 @@ async function call(path: string, init: { method?: string; json?: unknown; body?
   if (init.json !== undefined) headers["content-type"] = "application/json";
   let r: Response;
   try {
-    r = await fetch(api + path, { method: init.method ?? (init.json !== undefined ? "POST" : "GET"), headers,
+    // a call with the key never follows a redirect, so the key goes only to the server checked in publish()
+    r = await fetch(api + path, { method: init.method ?? (init.json !== undefined ? "POST" : "GET"), headers, ...init.secret && { redirect: "manual" as const },
       body: init.json !== undefined ? JSON.stringify(init.json) : init.body as BodyInit | undefined, signal: AbortSignal.timeout(120_000) });
   } catch (e) { throw new Error(scrub(`The publish server at ${api} did not answer (${(e as Error)?.message ?? e}); nothing was published. Try again in a minute.`)); }
+  if (init.secret && (r.type === "opaqueredirect" || (r.status >= 300 && r.status < 400)))
+    throw new Error(scrub(`Not published: the publish server at ${api} answered ${r.status || "a redirect"} to a call with the key, and the key never follows a redirect. Try again in a minute; tell the person if it keeps happening.`));
   const text = await r.text();
   let body: Record<string, any>;
   try { body = JSON.parse(text); } catch { body = { reason: text.slice(0, 200) || `HTTP ${r.status}` }; }
@@ -456,7 +459,7 @@ async function readFeedback(cwd: string, api: string): Promise<string> {
     for (const f of feedback) {
       let picture: string | null = null;
       if (f.shot && /^[0-9A-Za-z]{16}$/.test(f.id)) {
-        const r = await fetch(`${api}/v1/feedback/${f.id}/shot`, { headers: { authorization: `Bearer ${key.secret}` }, signal: AbortSignal.timeout(60_000) });
+        const r = await fetch(`${api}/v1/feedback/${f.id}/shot`, { headers: { authorization: `Bearer ${key.secret}` }, redirect: "manual", signal: AbortSignal.timeout(60_000) });
         if (r.ok) { picture = join(dir, `${f.id}.${r.headers.get("content-type") === "image/png" ? "png" : "jpg"}`); writeFileSync(picture, new Uint8Array(await r.arrayBuffer())); }
       }
       const { shot: _, ...rest } = f;
