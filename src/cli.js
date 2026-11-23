@@ -45681,7 +45681,9 @@ var init_engines = __esm(() => {
 var exports_browser = {};
 __export(exports_browser, {
   uniq: () => uniq,
+  strayChromes: () => strayChromes,
   stopChrome: () => stopChrome,
+  reapChromes: () => reapChromes,
   readyWait: () => readyWait,
   printedLines: () => printedLines,
   openGame: () => openGame,
@@ -45691,6 +45693,7 @@ __export(exports_browser, {
   gpuLine: () => gpuLine,
   findChrome: () => findChrome,
   drewOn: () => drewOn,
+  OWNER: () => OWNER,
   NOT_GAME: () => NOT_GAME,
   NAV_LOST: () => NAV_LOST,
   CHROME_ARGS: () => CHROME_ARGS,
@@ -45700,7 +45703,7 @@ import { createReadStream as createReadStream2, readFileSync as readFileSync8, r
 import { join as join8, resolve as resolve7, relative as relative3, isAbsolute as isAbsolute3, dirname as dirname8, extname as extname2, posix as posix2, win32 } from "node:path";
 import { cpus as cpus2, homedir as homedir2, loadavg } from "node:os";
 import { randomBytes } from "node:crypto";
-import { spawn as spawn4 } from "node:child_process";
+import { execFile as execFile2, spawn as spawn4 } from "node:child_process";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -45764,16 +45767,58 @@ function printedLines(page, last2 = !1) {
 function launchChrome({ window: window2 = !1, viewport = VIEWPORT, args = [] } = {}) {
   if (!existsSync7(CHROME))
     return Promise.reject(Error(`No Chrome at ${CHROME}${process.env.PAPRIKA3D_CHROME ? "" : " and none on PATH or in Playwright's or Puppeteer's cache"}: set PAPRIKA3D_CHROME to the path of Chrome or Chromium.`));
-  return puppeteer_core_default.launch({
+  return launching++, puppeteer_core_default.launch({
     executablePath: CHROME,
     headless: !window2,
     defaultViewport: viewport,
-    args: [...CHROME_ARGS, ...args],
+    args: [...CHROME_ARGS, ...args, `${OWNER}${process.pid}`],
     pipe: !0,
     handleSIGINT: !1,
     handleSIGTERM: !1,
     handleSIGHUP: !1
-  }).then((b2) => (launched.push(b2.process()), b2));
+  }).finally(() => {
+    launching--;
+  }).then((b2) => {
+    launched.push(b2.process());
+    let pid = b2.process()?.pid;
+    if (pid)
+      live.add(pid), b2.once("disconnected", () => {
+        live.delete(pid), killGroup(pid);
+      });
+    return reapChromes(), b2;
+  });
+}
+function killGroup(pid) {
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {}
+  }
+}
+function strayChromes(ps, self2, held, isAlive) {
+  let out = [];
+  for (let line of ps.split(`
+`)) {
+    let m = line.match(/^\s*(\d+)\s.*?--paprika3d-owner=(\d+)(?:\s|$)/);
+    if (!m || / --type=/.test(line))
+      continue;
+    let pid = Number(m[1]), owner = Number(m[2]);
+    if (owner === self2 ? held && !held.has(pid) : !isAlive(owner))
+      out.push(pid);
+  }
+  return out;
+}
+function reapChromes() {
+  if (process.platform === "win32")
+    return Promise.resolve(0);
+  return new Promise((done) => execFile2("ps", ["-axo", "pid=,command="], { maxBuffer: 67108864 }, (err, ps) => {
+    if (err)
+      return done(0);
+    let stray = strayChromes(ps, process.pid, launching ? null : live, alive);
+    stray.forEach(killGroup), done(stray.length);
+  }));
 }
 async function stopChrome(b2) {
   if (!b2.connected)
@@ -45896,13 +45941,13 @@ function shedPictures(runs) {
   }
 }
 async function openGame(opts) {
-  let cwd = resolve7(opts.cwd), config2 = { seed: 1, runtime: { switches: keptSwitches(cwd) }, paused: !0, ...opts.config }, proc, served, url, root = cwd, serverLog = [], fileNote, viewport = opts.viewport ?? VIEWPORT, other = opts.engine && opts.engine !== "chromium" ? opts.engine : void 0, shared = !other && !opts.window && !!opts.browser, instead, racks = (name) => Promise.resolve().then(() => (init_engines(), exports_engines)).then((m) => m.rack(name, { window: opts.window, reducedMotion: opts.reducedMotion, viewport })), chrome2 = !other && (shared ? Promise.resolve(opts.browser) : launchChrome({ window: opts.window, viewport })), launching = other ? racks(other) : opts.engine ? chrome2 : chrome2.catch(async (e) => {
+  let cwd = resolve7(opts.cwd), config2 = { seed: 1, runtime: { switches: keptSwitches(cwd) }, paused: !0, ...opts.config }, proc, served, url, root = cwd, serverLog = [], fileNote, viewport = opts.viewport ?? VIEWPORT, other = opts.engine && opts.engine !== "chromium" ? opts.engine : void 0, shared = !other && !opts.window && !!opts.browser, instead, racks = (name) => Promise.resolve().then(() => (init_engines(), exports_engines)).then((m) => m.rack(name, { window: opts.window, reducedMotion: opts.reducedMotion, viewport })), chrome2 = !other && (shared ? Promise.resolve(opts.browser) : launchChrome({ window: opts.window, viewport })), launching2 = other ? racks(other) : opts.engine ? chrome2 : chrome2.catch(async (e) => {
     let pick = String(e?.message).startsWith("No Chrome at ") && (await Promise.resolve().then(() => (init_engines(), exports_engines))).fallback();
     if (!pick)
       throw e;
     return [other, shared, instead] = [pick, !1, CHROME], racks(pick);
   });
-  launching.catch(() => {});
+  launching2.catch(() => {});
   let context2, end = (b2) => shared ? context2?.close() : b2.close();
   try {
     if (opts.command) {
@@ -45924,11 +45969,11 @@ async function openGame(opts) {
       url = new URL(encodeURI(path14 && statSync5(target).isDirectory() ? path14 + "/" : path14) + suffix, served.url).href;
     }
   } catch (e) {
-    throw await launching.then(end).catch(() => {}), served?.server.close(), proc?.stdin.end(), e;
+    throw await launching2.then(end).catch(() => {}), served?.server.close(), proc?.stdin.end(), e;
   }
   let files = (served ??= await serveStatic(root, !0)).url.href, browser, racked;
   try {
-    let got = await launching;
+    let got = await launching2;
     if (other)
       racked = got;
     else
@@ -46126,7 +46171,13 @@ ${INJECT}`)).identifier;
   }
 }
 var CHROME, CHROME_ARGS, INJECT, gpuSettled = (page) => page.evaluate(`(async () => { const h = window.__harness, d = (h?.renderers ?? []).map(r => r.backend?.isWebGPUBackend && r.backend.device).filter(Boolean);
-  if (!d.length) return; await Promise.all(d.map(d => d.queue.onSubmittedWorkDone())); for (let i = 0; i < 3; i++) await __clock.realTick(); })()`).catch(() => {}), harnessLoads, NOT_GAME, launched, versions, chromeVersion = (b2) => versions.get(b2) ?? (versions.set(b2, b2.version().then((v2) => v2.replace(/^\D*\//, ""), () => "")), versions.get(b2)), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), NAV_LOST, GPU_NAME = `(() => { const gl = document.createElement("canvas").getContext("webgl"); if (!gl) return "";
+  if (!d.length) return; await Promise.all(d.map(d => d.queue.onSubmittedWorkDone())); for (let i = 0; i < 3; i++) await __clock.realTick(); })()`).catch(() => {}), harnessLoads, NOT_GAME, OWNER = "--paprika3d-owner=", live, launching = 0, alive = (pid) => {
+  try {
+    return process.kill(pid, 0), !0;
+  } catch (e) {
+    return e.code === "EPERM";
+  }
+}, launched, versions, chromeVersion = (b2) => versions.get(b2) ?? (versions.set(b2, b2.version().then((v2) => v2.replace(/^\D*\//, ""), () => "")), versions.get(b2)), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), NAV_LOST, GPU_NAME = `(() => { const gl = document.createElement("canvas").getContext("webgl"); if (!gl) return "";
   const name = gl.getParameter(gl.getExtension("WEBGL_debug_renderer_info")?.UNMASKED_RENDERER_WEBGL ?? gl.RENDERER);
   gl.getExtension("WEBGL_lose_context")?.loseContext(); return String(name); })()`, ADAPTER = `(async () => { const r = window.__harness?.renderers.find(r => r.backend?.isWebGPUBackend); if (!r) return "";
   const i = r.backend.device?.adapterInfo ?? (await navigator.gpu?.requestAdapter())?.info; if (!i) return "";
@@ -46166,6 +46217,7 @@ var init_browser = __esm(() => {
   ], INJECT = ["devtools.js", "geometry.js", "clock.js"].map((f) => readFileSync8(join8(import.meta.dirname, "inject", f), "utf8")).join(`
 `);
   harnessLoads = /* @__PURE__ */ new Set, NOT_GAME = /\/(node_modules|runtime\/dist)\/|\/(three|three\.module|three\.core|three-runtime|geo)\.js$/;
+  live = /* @__PURE__ */ new Set;
   launched = [];
   versions = /* @__PURE__ */ new WeakMap, NAV_LOST = /Execution context was destroyed|Cannot find context with specified id|Not attached to an active page|detached Frame/;
   LOCAL = /https?:\/\/(?:localhost|127\.0\.0\.1):\d+[^\s]*/, TYPES = {
@@ -46186,7 +46238,7 @@ import { createReadStream as createReadStream3, readFileSync as readFileSync9, r
 import { join as join9, resolve as resolve8, relative as relative4, isAbsolute as isAbsolute4, dirname as dirname9, extname as extname3, posix as posix3, win32 as win322 } from "node:path";
 import { cpus as cpus3, homedir as homedir3, loadavg as loadavg2 } from "node:os";
 import { randomBytes as randomBytes2 } from "node:crypto";
-import { spawn as spawn5 } from "node:child_process";
+import { execFile as execFile3, spawn as spawn5 } from "node:child_process";
 import { createServer as createServer2 } from "node:http";
 import { once as once2 } from "node:events";
 import { AsyncLocalStorage as AsyncLocalStorage2 } from "node:async_hooks";
@@ -46250,16 +46302,58 @@ function printedLines2(page, last2 = !1) {
 function launchChrome2({ window: window2 = !1, viewport = VIEWPORT, args = [] } = {}) {
   if (!existsSync8(CHROME2))
     return Promise.reject(Error(`No Chrome at ${CHROME2}${process.env.PAPRIKA3D_CHROME ? "" : " and none on PATH or in Playwright's or Puppeteer's cache"}: set PAPRIKA3D_CHROME to the path of Chrome or Chromium.`));
-  return puppeteer_core_default.launch({
+  return launching2++, puppeteer_core_default.launch({
     executablePath: CHROME2,
     headless: !window2,
     defaultViewport: viewport,
-    args: [...CHROME_ARGS2, ...args],
+    args: [...CHROME_ARGS2, ...args, `${OWNER2}${process.pid}`],
     pipe: !0,
     handleSIGINT: !1,
     handleSIGTERM: !1,
     handleSIGHUP: !1
-  }).then((b2) => (launched2.push(b2.process()), b2));
+  }).finally(() => {
+    launching2--;
+  }).then((b2) => {
+    launched2.push(b2.process());
+    let pid = b2.process()?.pid;
+    if (pid)
+      live2.add(pid), b2.once("disconnected", () => {
+        live2.delete(pid), killGroup2(pid);
+      });
+    return reapChromes2(), b2;
+  });
+}
+function killGroup2(pid) {
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {}
+  }
+}
+function strayChromes2(ps, self2, held, isAlive) {
+  let out = [];
+  for (let line of ps.split(`
+`)) {
+    let m = line.match(/^\s*(\d+)\s.*?--paprika3d-owner=(\d+)(?:\s|$)/);
+    if (!m || / --type=/.test(line))
+      continue;
+    let pid = Number(m[1]), owner = Number(m[2]);
+    if (owner === self2 ? held && !held.has(pid) : !isAlive(owner))
+      out.push(pid);
+  }
+  return out;
+}
+function reapChromes2() {
+  if (process.platform === "win32")
+    return Promise.resolve(0);
+  return new Promise((done) => execFile3("ps", ["-axo", "pid=,command="], { maxBuffer: 67108864 }, (err, ps) => {
+    if (err)
+      return done(0);
+    let stray = strayChromes2(ps, process.pid, launching2 ? null : live2, alive2);
+    stray.forEach(killGroup2), done(stray.length);
+  }));
 }
 async function stopChrome2(b2) {
   if (!b2.connected)
@@ -46382,13 +46476,13 @@ function shedPictures2(runs) {
   }
 }
 async function openGame2(opts) {
-  let cwd = resolve8(opts.cwd), config2 = { seed: 1, runtime: { switches: keptSwitches2(cwd) }, paused: !0, ...opts.config }, proc, served, url, root = cwd, serverLog = [], fileNote, viewport = opts.viewport ?? VIEWPORT, other = opts.engine && opts.engine !== "chromium" ? opts.engine : void 0, shared = !other && !opts.window && !!opts.browser, instead, racks = (name) => Promise.resolve().then(() => (init_engines(), exports_engines)).then((m) => m.rack(name, { window: opts.window, reducedMotion: opts.reducedMotion, viewport })), chrome2 = !other && (shared ? Promise.resolve(opts.browser) : launchChrome2({ window: opts.window, viewport })), launching = other ? racks(other) : opts.engine ? chrome2 : chrome2.catch(async (e) => {
+  let cwd = resolve8(opts.cwd), config2 = { seed: 1, runtime: { switches: keptSwitches2(cwd) }, paused: !0, ...opts.config }, proc, served, url, root = cwd, serverLog = [], fileNote, viewport = opts.viewport ?? VIEWPORT, other = opts.engine && opts.engine !== "chromium" ? opts.engine : void 0, shared = !other && !opts.window && !!opts.browser, instead, racks = (name) => Promise.resolve().then(() => (init_engines(), exports_engines)).then((m) => m.rack(name, { window: opts.window, reducedMotion: opts.reducedMotion, viewport })), chrome2 = !other && (shared ? Promise.resolve(opts.browser) : launchChrome2({ window: opts.window, viewport })), launching3 = other ? racks(other) : opts.engine ? chrome2 : chrome2.catch(async (e) => {
     let pick = String(e?.message).startsWith("No Chrome at ") && (await Promise.resolve().then(() => (init_engines(), exports_engines))).fallback();
     if (!pick)
       throw e;
     return [other, shared, instead] = [pick, !1, CHROME2], racks(pick);
   });
-  launching.catch(() => {});
+  launching3.catch(() => {});
   let context2, end = (b2) => shared ? context2?.close() : b2.close();
   try {
     if (opts.command) {
@@ -46410,11 +46504,11 @@ async function openGame2(opts) {
       url = new URL(encodeURI(path14 && statSync6(target).isDirectory() ? path14 + "/" : path14) + suffix, served.url).href;
     }
   } catch (e) {
-    throw await launching.then(end).catch(() => {}), served?.server.close(), proc?.stdin.end(), e;
+    throw await launching3.then(end).catch(() => {}), served?.server.close(), proc?.stdin.end(), e;
   }
   let files = (served ??= await serveStatic2(root, !0)).url.href, browser, racked;
   try {
-    let got = await launching;
+    let got = await launching3;
     if (other)
       racked = got;
     else
@@ -46612,7 +46706,13 @@ ${INJECT2}`)).identifier;
   }
 }
 var CHROME2, CHROME_ARGS2, INJECT2, gpuSettled2 = (page) => page.evaluate(`(async () => { const h = window.__harness, d = (h?.renderers ?? []).map(r => r.backend?.isWebGPUBackend && r.backend.device).filter(Boolean);
-  if (!d.length) return; await Promise.all(d.map(d => d.queue.onSubmittedWorkDone())); for (let i = 0; i < 3; i++) await __clock.realTick(); })()`).catch(() => {}), harnessLoads2, NOT_GAME2, launched2, versions2, chromeVersion2 = (b2) => versions2.get(b2) ?? (versions2.set(b2, b2.version().then((v2) => v2.replace(/^\D*\//, ""), () => "")), versions2.get(b2)), sleep2 = (ms) => new Promise((r) => setTimeout(r, ms)), NAV_LOST2, GPU_NAME2 = `(() => { const gl = document.createElement("canvas").getContext("webgl"); if (!gl) return "";
+  if (!d.length) return; await Promise.all(d.map(d => d.queue.onSubmittedWorkDone())); for (let i = 0; i < 3; i++) await __clock.realTick(); })()`).catch(() => {}), harnessLoads2, NOT_GAME2, OWNER2 = "--paprika3d-owner=", live2, launching2 = 0, alive2 = (pid) => {
+  try {
+    return process.kill(pid, 0), !0;
+  } catch (e) {
+    return e.code === "EPERM";
+  }
+}, launched2, versions2, chromeVersion2 = (b2) => versions2.get(b2) ?? (versions2.set(b2, b2.version().then((v2) => v2.replace(/^\D*\//, ""), () => "")), versions2.get(b2)), sleep2 = (ms) => new Promise((r) => setTimeout(r, ms)), NAV_LOST2, GPU_NAME2 = `(() => { const gl = document.createElement("canvas").getContext("webgl"); if (!gl) return "";
   const name = gl.getParameter(gl.getExtension("WEBGL_debug_renderer_info")?.UNMASKED_RENDERER_WEBGL ?? gl.RENDERER);
   gl.getExtension("WEBGL_lose_context")?.loseContext(); return String(name); })()`, ADAPTER2 = `(async () => { const r = window.__harness?.renderers.find(r => r.backend?.isWebGPUBackend); if (!r) return "";
   const i = r.backend.device?.adapterInfo ?? (await navigator.gpu?.requestAdapter())?.info; if (!i) return "";
@@ -46652,6 +46752,7 @@ var init_browser2 = __esm(() => {
   ], INJECT2 = ["devtools.js", "geometry.js", "clock.js"].map((f) => readFileSync9(join9(import.meta.dirname, "inject", f), "utf8")).join(`
 `);
   harnessLoads2 = /* @__PURE__ */ new Set, NOT_GAME2 = /\/(node_modules|runtime\/dist)\/|\/(three|three\.module|three\.core|three-runtime|geo)\.js$/;
+  live2 = /* @__PURE__ */ new Set;
   launched2 = [];
   versions2 = /* @__PURE__ */ new WeakMap, NAV_LOST2 = /Execution context was destroyed|Cannot find context with specified id|Not attached to an active page|detached Frame/;
   LOCAL2 = /https?:\/\/(?:localhost|127\.0\.0\.1):\d+[^\s]*/, TYPES2 = {
@@ -49509,7 +49610,7 @@ async function screenshot(page, path14) {
 }
 async function resizeProbe(game, probed) {
   let { page } = game, v2 = page.viewport(), at = await page.evaluate(`(() => { const h = __harness, c = h.canvas();
-    return !c ? null : h.resized ?? (h.main()?.[1].screen && h.frame.some(e => e.target) ? null : [c.width, c.height, scrollX, scrollY]); })()`);
+    return !c ? null : h.resized ?? (h.shown && h.frame.some(e => e.target) ? null : [c.width, c.height, scrollX, scrollY]); })()`);
   if (!Array.isArray(at) || !v2)
     return at;
   let key2 = JSON.stringify(v2), was = probed?.get(key2);
@@ -53396,7 +53497,9 @@ var PASSES = `(async () => {
     return behind;
   };
   // each frame's stamp and its work (draw calls and triangles, shader programs), which SETTLED compares
-  const tick = t => { if (p.on) { if (own && late()) h.sync(); p.t.push(t); p.c.push((h.frameInfo?.calls ?? 0) * 1e9 + (h.frameInfo?.triangles ?? 0)); p.g.push(h.programs(h.renderers[0])); requestAnimationFrame(tick); } };
+  // the next frame is asked for once the sync is done: WebGL's is a blocking 1-pixel read, WebGPU's a promise
+  // (onSubmittedWorkDone), and a sync not waited for let a GPU's WebGPU frames read 0.5 ms against 1.6 of work (dev #469)
+  const tick = t => { if (!p.on) return; const s = own && late() ? h.sync() : null; p.t.push(t); p.c.push((h.frameInfo?.calls ?? 0) * 1e9 + (h.frameInfo?.triangles ?? 0)); p.g.push(h.programs(h.renderers[0])); const next = () => requestAnimationFrame(tick); s ? s.then(next, next) : next(); };
   requestAnimationFrame(tick);
   __clock.timescale(1);
   __clock.resume();
@@ -63611,12 +63714,12 @@ async function installed(client) {
     return;
   mcpClient = client.slice(0, 64);
   try {
-    let f = join23(telemetryDir(), "pinged"), body = JSON.stringify({ ...base(), client: client.slice(0, 64) }), version = "0.4.4";
-    if (existsSync15(f) && readFileSync20(f, "utf8") === "0.4.4")
+    let f = join23(telemetryDir(), "pinged"), body = JSON.stringify({ ...base(), client: client.slice(0, 64) }), version = "0.4.5";
+    if (existsSync15(f) && readFileSync20(f, "utf8") === "0.4.5")
       return;
     let answer = await postStatus("/install", body);
     if (answer && answer < 500)
-      writeFileSync12(f, "0.4.4");
+      writeFileSync12(f, "0.4.5");
   } catch {}
 }
 async function usedToday() {
@@ -63650,7 +63753,7 @@ function stopEvent(asked) {
 `);
   } catch {}
 }
-var off, ON = !1, PUBLISHED = !0, FEEDBACK, ISSUES = "https://github.com/Keeno-Corp/paprika3d/issues/new", ISSUE_CMD = 'gh issue create -R Keeno-Corp/paprika3d -t "agent-report: <summary>" -b "<the report>"', URL3 = "https://paprika3d-telemetry.paprika3d.workers.dev", KEY = "9cf6093e07a2c1cc94161e84dbdb59268440ff04d06b7be9", telemetryDir = () => join23(harnessHome(), "telemetry"), run2, KINDS3, id = "", base = () => ({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), install: install2(), run: run2, version: "0.4.4", os: platform(), node: process.versions.node.split(".")[0] }), scrub = (s) => (s.split(`
+var off, ON = !1, PUBLISHED = !0, FEEDBACK, ISSUES = "https://github.com/Keeno-Corp/paprika3d/issues/new", ISSUE_CMD = 'gh issue create -R Keeno-Corp/paprika3d -t "agent-report: <summary>" -b "<the report>"', URL3 = "https://paprika3d-telemetry.paprika3d.workers.dev", KEY = "9cf6093e07a2c1cc94161e84dbdb59268440ff04d06b7be9", telemetryDir = () => join23(harnessHome(), "telemetry"), run2, KINDS3, id = "", base = () => ({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), install: install2(), run: run2, version: "0.4.5", os: platform(), node: process.versions.node.split(".")[0] }), scrub = (s) => (s.split(`
 `)[0] ?? "").replace(/[a-z]+:\/\/\S+/gi, "<url>").replace(/(?:[A-Za-z]:\\|~?\/)[^\s:'"`,)]+/g, "<path>").slice(0, 160), extra, last3 = null, postStatus = (path14, body) => !URL3 ? Promise.resolve(0) : fetch(URL3 + path14, { method: "POST", headers: { "content-type": "application/json", "x-paprika3d-key": KEY }, body, redirect: "manual", signal: AbortSignal.timeout(3000) }).then((r) => r.status, () => 0), host = () => {
   try {
     return new globalThis.URL(URL3).host;
@@ -64880,7 +64983,7 @@ async function mint(who) {
     client_version,
     model: who.model ?? null,
     os: platform2(),
-    plugin_version: "0.4.4"
+    plugin_version: "0.4.5"
   }, headers: invite ? { "x-paprika3d-invite": invite } : {} });
   if (!had)
     writePrivate(join26(configDir(), "install-id"), install3);
@@ -64948,7 +65051,7 @@ async function publish(cwd, who, opts = {}) {
   try {
     if (!key2)
       key2 = await mint(who), minted = !0;
-    let agent = { install: installId(), client: who.client === "unknown" ? null : who.client, model: who.model ?? null, plugin_version: "0.4.4" }, chosen = opts.slug ? { slug: opts.slug, kept: !0 } : slugFor(cwd, api3), slug3 = chosen.slug, s;
+    let agent = { install: installId(), client: who.client === "unknown" ? null : who.client, model: who.model ?? null, plugin_version: "0.4.5" }, chosen = opts.slug ? { slug: opts.slug, kept: !0 } : slugFor(cwd, api3), slug3 = chosen.slug, s;
     for (let tries = 0;!s; tries++)
       try {
         s = await call("/v1/publish", { json: { slug: slug3, files: manifest, agent }, secret: key2.secret });
@@ -65647,7 +65750,7 @@ function skillResource(uri) {
 async function handle(method, params) {
   switch (method) {
     case "initialize":
-      return client = [params?.clientInfo?.name, params?.clientInfo?.version].filter(Boolean).join("/") || client, installed(client), { protocolVersion: params?.protocolVersion ?? "2025-06-18", capabilities: { tools: COMPACT ? { listChanged: !0 } : {}, prompts: {}, resources: {} }, serverInfo: { name: "paprika3d", title: "paprika3d", version: "0.4.4" }, instructions: INSTRUCTIONS };
+      return client = [params?.clientInfo?.name, params?.clientInfo?.version].filter(Boolean).join("/") || client, installed(client), { protocolVersion: params?.protocolVersion ?? "2025-06-18", capabilities: { tools: COMPACT ? { listChanged: !0 } : {}, prompts: {}, resources: {} }, serverInfo: { name: "paprika3d", title: "paprika3d", version: "0.4.5" }, instructions: INSTRUCTIONS };
     case "ping":
       return {};
     case "tools/list":
@@ -65709,7 +65812,7 @@ async function serve() {
       await v2.game?.close().catch(() => {});
     await chrome2?.then((c) => c.close()).catch(() => {}), control?.close(), process.exit(0);
   };
-  process.on("SIGTERM", stop), process.on("SIGINT", stop);
+  process.on("SIGTERM", stop), process.on("SIGINT", stop), reapChromes2();
   for await (let line2 of lines(process.stdin)) {
     if (!line2.trim())
       continue;

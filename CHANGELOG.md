@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.5 (2026-11-22)
+
+`look` pictures a page drawn through an `EffectComposer`. Its check that the canvas follows the page's size resized the
+page before the picture, which cleared a frame drawn in passes that no redraw can replay, so every look showed only the
+page's background; it now skips that check on any page whose last frame reached the screen after drawing into a render
+target.
+
+`perf` on a WebGPU page waits for each frame's GPU work before timing the next. Headless Chromes the server let go of, or
+whose server is gone, are closed on the next launch instead of staying in memory.
+
 ## 0.4.4 (2026-11-15)
 
 Provider keys stay with their providers. A call signed with a provider key goes only over https to that provider's own

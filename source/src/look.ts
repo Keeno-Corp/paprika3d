@@ -1060,14 +1060,16 @@ type Probed = Map<string, Canvas["resized"]>;
 /** Whether the canvas follows the page's size: once a page load, the page is made 10% narrower and 20% lower and put
     back, on real time (the resize event comes with Chrome's next rendering update) and no frame stepped. A resize clears
     the canvas, so it is tried before a look's redraw, and not on a game that already drew a frame in passes, which no
-    redraw can replay. "fixed": the buffer kept its size, but the canvas still fit the smaller page at the buffer's own
+    redraw can replay: one whose last frame drew a quad or scene to the screen (`shown`) and something into a target. Its
+    main scene's view need not be the screen: under an EffectComposer the scene goes only into targets and the screen
+    gets the last pass's quad, a Mesh, so the probe ran and every look pictured the cleared canvas (dev #474). "fixed": the buffer kept its size, but the canvas still fit the smaller page at the buffer's own
     shape (or under object-fit contain), so CSS scales a fixed buffer, not a missing handler (#138: a 960x720 tape format
     read "resize handler did not run" on every look). Both sides shrink, so a handler sized from either one changes the
     buffer, and by different shares, so a window-filling canvas under CSS 100% changes shape and is still caught. */
 async function resizeProbe(game: Game, probed?: Probed): Promise<Canvas["resized"]> {
   const { page } = game, v = page.viewport();
   const at = await page.evaluate(`(() => { const h = __harness, c = h.canvas();
-    return !c ? null : h.resized ?? (h.main()?.[1].screen && h.frame.some(e => e.target) ? null : [c.width, c.height, scrollX, scrollY]); })()`) as Canvas["resized"] | number[];
+    return !c ? null : h.resized ?? (h.shown && h.frame.some(e => e.target) ? null : [c.width, c.height, scrollX, scrollY]); })()`) as Canvas["resized"] | number[];
   if (!Array.isArray(at) || !v) return at as Canvas["resized"];
   const key = JSON.stringify(v), was = probed?.get(key);
   if (was !== undefined) { await page.evaluate(`__harness.resized = ${JSON.stringify(was)}`); return was; }

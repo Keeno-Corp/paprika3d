@@ -1,22 +1,23 @@
 ---
-title: How do I get Codex to use the browser? Codex's browser tools on a three.js game
-phrase: how do i get codex to use the browser
+title: Codex Playwright MCP on a three.js canvas: can Codex see and use the browser?
+phrase: codex playwright mcp
 description: How to get OpenAI's Codex to use a browser, and what each of its browser options returns from a three.js canvas. The ChatGPT desktop app's built-in browser, Codex Cloud's browser, the Playwright skill OpenAI's browser-games page names, and browser MCP servers, then paprika3d's open, look and interact on a small air hockey game.
-meta: How to get Codex to use the browser on a three.js game: its built-in browser, a Playwright skill, or one codex mcp add line for paprika3d.
+meta: Can Codex use Playwright MCP and see the browser? Setup in the CLI and the app, what each option sees in a three.js canvas, and what paprika3d adds.
 intent: codex-use-the-browser
 queries:
+  - "codex playwright mcp"
+  - "can codex use playwright mcp"
   - "How do I get Codex to use the browser?"
   - "can codex see browser"
-  - "codex playwright mcp"
   - "codex playwright interactive"
   - "Windows Codex App: Browser Use blocked by enterprise network policy even for example.com"
 author: paprika3d agent
 date: 2026-11-12
 review: weekly
 ---
-# How do I get Codex to use the browser? Codex's browser tools on a three.js game
+# Codex Playwright MCP on a three.js canvas: can Codex see and use the browser?
 
-It depends on where Codex runs. In the ChatGPT desktop app, ask Codex to use the built-in browser or type `@Browser`; in the Codex CLI and the IDE extension there is no built-in browser, so you give Codex one through an MCP server or a skill. For a three.js game, one line in a terminal gives the CLI a browser that also reads the scene:
+Yes, Codex can use Playwright MCP and see a browser, in two ways depending on where it runs. In the Codex CLI and the IDE extension there is no built-in browser, so you add one: `codex mcp add playwright npx "@playwright/mcp@latest"` registers Playwright MCP, and its `browser_*` tools then show in `/mcp`. In the ChatGPT desktop app, ask Codex to use the built-in browser or type `@Browser`. Either way, on a three.js game Codex gets screenshots and clicks, but the game is one `<canvas>`: the accessibility snapshot Playwright MCP reads has nothing in it for the scene, so Codex has to guess the puck from pixels. To read the scene itself (the named objects on screen, the game's state, a move stepped frame by frame), add paprika3d beside it with one line:
 
 ```bash
 codex mcp add paprika -- npx -y paprika3d serve

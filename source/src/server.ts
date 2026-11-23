@@ -18,7 +18,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { json } from "node:stream/consumers";
-import { drewOn, gpuLine, gpuSettled, launchChrome, NAV_LOST, openGame, printedLines, uniq, type Game } from "./browser.ts";
+import { drewOn, gpuLine, gpuSettled, launchChrome, NAV_LOST, openGame, printedLines, reapChromes, uniq, type Game } from "./browser.ts";
 import { clipText, REC_NAVIGATED, RECORD_MAX_S, VIDEO_MAX_S, videoText } from "./record.ts";
 import { BROWSERS, EngineUnsupported, SAID, notes, refuse, type BrowserWord } from "./engines.ts";
 import type { Browser } from "puppeteer-core";
@@ -1625,6 +1625,7 @@ export async function serve(): Promise<void> {
     for (const v of slots.values()) await v.game?.close().catch(() => {}); await chrome?.then(c => c.close()).catch(() => {}); control?.close(); process.exit(0); };
   process.on("SIGTERM", stop);
   process.on("SIGINT", stop);
+  void reapChromes(); // Chromes left by a paprika3d server that was killed before it could close them
   for await (const line of lines(process.stdin)) {
     if (!line.trim()) continue;
     let msg: any;

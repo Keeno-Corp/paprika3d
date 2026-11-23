@@ -11,7 +11,7 @@ import { createReadStream, readFileSync, readdirSync, mkdirSync, rmSync, statSyn
 import { join, resolve, relative, isAbsolute, dirname, extname, posix, win32 } from "node:path";
 import { cpus, homedir, loadavg } from "node:os";
 import { randomBytes } from "node:crypto";
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { once } from "node:events";
@@ -148,16 +148,60 @@ export interface OpenOptions {
 /** Starts the headless Chrome (or a window) games open in; `args` are added to CHROME_ARGS (the web 3D scorer's offline host rules). */
 export function launchChrome({ window = false, viewport = VIEWPORT, args = [] }: { window?: boolean; viewport?: OpenOptions["viewport"]; args?: string[] } = {}): Promise<Browser> {
   if (!existsSync(CHROME)) return Promise.reject(new Error(`No Chrome at ${CHROME}${process.env.PAPRIKA3D_CHROME ? "" : " and none on PATH or in Playwright's or Puppeteer's cache"}: set PAPRIKA3D_CHROME to the path of Chrome or Chromium.`));
+  launching++;
   return puppeteer.launch({
     executablePath: CHROME,
     headless: !window,
     defaultViewport: viewport,
-    args: [...CHROME_ARGS, ...args],
+    args: [...CHROME_ARGS, ...args, `${OWNER}${process.pid}`],
     // over a pipe rather than a port, Chrome exits when the pipe closes, so it dies with its owner even on SIGKILL
     // (Claude Code kills a slow MCP server; a port-mode Chrome then ran on at 53% CPU for hours)
     pipe: true,
     handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false, // only the owner's close() ends Chrome, after the queue drains
-  }).then(b => (launched.push(b.process()), b));
+  }).finally(() => { launching--; }).then(b => {
+    launched.push(b.process());
+    const pid = b.process()?.pid;
+    if (pid) {
+      live.add(pid);
+      // a Chrome let go of (a relaunch after it stopped answering, a lost pipe) must not run on: kill its whole group
+      b.once("disconnected", () => { live.delete(pid); killGroup(pid); });
+    }
+    reapChromes(); // each launch sweeps strays: launches are rare, so the tool calls between them pay nothing
+    return b;
+  });
+}
+/** Chrome switch naming the process that launched it. Chrome ignores a switch it does not know; reapChromes() reads it. */
+export const OWNER = "--paprika3d-owner=";
+/** Pids of the Chromes this process launched and still holds, and how many launches are under way: a Chrome mid-launch
+    is in no set yet, so while one is, a sweep leaves this process's own Chromes alone. */
+const live = new Set<number>();
+let launching = 0;
+/** SIGKILLs a Chrome and its helpers: puppeteer launches it detached, so its pid is its process group's. */
+function killGroup(pid: number): void {
+  try { process.kill(-pid, "SIGKILL"); } catch { try { process.kill(pid, "SIGKILL"); } catch {} }
+}
+const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; } };
+/** The Chromes to kill in a `ps -axo pid=,command=` listing: those a paprika3d process launched (OWNER) whose owner is gone,
+    or whose owner is this process but which it no longer holds. Each held 0.5-3 GB; a laptop gathered 8 (2026-11-17). */
+export function strayChromes(ps: string, self: number, held: Set<number> | null, isAlive: (pid: number) => boolean): number[] {
+  const out: number[] = [];
+  for (const line of ps.split("\n")) {
+    const m = line.match(/^\s*(\d+)\s.*?--paprika3d-owner=(\d+)(?:\s|$)/);
+    if (!m || / --type=/.test(line)) continue; // the browser process alone carries the switch; a helper never matches
+    const pid = Number(m[1]), owner = Number(m[2]);
+    if (owner === self ? held && !held.has(pid) : !isAlive(owner)) out.push(pid);
+  }
+  return out;
+}
+/** Kills paprika3d's stray headless Chromes (strayChromes), in the background; resolves with how many. No-op on Windows. */
+export function reapChromes(): Promise<number> {
+  if (process.platform === "win32") return Promise.resolve(0);
+  return new Promise(done => execFile("ps", ["-axo", "pid=,command="], { maxBuffer: 64 << 20 }, (err, ps) => {
+    if (err) return done(0);
+    const stray = strayChromes(ps, process.pid, launching ? null : live, alive);
+    stray.forEach(killGroup);
+    done(stray.length);
+  }));
 }
 /** Every Chrome process launched, never let go: under Bun (1.3.10) garbage collecting an exited Chrome's ChildProcess closes
     its pipe fds again, by then a later Chrome's DevTools pipe, so that Chrome exits and puppeteer waits forever (#28).

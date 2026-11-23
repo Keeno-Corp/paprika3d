@@ -16,7 +16,7 @@ The harness runs the game in a headless Chrome on a paused, seeded clock: you se
 
 ## Before building a thing in code: references and the library
 
-A new page starts with `paprika-make`'s brief (`../paprika-make/SKILL.md`, `${CLAUDE_PLUGIN_ROOT}/skills/paprika-make/` in Claude Code): references, the sheets, then the picking round for the key assets (`../paprika-make/sheets.md`, "The picking round"). Follow it when it is there. In a plain MCP session (`npx paprika3d serve` with no plugin, or no person to ask), take its slice that needs no person:
+A new page starts with `paprika-make`'s brief (`../paprika-make/SKILL.md`): references, the sheets, then the picking round for the key assets (`../paprika-make/sheets.md`, "The picking round"). Follow it when it is there. In a plain MCP session (`npx paprika3d serve` with no plugin, or no person to ask), take its slice that needs no person:
 
 1. **List the things a viewer will notice**: the player and characters, creatures, vehicles, buildings, furniture, plants, hero props, and the ground, walls and sky.
 2. **Search the library for each before any code builds it**: `asset_search` (84,249 CC BY or CC0 models, 3,747 PBR textures and 1,434 HDRI skies) with the style words in the query ("low poly fox"; detailed models, scans and PBR packs, rank above blocky low-poly and voxel kits unless the query or `style` asks for that look), `image` and `crop` where a reference picture shows the thing, `kind: "texture"` for a surface, `kind: "hdri"` for a sky. A hit that is not the thing goes in `not` on one more search.

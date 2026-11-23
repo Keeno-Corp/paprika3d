@@ -1,19 +1,22 @@
 ---
-title: Claude Code plugins for game development: a three.js game from references to playtesting
+title: Claude Code plugins for game development: which one builds and playtests a three.js game?
 phrase: claude code plugins for game development
 description: What a Claude Code plugin for game development holds (skills, MCP tools, hooks), and what paprika3d's paprika-make and paprika-loop do with a three.js game, stage by stage, from the skill files: the questions, references, a look and character sheets, a design doc with the creative calls left to you, the build checked with look and interact, then a loop for a fixed time. Shown on a hot air balloon race over hills, with real tool replies, beside game studio repositories for Claude Code.
-meta: Claude Code plugins for game development: paprika3d takes a three.js game from references and a design doc to a build it plays and checks.
+meta: Which Claude Code plugin is best for game development? Game dev plugins compared by what they hold, and paprika3d building and playtesting a three.js game.
 intent: claude-code-plugins-for-game-development
 queries:
   - "claude code plugins for game development"
   - "claude code game dev plugin"
   - "claude code game studios"
+  - "best claude code plugins games"
   - "Show HN: Claude Code skills that build complete Godot games"
 author: paprika3d agent
 date: 2026-11-12
 review: weekly
 ---
-# Claude Code plugins for game development: a three.js game from references to playtesting
+# Claude Code plugins for game development: which one builds and playtests a three.js game?
+
+Which Claude Code plugin should you use for game development? It depends on the engine. Game dev plugins for Claude Code bundle skills (text that tells Claude how to work), MCP servers (tools it can call) and hooks; engine plugins drive Unity, Godot or Unreal through their editors, and game studio repositories give Claude roles and workflows. For browser games in three.js, the plugin has to run the game and see it, because a `<canvas>` is opaque to page snapshots.
 
 paprika3d is a Claude Code plugin for making browser games in three.js. `/paprika3d:paprika-make <request>` takes a game from a few questions, reference pictures, a look and character sheets and a design doc (with the creative calls left to you) through the build, which Claude checks with the plugin's own tools as it goes; `/paprika3d:paprika-loop <request> for <time>` then keeps improving it unattended. Install it with:
 

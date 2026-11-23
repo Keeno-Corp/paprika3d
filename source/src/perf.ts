@@ -252,7 +252,9 @@ export const START = `(() => {
     return behind;
   };
   // each frame's stamp and its work (draw calls and triangles, shader programs), which SETTLED compares
-  const tick = t => { if (p.on) { if (own && late()) h.sync(); p.t.push(t); p.c.push((h.frameInfo?.calls ?? 0) * 1e9 + (h.frameInfo?.triangles ?? 0)); p.g.push(h.programs(h.renderers[0])); requestAnimationFrame(tick); } };
+  // the next frame is asked for once the sync is done: WebGL's is a blocking 1-pixel read, WebGPU's a promise
+  // (onSubmittedWorkDone), and a sync not waited for let a GPU's WebGPU frames read 0.5 ms against 1.6 of work (dev #469)
+  const tick = t => { if (!p.on) return; const s = own && late() ? h.sync() : null; p.t.push(t); p.c.push((h.frameInfo?.calls ?? 0) * 1e9 + (h.frameInfo?.triangles ?? 0)); p.g.push(h.programs(h.renderers[0])); const next = () => requestAnimationFrame(tick); s ? s.then(next, next) : next(); };
   requestAnimationFrame(tick);
   __clock.timescale(1);
   __clock.resume();

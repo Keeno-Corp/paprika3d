@@ -24,7 +24,7 @@ A coding agent hands `open` a page or a dev-server command, and from then on `lo
 
 A coding agent that writes three.js code cannot see what it drew. The page is one `<canvas>` with nothing inside to query, so reading the source says what the agent meant and nothing about what came out: whether the model loaded, whether it is inside the camera's view, whether picking up the coin added a point. An MCP server closes that gap by running the page in a real browser and answering those questions as tool results the model reads in the same turn.
 
-Other three.js MCP servers mostly write scene code, drive a live editor or inspect a page you keep open in your own browser. paprika3d is the other half: it starts the page itself, runs the code the agent wrote on a stepped clock and reports back, so the same check gives the same answer on every run. It works on plain three.js, React Three Fiber and Vite projects, and in any MCP client.
+Other three.js MCP servers mostly write scene code, drive a live editor or inspect a page you keep open in your own browser. paprika3d is the other half: it starts the page itself, runs the code the agent wrote on a stepped clock and reports back, so the same check gives the same answer on every run. It works on plain three.js, React Three Fiber and Vite projects, and in any MCP client. For how it differs from threejs-devtools-mcp, see [threejs-devtools-mcp vs paprika3d](/guides/threejs-devtools-mcp-vs-paprika3d).
 
 ## Install it
 
@@ -182,4 +182,4 @@ coin: size 0.813 × 0.8 × 0.259, centre [-2, 0.5, 0]
 - **`__game` is optional.** Without it, `open` lists the named entities and `interact` still sends keys and clicks to the canvas; with it, the agent reads the rules (score, lives, level) instead of guessing them from positions.
 - **Keep time on the frame clock.** Read the time step from the animation loop's timestamp and cap it at 0.1 s, as the page above does, so a paused step moves the game by exactly one frame.
 - **Runs stay in the project.** Pictures go under `paprika3d/runs/` in the project folder, which belongs in `.gitignore`.
-- **More guides:** [React Three Fiber MCP server](/docs/guides/react-three-fiber-mcp-server), [MCP server that screenshots a WebGL canvas](/docs/guides/mcp-server-screenshot-webgl-canvas), [test a three.js game with Claude Code](/docs/guides/test-threejs-game-claude-code).
+- **More guides:** [React Three Fiber MCP server](/guides/react-three-fiber-mcp-server), [MCP server that screenshots a WebGL canvas](/guides/mcp-server-screenshot-webgl-canvas), [test a three.js game with Claude Code](/guides/test-threejs-game-claude-code).

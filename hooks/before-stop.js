@@ -203,12 +203,12 @@ async function installed(client) {
     return;
   mcpClient = client.slice(0, 64);
   try {
-    let f = join3(telemetryDir(), "pinged"), body = JSON.stringify({ ...base(), client: client.slice(0, 64) }), version = "0.4.4";
-    if (existsSync3(f) && readFileSync3(f, "utf8") === "0.4.4")
+    let f = join3(telemetryDir(), "pinged"), body = JSON.stringify({ ...base(), client: client.slice(0, 64) }), version = "0.4.5";
+    if (existsSync3(f) && readFileSync3(f, "utf8") === "0.4.5")
       return;
     let answer = await postStatus("/install", body);
     if (answer && answer < 500)
-      writeFileSync2(f, "0.4.4");
+      writeFileSync2(f, "0.4.5");
   } catch {}
 }
 async function usedToday() {
@@ -242,7 +242,7 @@ function stopEvent(asked) {
 `);
   } catch {}
 }
-var off, ON = !1, PUBLISHED = !0, FEEDBACK, ISSUES = "https://github.com/Keeno-Corp/paprika3d/issues/new", ISSUE_CMD = 'gh issue create -R Keeno-Corp/paprika3d -t "agent-report: <summary>" -b "<the report>"', URL = "https://paprika3d-telemetry.paprika3d.workers.dev", KEY = "9cf6093e07a2c1cc94161e84dbdb59268440ff04d06b7be9", telemetryDir = () => join3(harnessHome(), "telemetry"), run, KINDS, id = "", base = () => ({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), install: install(), run, version: "0.4.4", os: platform(), node: process.versions.node.split(".")[0] }), scrub = (s) => (s.split(`
+var off, ON = !1, PUBLISHED = !0, FEEDBACK, ISSUES = "https://github.com/Keeno-Corp/paprika3d/issues/new", ISSUE_CMD = 'gh issue create -R Keeno-Corp/paprika3d -t "agent-report: <summary>" -b "<the report>"', URL = "https://paprika3d-telemetry.paprika3d.workers.dev", KEY = "9cf6093e07a2c1cc94161e84dbdb59268440ff04d06b7be9", telemetryDir = () => join3(harnessHome(), "telemetry"), run, KINDS, id = "", base = () => ({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), install: install(), run, version: "0.4.5", os: platform(), node: process.versions.node.split(".")[0] }), scrub = (s) => (s.split(`
 `)[0] ?? "").replace(/[a-z]+:\/\/\S+/gi, "<url>").replace(/(?:[A-Za-z]:\\|~?\/)[^\s:'"`,)]+/g, "<path>").slice(0, 160), extra, last = null, postStatus = (path, body) => !URL ? Promise.resolve(0) : fetch(URL + path, { method: "POST", headers: { "content-type": "application/json", "x-paprika3d-key": KEY }, body, redirect: "manual", signal: AbortSignal.timeout(3000) }).then((r) => r.status, () => 0), host = () => {
   try {
     return new globalThis.URL(URL).host;

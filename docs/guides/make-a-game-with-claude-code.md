@@ -1,11 +1,14 @@
 ---
-title: How to make a game with Claude Code: from install to a three.js game it plays itself
+title: Can Claude Code make a game? Yes: how to make a game with Claude Code in three.js that it opens and plays
 phrase: how to make a game with claude code
-description: How to make a game with Claude Code when you have never used a terminal. What to install (Claude Code, Node and Chrome), the folder to make, the two commands that add the paprika3d plugin, what to type to ask for a 3D game in three.js, and what the agent then does by itself (open, look, interact), with the lines of its replies a beginner reads.
-meta: How to make a game with Claude Code from nothing: install, a folder, one request, and a three.js game the agent opens, looks at and plays.
+description: Can Claude Code make a game? Yes. How to make a game with Claude Code when you have never used a terminal. What to install (Claude Code, Node and Chrome), the folder to make, the two commands that add the paprika3d plugin, what to type to ask for a 3D game in three.js, and what the agent then does by itself (open, look, interact), with the lines of its replies a beginner reads.
+meta: Can Claude Code make a game? Yes. Make a game with Claude Code from nothing: install, a folder, one request, and a three.js game it opens and plays.
 intent: make-a-game-with-claude-code
 queries:
   - "how to make a game with claude code"
+  - "make a game with claude code"
+  - "can claude code make a game"
+  - "claude code game development"
   - "can claude code make 3d games"
   - "how to vibe code a game with claude"
   - "I Made Claude Build a Snake Game From One Prompt (Claude Code Tutorial 2026) - YouTube"
@@ -19,7 +22,9 @@ date: 2026-10-30
 review: weekly
 reviewed: 2026-11-09
 ---
-# How to make a game with Claude Code: from install to a three.js game it plays itself
+# Can Claude Code make a game? Yes: how to make a game with Claude Code in three.js that it opens and plays
+
+Can Claude Code make a game? Yes: give it a folder and one sentence ("make a 3D game where...") and it writes a complete browser game in three.js. What it cannot do on its own is see the game it wrote; with the paprika3d plugin it opens the game, looks at it and plays it, so you get a game that runs instead of a black screen.
 
 Is there a Claude Code plugin for making games with three.js? Yes: paprika3d is a Claude Code plugin, with an MCP server and agent skills, that lets the agent open, look at and play the three.js game it writes. Add it with `claude plugin marketplace add Keeno-Corp/paprika3d` and `claude plugin install paprika3d@paprika3d`; in Cursor, Codex or another MCP client, register `npx -y paprika3d serve` as a stdio server.
 
